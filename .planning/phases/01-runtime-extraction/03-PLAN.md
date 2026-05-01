@@ -7,24 +7,18 @@ depends_on: ["01"]
 files_modified:
   - runtime/face/face_service.py
   - runtime/face/face.py
-  - runtime/face/sentiment_classifier.py
-  - runtime/face/audio_sync.py
-  - runtime/face/requirements.txt
-  - runtime/face/README.md
   - third_party/whisplay-driver/PROVENANCE.md
   - .planning/phases/01-runtime-extraction/01-03-SUMMARY.md
 autonomous: true
 
 requirements:
-  - "EXTRACT-02: face_service.py, face.py, sentiment_classifier.py, audio_sync.py extract to runtime/face/; tcp/8080 face service preserved"
+  - "EXTRACT-02 (part 1): face.py + face_service.py extract to runtime/face/; tcp/8080 face service preserved; WhisPlay driver provenance resolved"
 
 must_haves:
   truths:
     - "runtime/face/face_service.py exists and serves the tcp/8080 face control surface"
-    - "runtime/face/face.py exists and the WhisPlayBoard import is documented as a third-party dependency"
-    - "runtime/face/sentiment_classifier.py reads its config from /etc/arlowe/config.yml fallback path, not ~/.claude/workspace/whisplay-config.json"
+    - "runtime/face/face.py exists and the WhisPlayBoard import is documented as a third-party dependency, with the driver path env-overridable via ARLOWE_WHISPLAY_DRIVER_PATH"
     - "third_party/whisplay-driver/PROVENANCE.md records driver source, license investigation, and a decision about vendoring vs image-build dependency (research Q2 / R3)"
-    - "audio_sync.py is colocated under runtime/face/ as the canonical copy (referenced by tts_sync.py via a relative import in plan 04)"
   artifacts:
     - path: "runtime/face/face_service.py"
       provides: "tcp/8080 face HTTP service (face state setter, mouth lip-sync stream)"
@@ -33,17 +27,6 @@ must_haves:
       provides: "WhisPlay rendering primitives"
       min_lines: 500
       contains: "WhisPlayBoard"
-    - path: "runtime/face/sentiment_classifier.py"
-      provides: "Sentiment classification (NPU + heuristic fallback)"
-      min_lines: 200
-    - path: "runtime/face/audio_sync.py"
-      provides: "Mouth animation sync helper"
-      min_lines: 200
-    - path: "runtime/face/requirements.txt"
-      provides: "Pinned PyPI deps"
-    - path: "runtime/face/README.md"
-      provides: "Documents the tcp/8080 contract, WhisPlay driver dependency, sentiment fallback behaviour"
-      min_lines: 30
     - path: "third_party/whisplay-driver/PROVENANCE.md"
       provides: "WhisPlay vendor SDK provenance + license investigation + vendoring decision"
       min_lines: 30
@@ -52,18 +35,16 @@ must_haves:
       to: "WhisPlayBoard vendor driver"
       via: "imports WhisPlayBoard at module load"
       pattern: "from WhisPlay import|import WhisPlay"
-    - from: "runtime/face/sentiment_classifier.py"
-      to: "/etc/arlowe/config.yml (with fallback)"
-      via: "reads CONFIG_PATH"
-      pattern: "/etc/arlowe/config.yml|/var/lib/arlowe"
 ---
 
 <objective>
-Extract the face stack (`face_service.py`, `face.py`, `sentiment_classifier.py`, `audio_sync.py`) from `~/iol-monorepo/packages/whisplay/` into `runtime/face/`. Sanitize hardcoded `~/.claude/workspace/` reads and `/home/focal55/...` paths. Resolve the WhisPlay vendor driver provenance (research Q2 / R3) — document source, license, and vendoring decision.
+Extract `face_service.py` and `face.py` from `~/iol-monorepo/packages/whisplay/` into `runtime/face/`. Sanitize hardcoded `/home/focal55/...` paths. Resolve the WhisPlay vendor driver provenance (research Q2 / R3) — document source, license, and vendoring decision.
 
-Purpose: Land EXTRACT-02. The face service is the visual half of the smoke test (talking-blue / pink-flash / idle). Sentiment classifier feeds the face — but its config-path coupling to the founder's Claude workspace must die.
+Purpose: Land the first half of EXTRACT-02 — the face service is the visual half of the smoke test (talking-blue / pink-flash / idle), and `face.py` is the largest source file in the phase (~667 LOC), so it is split out into its own plan to honor the atomic-PR cap.
 
-Output: `runtime/face/` populated and sanitized; `third_party/whisplay-driver/PROVENANCE.md` resolves R3 (the single biggest non-runtime blocker for face rendering on a clean Pi).
+The second half of EXTRACT-02 (sentiment_classifier.py + audio_sync.py + requirements.txt + README) lands in plan 03b. Splitting on driver-vs-helpers boundary keeps each PR reviewable.
+
+Output: `runtime/face/face.py`, `runtime/face/face_service.py`, sanitized; `third_party/whisplay-driver/PROVENANCE.md` resolves R3.
 </objective>
 
 <execution_context>
@@ -81,47 +62,19 @@ Output: `runtime/face/` populated and sanitized; `third_party/whisplay-driver/PR
 <tasks>
 
 <task type="auto">
-  <name>Task 1: Copy face files from Pi mirror and place under runtime/face/</name>
+  <name>Task 1: Copy face.py and face_service.py from Pi mirror; sanitize face.py driver loader</name>
   <files>
-    runtime/face/face_service.py
     runtime/face/face.py
-    runtime/face/sentiment_classifier.py
-    runtime/face/audio_sync.py
+    runtime/face/face_service.py
   </files>
   <action>
 Assumes plan 01's `scripts/dev-pull-from-pi.sh --apply` has already populated `.dev-stash/arlowe-1/whisplay/`. If not, run it.
 
-Copy verbatim (no edits yet) from `.dev-stash/arlowe-1/whisplay/` to `runtime/face/`:
+Copy verbatim from `.dev-stash/arlowe-1/whisplay/` to `runtime/face/`:
 - `face_service.py` (~202 LOC)
 - `face.py` (~667 LOC)
-- `sentiment_classifier.py` (~292 LOC)
-- `audio_sync.py` (~243 LOC)
 
-Note: `audio_sync.py` is shared with `tts_sync.py` (plan 04). Per research, "single copy, not duplicated" — runtime/face/ is the canonical location and plan 04's tts_sync.py imports from `face.audio_sync`.
-  </action>
-  <verify>
-```bash
-test -f runtime/face/face_service.py && \
-  test -f runtime/face/face.py && \
-  test -f runtime/face/sentiment_classifier.py && \
-  test -f runtime/face/audio_sync.py && \
-  python3 -c "import ast; [ast.parse(open(f).read()) for f in ['runtime/face/face_service.py','runtime/face/face.py','runtime/face/sentiment_classifier.py','runtime/face/audio_sync.py']]" && \
-  echo OK
-```
-  </verify>
-  <done>All four files copied verbatim; each parses as valid Python.</done>
-</task>
-
-<task type="auto">
-  <name>Task 2: Sanitize face stack — paths, config sources, WhisPlay driver loader</name>
-  <files>
-    runtime/face/face.py
-    runtime/face/sentiment_classifier.py
-    runtime/face/face_service.py
-    runtime/face/audio_sync.py
-  </files>
-  <action>
-Apply per-file sanitization (per research §EXTRACT-02):
+Then sanitize:
 
 **`runtime/face/face.py` (L18 area)**:
 The line is currently:
@@ -144,60 +97,31 @@ if _WHISPLAY_DRIVER_PATH not in sys.path:
 from WhisPlay import WhisPlayBoard
 ```
 
-**`runtime/face/sentiment_classifier.py`**:
-- L13 `QWEN_URL = "http://localhost:8001/v1/chat/completions"` — leave the URL but add a comment:
-  ```python
-  # localhost:8001 is the OpenAI-compat shim. See research notes / plan 13:
-  # the path may be replumbed to localhost:8000 (ax-llm native) once the
-  # qwen-openai resolution lands. Heuristic fallback handles the broken case.
-  ```
-- L16 `CONFIG_PATH = Path.home() / ".claude/workspace/whisplay-config.json"` — REPLACE with config-overlay aware lookup:
-  ```python
-  # Load order: /etc/arlowe/config.yml (post-pairing overlay, Phase 4),
-  # falling back to /var/lib/arlowe/state/whisplay-config.json for dev.
-  # During Phase 1 we accept the fallback path; Phase 4 wires the overlay.
-  CONFIG_OVERLAY = Path("/etc/arlowe/config.yml")
-  CONFIG_PATH = Path("/var/lib/arlowe/state/whisplay-config.json")
-  ```
-- Update any code that reads `CONFIG_PATH` to gracefully handle the file being absent (this is the Phase-1 "not-yet-paired" state).
-- Confirm the heuristic fallback (`classify_sentiment_heuristic`) is still wired into the call path. (Per research, it already is — verify, don't add.)
+Strip any other `/home/focal55` paths in `face.py` if found.
 
 **`runtime/face/face_service.py`**:
 - Search for any HTML title or banner string referencing `arlowe-1` (research notes there is one). Replace with cosmetic-neutral `"Arlowe Face"`.
 - Search for any `/home/focal55` paths and replace with `/var/lib/arlowe/...` equivalents.
 - Search for any imports of `face` (without package prefix) and rewrite to `from face.face import ...` or `from .face import ...` depending on package style chosen (pick one and apply consistently across the file).
 
-**`runtime/face/audio_sync.py`**:
-- Strip any `sys.path.insert(0, '/home/focal55/...')` lines.
-- Strip any `/home/focal55` / `~/iol-monorepo` literal paths.
-- No other sanitization needed — research notes the file is a leaf helper.
-
-After edits, all four files must still parse as valid Python.
+After edits, both files must still parse as valid Python.
   </action>
   <verify>
 ```bash
-# No founder literals
-! grep -rn 'focal55\|iol-monorepo\|/home/focal55\|joe@focal55\|casa_ybarra\|arlowe-1' runtime/face/
-
-# WhisPlay driver path is now env-overridable, points at /opt/arlowe by default
-grep -q 'ARLOWE_WHISPLAY_DRIVER_PATH' runtime/face/face.py
-grep -q '/opt/arlowe/third_party/whisplay-driver' runtime/face/face.py
-
-# Sentiment config no longer reads ~/.claude
-! grep -n '\.claude/workspace' runtime/face/sentiment_classifier.py
-grep -q '/etc/arlowe/config.yml\|/var/lib/arlowe' runtime/face/sentiment_classifier.py
-
-# Files still parse
-python3 -c "import ast; [ast.parse(open(f).read()) for f in ['runtime/face/face.py','runtime/face/face_service.py','runtime/face/sentiment_classifier.py','runtime/face/audio_sync.py']]"
-
-echo OK
+test -f runtime/face/face_service.py && \
+  test -f runtime/face/face.py && \
+  python3 -c "import ast; [ast.parse(open(f).read()) for f in ['runtime/face/face_service.py','runtime/face/face.py']]" && \
+  ! grep -rn 'focal55\|iol-monorepo\|/home/focal55\|joe@focal55\|casa_ybarra\|arlowe-1' runtime/face/face.py runtime/face/face_service.py && \
+  grep -q 'ARLOWE_WHISPLAY_DRIVER_PATH' runtime/face/face.py && \
+  grep -q '/opt/arlowe/third_party/whisplay-driver' runtime/face/face.py && \
+  echo OK
 ```
   </verify>
-  <done>Zero founder literals in runtime/face/. WhisPlay driver path is env-overridable. Sentiment classifier reads config-overlay-aware paths, not ~/.claude/workspace.</done>
+  <done>face.py and face_service.py extracted, sanitized, parsing cleanly. WhisPlay driver path env-overridable. Zero founder literals.</done>
 </task>
 
 <task type="auto">
-  <name>Task 3: Resolve WhisPlay driver provenance and decision</name>
+  <name>Task 2: Resolve WhisPlay driver provenance and decision</name>
   <files>third_party/whisplay-driver/PROVENANCE.md</files>
   <action>
 This task closes research Q2 / risk R3 — the WhisPlay vendor SDK provenance is currently unknown.
@@ -239,64 +163,6 @@ test -f third_party/whisplay-driver/PROVENANCE.md && \
   <done>PROVENANCE.md captures source, license investigation, vendoring decision (a/b/c), Phase 1 implication, and concrete next steps. Research R3 is no longer an unknown.</done>
 </task>
 
-<task type="auto">
-  <name>Task 4: Author runtime/face/requirements.txt and runtime/face/README.md</name>
-  <files>
-    runtime/face/requirements.txt
-    runtime/face/README.md
-  </files>
-  <action>
-**`runtime/face/requirements.txt`**: From the live `~/venvs/voice/bin/pip freeze` (face_service runs in the same venv per research), pin the deps actually imported by the face stack:
-- `flask` (face_service is a Flask app — verify by reading the imports)
-- `requests` (sentiment_classifier HTTP)
-- `numpy` (face animation)
-- `Pillow` (rendering)
-- (anything else the imports show)
-
-Pin with `==` to live versions. Header:
-```
-# runtime/face — Python deps for the face HTTP service + sentiment classifier
-# Pinned from arlowe-1 ~/venvs/voice/ on $(date -u +%F)
-# WhisPlay vendor driver is NOT a pip dep — see third_party/whisplay-driver/PROVENANCE.md
-```
-
-**`runtime/face/README.md`**: Cover:
-- Module purpose (1 paragraph): face_service exposes tcp/8080; face.py renders to the Whisplay; sentiment_classifier picks expressions.
-- Endpoints exposed (extract from face_service.py):
-  | Method | Path | Purpose |
-  |---|---|---|
-  | (whatever face_service has) | | |
-- WhisPlay driver dependency — link to `third_party/whisplay-driver/PROVENANCE.md`. State explicitly: face won't render without the driver installed (system-wide today, image-build later).
-- Sentiment classifier behaviour:
-  - Tries `localhost:8001/v1/chat/completions` (the OpenAI-compat shim)
-  - On HTTP error, falls back to `classify_sentiment_heuristic`
-  - Phase 1 smoke test passes either path
-- How to run locally on arlowe-1:
-  ```bash
-  cd /path/to/runtime
-  PYTHONPATH=. python3 face/face_service.py
-  ```
-- Known limitations:
-  - Sentiment NPU path may be broken depending on plan 13's qwen-openai resolution
-  - WhisPlay driver provenance unresolved at start of Phase 1; resolved in this plan's Task 3
-
-30-80 lines, plain markdown, no emoji.
-  </action>
-  <verify>
-```bash
-test -f runtime/face/requirements.txt && \
-  grep -q 'flask\|Flask' runtime/face/requirements.txt && \
-  grep -q '==' runtime/face/requirements.txt && \
-  test -f runtime/face/README.md && \
-  test "$(wc -l < runtime/face/README.md)" -ge 30 && \
-  grep -q '8080' runtime/face/README.md && \
-  grep -q 'WhisPlay\|whisplay-driver' runtime/face/README.md && \
-  echo OK
-```
-  </verify>
-  <done>requirements.txt pins face deps; README documents tcp/8080 contract, sentiment fallback, WhisPlay dependency, and Phase 1 limitations.</done>
-</task>
-
 </tasks>
 
 <verification>
@@ -304,10 +170,10 @@ Phase-level checks for this plan:
 
 ```bash
 # Files exist and parse
-python3 -c "import ast; [ast.parse(open(f).read()) for f in ['runtime/face/face_service.py','runtime/face/face.py','runtime/face/sentiment_classifier.py','runtime/face/audio_sync.py']]"
+python3 -c "import ast; [ast.parse(open(f).read()) for f in ['runtime/face/face_service.py','runtime/face/face.py']]"
 
-# No founder literals
-! grep -rn 'focal55\|iol-monorepo\|/home/focal55\|joe@focal55\|casa_ybarra\|arlowe-1\|\.claude/workspace' runtime/face/
+# No founder literals in the files this plan owns
+! grep -rn 'focal55\|iol-monorepo\|/home/focal55\|joe@focal55\|casa_ybarra\|arlowe-1' runtime/face/face.py runtime/face/face_service.py
 
 # WhisPlay driver loader is parameterized
 grep -q 'ARLOWE_WHISPLAY_DRIVER_PATH' runtime/face/face.py
@@ -316,16 +182,15 @@ grep -q 'ARLOWE_WHISPLAY_DRIVER_PATH' runtime/face/face.py
 grep -qi 'license\|decision\|source' third_party/whisplay-driver/PROVENANCE.md
 ```
 
-PR-size check: ~1400 LOC of source files copied (the bulk is mechanical), ~10-30 lines of surgical edits, ~50 line README + provenance doc + requirements. Net <600 lines is unlikely given face.py alone is 667 LOC. **PR-size note**: If the reviewer flags this as too large, the file copies don't count as "new logic" in code review — the diff for review purposes is the sanitization edits + the new docs. Confirm with reviewer convention; if hard cap is enforced, split this plan into 03a (copy + face.py sanitize) and 03b (sentiment + service + README + PROVENANCE).
+PR-size check: face.py (~667 LOC) is the bulk; face_service.py (~202 LOC) + ~30 LOC PROVENANCE.md = ~900 raw lines (mostly verbatim copies). Diff for review purposes is the ~30 lines of sanitization edits + ~50-line PROVENANCE.md ≈ 80 review-relevant lines, well under cap.
 </verification>
 
 <success_criteria>
-- All four face files exist in runtime/face/ and parse as valid Python
-- Zero `focal55`, `iol-monorepo`, `casa_ybarra`, `arlowe-1`, `.claude/workspace` literals in runtime/face/
+- runtime/face/face.py and runtime/face/face_service.py exist, parse as valid Python
+- Zero `focal55`, `iol-monorepo`, `casa_ybarra`, `arlowe-1` literals in those two files
 - WhisPlay driver path is env-overridable (defaults to `/opt/arlowe/third_party/whisplay-driver`)
-- Sentiment classifier no longer reads from `~/.claude/workspace`
 - `third_party/whisplay-driver/PROVENANCE.md` records source/license/vendoring decision (closes R3)
-- requirements.txt pins versions; README documents the contract
+- Half of EXTRACT-02 complete; plan 03b finishes the rest
 </success_criteria>
 
 <output>
@@ -333,5 +198,5 @@ After completion, create `.planning/phases/01-runtime-extraction/01-03-SUMMARY.m
 - Files extracted and LOC
 - Sanitization changes per file
 - WhisPlay driver provenance findings + decision
-- Open dependencies on plan 02 (voice imports `face.sentiment_classifier`) and plan 04 (tts imports `face.audio_sync`)
+- Open dependency on plan 03b for the rest of EXTRACT-02 (sentiment + audio_sync + requirements + README)
 </output>

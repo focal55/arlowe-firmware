@@ -23,6 +23,7 @@ must_haves:
     - "runtime/wake-word/ contains the 5 training scripts (auto_collect, collect_samples, quick_test, test_verifier, train_verifier)"
     - "Zero .pkl files in runtime/wake-word/ (founder voice fingerprint must NOT enter the repo — research R6)"
     - "Zero .wav files in runtime/wake-word/ (founder voice samples must NOT enter the repo)"
+    - "git history contains zero added `.pkl` or `.wav` files anywhere in the repo (defense-in-depth: gitignore caught the file-system check, history check confirms no past leak)"
     - "Zero `/home/focal55/...` references; venv path injection uses env override"
     - "README documents the generic-model swap path and the personalization-deferred-to-v1.1 status"
   artifacts:
@@ -91,10 +92,16 @@ done
 
 If `~/wake_word/README.md` exists in the mirror, do NOT copy it — we author a fresh, sanitized one in Task 4.
 
-Belt-and-suspenders check that no biometric data slipped in:
+Belt-and-suspenders check that no biometric data slipped in (file-system + git-history):
 ```bash
+# Filesystem check (already-tracked + untracked)
 find runtime/wake-word/ -name '*.pkl' -o -name '*.wav' -o -name 'positive' -o -name 'negative'
 # MUST return empty.
+
+# Git-history check (defense-in-depth: confirm no prior commit added biometric data anywhere in repo)
+git log --all --diff-filter=A -- '*.pkl' '*.wav'
+# MUST return empty (no commits added .pkl or .wav files anywhere). If anything appears,
+# investigate and either git-filter-repo it out or document why it's there before proceeding.
 ```
 
 Also: research §Q5 noted there's a duplicate copy of wake-word scripts at `~/iol-monorepo/packages/whisplay/wake_word/`. The canonical is `~/wake_word/` (where voice_client.py looks for the verifier). For the duplicate at the whisplay package level — record in this plan's SUMMARY that we IGNORED it. If anyone ever wonders why it's not extracted, the answer is: the canonical lives at `~/wake_word/`.
@@ -105,12 +112,14 @@ for f in auto_collect.py collect_samples.py quick_test.py test_verifier.py train
   test -f runtime/wake-word/$f || { echo "missing $f"; exit 1; }
   python3 -c "import ast; ast.parse(open('runtime/wake-word/$f').read())" || exit 1
 done
-# CRITICAL: no biometric data
+# CRITICAL: no biometric data on disk
 test -z "$(find runtime/wake-word/ -name '*.pkl' -o -name '*.wav' -o -type d -name 'positive' -o -type d -name 'negative')" && \
+  # CRITICAL: no biometric data ever committed (Mn3 — git-history defense-in-depth)
+  test -z "$(git log --all --diff-filter=A --name-only -- '*.pkl' '*.wav' 2>/dev/null)" && \
   echo OK
 ```
   </verify>
-  <done>5 scripts copied, all parse as valid Python, zero .pkl/.wav files, zero positive/negative directories. R6 enforced.</done>
+  <done>5 scripts copied, all parse as valid Python, zero .pkl/.wav files on disk, zero .pkl/.wav files ever committed (git-history sweep), zero positive/negative directories. R6 enforced at both filesystem and git-history layers.</done>
 </task>
 
 <task type="auto">
@@ -259,7 +268,7 @@ When personalization ships:
 
 ## Why no founder data ships in this repo
 
-The script-only extraction is enforced by `.gitignore` (plan 01 added `*.pkl` + `runtime/wake-word/positive/` + `runtime/wake-word/negative/`). Founder voice fingerprint is biometric data; even on the founder's dev unit, the verifier `.pkl` lives at `~/wake_word/...` (outside the repo) and is reachable only via `ARLOWE_WAKE_WORD_VERIFIER` env override during the smoke test.
+The script-only extraction is enforced by `.gitignore` (plan 01 added `*.pkl` + `runtime/wake-word/positive/` + `runtime/wake-word/negative/`). Defense-in-depth: this plan also runs `git log --all --diff-filter=A -- '*.pkl' '*.wav'` to confirm no commit ever added biometric data anywhere in the repo's history. Founder voice fingerprint is biometric data; even on the founder's dev unit, the verifier `.pkl` lives at `~/wake_word/...` (outside the repo) and is reachable only via `ARLOWE_WAKE_WORD_VERIFIER` env override during the smoke test.
 
 See research file `.planning/phases/01-runtime-extraction/01-RESEARCH.md` §R6, §EXTRACT-07.
 
@@ -282,7 +291,7 @@ test -f runtime/wake-word/README.md && \
   echo OK
 ```
   </verify>
-  <done>README documents the pipeline, generic-model swap path, personalization deferral, and the no-founder-data principle.</done>
+  <done>README documents the pipeline, generic-model swap path, personalization deferral, and the no-founder-data principle (filesystem + git-history defense).</done>
 </task>
 
 </tasks>
@@ -296,8 +305,11 @@ for f in auto_collect.py collect_samples.py quick_test.py test_verifier.py train
   python3 -c "import ast; ast.parse(open('runtime/wake-word/$f').read())"
 done
 
-# CRITICAL: no biometric data anywhere
+# CRITICAL: no biometric data anywhere on disk
 ! find runtime/wake-word/ -name '*.pkl' -o -name '*.wav' -o -type d -name 'positive' -o -type d -name 'negative' | grep -q .
+
+# CRITICAL: no biometric data ever committed (Mn3 — defense-in-depth)
+test -z "$(git log --all --diff-filter=A --name-only -- '*.pkl' '*.wav' 2>/dev/null)"
 
 # No founder literals
 ! grep -rn 'focal55\|/home/focal55' runtime/wake-word/
@@ -310,6 +322,7 @@ grep -q '\*\.pkl' .gitignore
 <success_criteria>
 - 5 scripts in runtime/wake-word/, parse cleanly
 - Zero .pkl files, zero .wav files, zero positive/negative directories (R6 enforced at file system level)
+- `git log --all --diff-filter=A -- '*.pkl' '*.wav'` returns empty (R6 enforced at git-history level — Mn3)
 - Venv path uses env override
 - requirements.txt pins shared deps
 - README documents the generic-model path and personalization deferral
@@ -320,6 +333,6 @@ grep -q '\*\.pkl' .gitignore
 After completion, create `.planning/phases/01-runtime-extraction/01-11-SUMMARY.md` documenting:
 - Scripts extracted
 - Sanitization edits per script
-- R6 enforcement (no biometric data) verified
+- R6 enforcement (no biometric data) verified at both filesystem and git-history layers (Mn3)
 - Note that the duplicate `~/iol-monorepo/packages/whisplay/wake_word/` was deliberately not extracted (research Q5)
 </output>

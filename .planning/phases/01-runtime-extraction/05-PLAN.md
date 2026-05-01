@@ -58,11 +58,11 @@ must_haves:
 ---
 
 <objective>
-Extract the LLM stack: rename `iol_router.py` → `runtime/llm/router.py` per ADR-0001 (extract-clean, no stub), copy `run_api.sh` and `qwen2.5_tokenizer_uid.py` from `~/models/Qwen2.5-7B-Instruct/`, sanitize all founder paths, scrub the "Your human is Joe" line from the system prompt, and write `docs/architecture/0001-iol-router-extraction.md` recording the decisions (extract-clean + openai_wrapper resolution direction).
+Extract the LLM stack: rename `iol_router.py` → `runtime/llm/router.py` per ADR-0001 (extract-clean, no stub), copy `run_api.sh` and `qwen2.5_tokenizer_uid.py` from `~/models/Qwen2.5-7B-Instruct/`, sanitize all founder paths, scrub the "Your human is Joe" line from the system prompt, and write `docs/architecture/0001-iol-router-extraction.md` recording the decisions (extract-clean + openai_wrapper resolution direction). Author the requirements + README in the same task as the ADR (combined, because they're all small artifacts about the same extracted module).
 
 Purpose: Land EXTRACT-05 (mostly — `openai_wrapper.py` resolution executes in plan 13) and EXTRACT-11 (the ADR + sanitized router). This is the LLM half of the smoke test.
 
-Output: `runtime/llm/` populated, ADR-0001 written, system prompt clean.
+Output: `runtime/llm/` populated, ADR-0001 written, system prompt clean, README + requirements landed.
 </objective>
 
 <execution_context>
@@ -242,10 +242,16 @@ echo OK
 </task>
 
 <task type="auto">
-  <name>Task 4: Author ADR-0001 — iol-router extract-clean + openai_wrapper resolution</name>
-  <files>docs/architecture/0001-iol-router-extraction.md</files>
+  <name>Task 4: Author ADR-0001 + runtime/llm/requirements.txt + runtime/llm/README.md</name>
+  <files>
+    docs/architecture/0001-iol-router-extraction.md
+    runtime/llm/requirements.txt
+    runtime/llm/README.md
+  </files>
   <action>
-Author `docs/architecture/0001-iol-router-extraction.md` covering:
+This task lands three small artifacts together (the ADR, the requirements, the README) because they all document the same extracted module and combining them keeps the plan at 4 tasks.
+
+**`docs/architecture/0001-iol-router-extraction.md`**:
 
 ```markdown
 # ADR-0001: iol_router.py extraction — extract-clean with rename
@@ -324,27 +330,7 @@ plan 13 picks one and documents which.
 ```
 
 50-100 lines. Plain markdown, no emoji.
-  </action>
-  <verify>
-```bash
-test -f docs/architecture/0001-iol-router-extraction.md && \
-  test "$(wc -l < docs/architecture/0001-iol-router-extraction.md)" -ge 50 && \
-  grep -qi 'status: accepted' docs/architecture/0001-iol-router-extraction.md && \
-  grep -qi 'extract-clean' docs/architecture/0001-iol-router-extraction.md && \
-  grep -qi 'openai_wrapper' docs/architecture/0001-iol-router-extraction.md && \
-  echo OK
-```
-  </verify>
-  <done>ADR-0001 written, status Accepted, captures rename + sanitization + openai_wrapper resolution direction. EXTRACT-11 closed at the decision level.</done>
-</task>
 
-<task type="auto">
-  <name>Task 5: Author runtime/llm/requirements.txt and runtime/llm/README.md</name>
-  <files>
-    runtime/llm/requirements.txt
-    runtime/llm/README.md
-  </files>
-  <action>
 **`runtime/llm/requirements.txt`**: Pin from arlowe-1's voice venv. Likely:
 - `requests` (HTTP to local Qwen)
 - (whatever else router.py and qwen2.5_tokenizer_uid.py import)
@@ -373,6 +359,14 @@ The qwen tokenizer Python script may also pull in `transformers` or similar — 
   </action>
   <verify>
 ```bash
+# ADR
+test -f docs/architecture/0001-iol-router-extraction.md && \
+  test "$(wc -l < docs/architecture/0001-iol-router-extraction.md)" -ge 50 && \
+  grep -qi 'status: accepted' docs/architecture/0001-iol-router-extraction.md && \
+  grep -qi 'extract-clean' docs/architecture/0001-iol-router-extraction.md && \
+  grep -qi 'openai_wrapper' docs/architecture/0001-iol-router-extraction.md && \
+
+# requirements + README
 test -f runtime/llm/requirements.txt && \
   test -f runtime/llm/README.md && \
   test "$(wc -l < runtime/llm/README.md)" -ge 40 && \
@@ -382,7 +376,7 @@ test -f runtime/llm/requirements.txt && \
   echo OK
 ```
   </verify>
-  <done>requirements.txt pins LLM deps; README documents components, ports, ADR-0001 reference, openai_wrapper status.</done>
+  <done>ADR-0001 written; requirements.txt pins LLM deps; README documents components, ports, ADR-0001 reference, openai_wrapper status. EXTRACT-11 closed at the decision level.</done>
 </task>
 
 </tasks>
@@ -414,11 +408,12 @@ PR size: ~452 LOC router copy + ~12 LOC bash + ~tokenizer copy + ~50 line ADR + 
 <success_criteria>
 - runtime/llm/{router.py, run_api.sh, qwen2.5_tokenizer_uid.py} exist
 - Zero founder literals in runtime/llm/
-- "Your human is Joe" gone from system prompt
+- "Your human is Joe" gone from system prompt (plan 02's must_haves no longer claim this; this plan owns it)
 - USAGE_STATS_PATH writes to /var/lib/arlowe/state
 - CLAUDE_BIN resolves via env / which / fallback
 - ADR-0001 written, references the openai_wrapper deferred resolution
 - README documents the contract; ports table captures the broken :8001 status
+- requirements.txt pins LLM deps
 </success_criteria>
 
 <output>

@@ -2,8 +2,8 @@
 phase: 01-runtime-extraction
 plan: 04
 type: execute
-wave: 2
-depends_on: ["01"]
+wave: 3
+depends_on: ["01", "03b"]
 files_modified:
   - runtime/stt/stt_server.py
   - runtime/stt/requirements.txt
@@ -24,8 +24,10 @@ must_haves:
   truths:
     - "runtime/stt/stt_server.py exists and is the faster-whisper HTTP server on tcp/8082"
     - "runtime/tts/tts_sync.py exists with the cross-package contamination removed (no longer reads ~/iol-monorepo/packages/arlowe-dashboard/.env.local)"
+    - "runtime/tts/tts_sync.py imports `from face.audio_sync import ...` (the canonical copy created by plan 03b)"
     - "runtime/tts/manifest.yml pins Piper binary + voice file by SHA-256 (research §EXTRACT-04 schema)"
     - "ElevenLabs cloud TTS is disabled by default in tts_config.json (local-first principle)"
+    - "PyYAML is installed in the arlowe-1 voice venv (verified at plan execution time) OR install requirement is documented in runtime/tts/README.md and plan 13 setup"
   artifacts:
     - path: "runtime/stt/stt_server.py"
       provides: "tcp/8082 faster-whisper HTTP STT"
@@ -48,7 +50,7 @@ must_haves:
     - path: "runtime/tts/requirements.txt"
       provides: "Pinned PyPI deps"
     - path: "runtime/tts/README.md"
-      provides: "Documents Piper invocation, lip-sync stream, ElevenLabs opt-in"
+      provides: "Documents Piper invocation, lip-sync stream, ElevenLabs opt-in, PyYAML install requirement"
       min_lines: 30
   key_links:
     - from: "runtime/tts/tts_sync.py"
@@ -66,6 +68,8 @@ Extract STT (`stt_server.py`) and TTS (`tts_sync.py`, `tts_config.json`, plus a 
 
 Purpose: Land EXTRACT-03 + EXTRACT-04. STT and TTS are both on the smoke-test data path. The TTS / dashboard cross-coupling is the highest-risk hidden gotcha in Phase 1; this plan resolves it.
 
+**Why depends_on includes 03b:** Task 2 rewrites `tts_sync.py` to `from face.audio_sync import ...`. The canonical `face/audio_sync.py` is created by plan 03b. If plan 04 ran before plan 03b, `tts_sync.py` would have a broken import that `ast.parse` would not catch (parse-time syntax check is import-resolution-blind). Hence Wave 3, after Wave 2's plan 03b.
+
 Output: `runtime/stt/` and `runtime/tts/` populated, the dashboard `.env.local` traversal removed, Piper manifest authored.
 </objective>
 
@@ -79,6 +83,7 @@ Output: `runtime/stt/` and `runtime/tts/` populated, the dashboard `.env.local` 
 @.planning/REQUIREMENTS.md
 @.planning/phases/01-runtime-extraction/01-RESEARCH.md
 @.planning/phases/01-runtime-extraction/01-01-SUMMARY.md
+@.planning/phases/01-runtime-extraction/01-03b-SUMMARY.md
 </context>
 
 <tasks>
@@ -183,7 +188,7 @@ Update the rest of the file so the variable that previously held the key now ref
 4. Other sanitization in `tts_sync.py`:
    - Strip `sys.path.insert(0, '/home/focal55/...')` lines if present.
    - Replace `Path.home() / "models/piper/piper"` with `Path("/opt/arlowe/runtime/tts/bin/piper")` (or whatever Piper invocation pattern the file uses). If the file shells out to `~/bin/speak`, redirect to `/opt/arlowe/runtime/cli/speak`.
-   - Update `from audio_sync import ...` to `from face.audio_sync import ...` (canonical copy lives in plan 03).
+   - Update `from audio_sync import ...` to `from face.audio_sync import ...` (canonical copy lives in plan 03b).
    - Strip any `/home/focal55` / `~/iol-monorepo` paths.
    - HTTP target `localhost:8080/mouth` for lip-sync stream — leave as-is (single-host assumption).
 
@@ -198,11 +203,12 @@ test -f runtime/tts/tts_sync.py && \
   ! grep -rn 'iol-monorepo\|/home/focal55\|focal55' runtime/tts/ && \
   ! grep -n '\.env\.local' runtime/tts/tts_sync.py && \
   grep -q '/etc/arlowe/config.yml' runtime/tts/tts_sync.py && \
+  grep -q 'from face\.audio_sync\|from face import audio_sync' runtime/tts/tts_sync.py && \
   python3 -c "import json; json.load(open('runtime/tts/tts_config.json'))" && \
   echo OK
 ```
   </verify>
-  <done>tts_sync.py no longer reads `~/iol-monorepo/packages/arlowe-dashboard/.env.local`. ElevenLabs key loads from env or config overlay. tts_config.json defaults to Piper. R4 closed.</done>
+  <done>tts_sync.py no longer reads `~/iol-monorepo/packages/arlowe-dashboard/.env.local`. ElevenLabs key loads from env or config overlay. Imports `from face.audio_sync` (canonical). tts_config.json defaults to Piper. R4 closed.</done>
 </task>
 
 <task type="auto">
@@ -256,7 +262,7 @@ test -f runtime/tts/manifest.yml && \
 </task>
 
 <task type="auto">
-  <name>Task 4: Author runtime/tts/requirements.txt + runtime/{stt,tts}/README.md</name>
+  <name>Task 4: Author runtime/tts/requirements.txt + runtime/{stt,tts}/README.md, verify PyYAML install</name>
   <files>
     runtime/tts/requirements.txt
     runtime/tts/README.md
@@ -269,6 +275,23 @@ test -f runtime/tts/manifest.yml && \
 
 If the file shells out to `piper` and `aplay` and `sox`, those are system binaries, not pip deps — note them in the README, not requirements.
 
+**M5 — verify PyYAML is installed in the arlowe-1 voice venv** (the smoke-test runtime). Run:
+```bash
+ssh arlowe-1 '~/venvs/voice/bin/python -c "import yaml; print(yaml.__version__)"'
+```
+
+Three possible outcomes:
+1. **PyYAML present** (prints a version like `6.0.1`): record the version in `runtime/tts/requirements.txt` (`PyYAML==6.0.1`) and proceed. README note simply says "PyYAML required; already present in dev venv."
+2. **PyYAML absent** (`ImportError: No module named yaml` or similar): document the install requirement explicitly:
+   - In `runtime/tts/README.md`, add a "Setup" section with:
+     ```bash
+     # On arlowe-1 (and any future dev unit), the voice venv needs PyYAML:
+     ssh arlowe-1 '~/venvs/voice/bin/pip install PyYAML==<latest-stable>'
+     ```
+   - Pin the chosen version in `runtime/tts/requirements.txt`.
+   - Note in plan 13's smoke-test prep that this install must run before the test (this is recorded in plan 13's "Smoke-test prerequisites" section already).
+3. **Venv path differs** (the actual path on arlowe-1 isn't `~/venvs/voice/`): use the actual path (per research §EXTRACT-01 the live path is `~/venvs/voice/`; if reality differs, document the discrepancy in the SUMMARY and use the actual path).
+
 **`runtime/tts/README.md`**:
 - Module purpose: TTS playback with face lip-sync, supports Piper (local, default) and ElevenLabs (opt-in cloud)
 - Backends:
@@ -276,6 +299,7 @@ If the file shells out to `piper` and `aplay` and `sox`, those are system binari
   - **ElevenLabs (opt-in)**: cloud HTTP. Disabled by default. Requires `ELEVENLABS_API_KEY` env var or `/etc/arlowe/config.yml` overlay key `tts.elevenlabs.api_key`.
 - Lip-sync stream: TTS streams audio to `face_service` at `http://localhost:8080/mouth` for mouth-shape animation in sync with playback.
 - System binary deps: `piper`, `aplay`, `sox` (installed via pi-gen at image build).
+- **Setup**: PyYAML install requirement (per Task 4 outcome above)
 - How to run/test on arlowe-1
 - Known limitations:
   - Cloud TTS path requires owner-provisioned key (Phase 4 + 7 wire this fully)
@@ -287,16 +311,19 @@ If the file shells out to `piper` and `aplay` and `sox`, those are system binari
   <verify>
 ```bash
 test -f runtime/tts/requirements.txt && \
-  grep -q 'pyyaml\|PyYAML' runtime/tts/requirements.txt && \
+  grep -qi 'pyyaml\|PyYAML' runtime/tts/requirements.txt && \
   test -f runtime/tts/README.md && \
   test "$(wc -l < runtime/tts/README.md)" -ge 30 && \
   grep -qi 'piper' runtime/tts/README.md && \
   grep -qi 'elevenlabs' runtime/tts/README.md && \
   grep -q '8080/mouth\|/mouth' runtime/tts/README.md && \
+  grep -qi 'pyyaml\|setup' runtime/tts/README.md && \
+  ssh arlowe-1 '~/venvs/voice/bin/python -c "import yaml" 2>&1' | grep -vqE 'ModuleNotFoundError|ImportError' || \
+    echo "WARN: PyYAML not yet installed on arlowe-1 voice venv — README must document the install step (see Task 4 outcome 2)" && \
   echo OK
 ```
   </verify>
-  <done>requirements.txt pins TTS deps including pyyaml; README documents backends, lip-sync, system bins, limitations.</done>
+  <done>requirements.txt pins TTS deps including PyYAML; README documents backends, lip-sync, system bins, PyYAML install requirement, limitations. PyYAML status on arlowe-1 voice venv is verified (either present and pinned, or absent and documented).</done>
 </task>
 
 </tasks>
@@ -313,12 +340,19 @@ python3 -c "import yaml; yaml.safe_load(open('runtime/tts/manifest.yml'))"
 # No founder literals or cross-package traversal
 ! grep -rn 'focal55\|/home/focal55\|iol-monorepo\|\.env\.local\|joe@focal55' runtime/stt/ runtime/tts/
 
+# tts_sync imports the canonical face.audio_sync (depends_on 03b enforced this is reachable)
+grep -q 'from face\.audio_sync\|from face import audio_sync' runtime/tts/tts_sync.py
+test -f runtime/face/audio_sync.py  # plan 03b's deliverable; depends_on guards this
+
 # ElevenLabs is loaded from config, not sibling package
 grep -q '/etc/arlowe/config.yml' runtime/tts/tts_sync.py
 grep -q 'ELEVENLABS_API_KEY' runtime/tts/tts_sync.py
 
 # Piper manifest has real SHA-256s
 grep -E '^\s*sha256:\s*[a-f0-9]{64}' runtime/tts/manifest.yml | wc -l  # expect >= 2
+
+# PyYAML status documented (M5)
+grep -qi 'pyyaml\|setup' runtime/tts/README.md
 ```
 
 PR-size: stt_server.py (~87 LOC) + tts_sync.py (~429 LOC) + JSON + manifest + 2 READMEs + 2 requirements ≈ 700 raw lines. Sanitization edits are surgical (~30 net new lines from the ElevenLabs loader). Diff for review is the new code (~100 lines) plus file copies. If hard-cap-conscious, this can be split into 04a (STT) and 04b (TTS); STT is small enough to be a quick PR on its own.
@@ -328,9 +362,11 @@ PR-size: stt_server.py (~87 LOC) + tts_sync.py (~429 LOC) + JSON + manifest + 2 
 - runtime/stt/ + runtime/tts/ extracted, sanitized, parse cleanly
 - Zero founder literals, zero `iol-monorepo`, zero `.env.local` traversal
 - ElevenLabs key loader reads from env or `/etc/arlowe/config.yml` only
+- tts_sync.py imports `from face.audio_sync` (depends_on 03b prevents broken-import races)
 - Piper manifest exists with real SHA-256 pins
 - ElevenLabs disabled by default in tts_config.json
-- README docs cover endpoints, backends, lip-sync, limitations
+- README docs cover endpoints, backends, lip-sync, PyYAML install requirement, limitations
+- PyYAML status on arlowe-1 voice venv verified (present-and-pinned OR absent-and-documented)
 </success_criteria>
 
 <output>
@@ -338,5 +374,6 @@ After completion, create `.planning/phases/01-runtime-extraction/01-04-SUMMARY.m
 - STT extraction (LOC, deps)
 - TTS extraction with the cross-package coupling fix (research R4) — record the specific edit
 - Piper manifest pins (SHA-256s)
-- Open dependencies on plan 03 (face.audio_sync) for tts_sync.py imports
+- PyYAML install status: present / installed-as-part-of-this-plan / documented-for-plan-13
+- depends_on 03b satisfied (audio_sync canonical exists before tts_sync imports it)
 </output>

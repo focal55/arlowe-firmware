@@ -37,24 +37,26 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
   1. `runtime/voice/`, `runtime/face/`, `runtime/stt/`, `runtime/tts/`, `runtime/llm/`, `runtime/dashboard/`, `runtime/wake-word/`, and `runtime/cli/` exist and contain the corresponding components from `iol-monorepo`, runnable on a Pi 5 dev unit with the Axera SDK installed.
   2. `third_party/ax-llm/` is a git submodule pinned to a specific upstream commit, and `axcl_host_aarch64_V3.10.2.deb` is committed (or fetched) by version + checksum, with the hash verified at build time.
   3. `iol_router.py` and `arlowe-scheduled-summary.service` decisions are recorded as ADRs in `docs/architecture/`, and any retained code has founder-IOL paths excised.
-  4. The voice orchestrator on a sanitized Pi 5 dev unit runs the wake -> STT -> LLM -> TTS -> face flow end-to-end at least once (manual smoke test, not yet CI-gated).
+  4. The voice orchestrator on the Pi 5 dev unit (arlowe-1) runs the wake -> STT -> LLM -> TTS -> face flow end-to-end at least once via parallel `-test` units that share the live `qwen-*` and `whisper-stt` services (manual smoke test, hybrid live/test stack, not yet CI-gated). The fully-sanitized first-flash variant — factory-fresh Pi 5, no founder identity on disk, all services from the new `runtime/` tree — is the gate Phase 12 owns. See `docs/operations/phase-1-smoke-test.md` (created in plan 13) for the scope-and-limits write-up that records this distinction.
 
-**Plans**: 13 plans
+**Plans**: 15 plans
 
 Plans:
 - [ ] 01-PLAN.md — Scaffold runtime/ + third_party/ tree; dev-pull-from-pi.sh; .gitignore for biometric data (Wave 1)
 - [ ] 02-PLAN.md — EXTRACT-01: voice orchestrator → runtime/voice/ (Wave 2, Stream A)
-- [ ] 03-PLAN.md — EXTRACT-02: face stack → runtime/face/; resolve WhisPlay driver provenance (Wave 2, Stream A)
-- [ ] 04-PLAN.md — EXTRACT-03 + EXTRACT-04: STT + TTS → runtime/{stt,tts}/; Piper manifest; remove dashboard .env.local cross-coupling (Wave 2, Stream A)
-- [ ] 05-PLAN.md — EXTRACT-05 + EXTRACT-11: LLM → runtime/llm/ (router rename); ADR-0001 (Wave 2, Stream A)
+- [ ] 03-PLAN.md — EXTRACT-02 (part 1): face.py + face_service.py → runtime/face/; resolve WhisPlay driver provenance (Wave 2, Stream A)
+- [ ] 03b-PLAN.md — EXTRACT-02 (part 2): sentiment_classifier.py + audio_sync.py + requirements + README → runtime/face/ (Wave 2, Stream A) [split out of 03 for atomic-PR cap]
+- [ ] 04-PLAN.md — EXTRACT-03 + EXTRACT-04: STT + TTS → runtime/{stt,tts}/; Piper manifest; remove dashboard .env.local cross-coupling (Wave 3, Stream A) [moved to Wave 3 per checker B1: tts_sync.py imports `from face.audio_sync` which 03b creates]
+- [ ] 05-PLAN.md — EXTRACT-05 + EXTRACT-11: LLM → runtime/llm/ (router rename); ADR-0001; requirements + README (Wave 2, Stream A) [task count reduced to 4 per checker M3]
 - [ ] 06-PLAN.md — EXTRACT-06 (audit phase): dashboard route+page categorization (Wave 2, Stream B)
 - [ ] 07-PLAN.md — EXTRACT-06 (delete phase): copy dashboard, run delete pass (Wave 3, Stream B)
-- [ ] 08-PLAN.md — EXTRACT-06 (rewrite phase): rewire to /etc/arlowe/config.yml, /var/lib/arlowe/logs/ (Wave 4, Stream B)
+- [ ] 08-PLAN.md — EXTRACT-06 (rewrite phase, part 1): /api/config + /api/logs (Wave 4, Stream B) [split for atomic-PR cap]
+- [ ] 08b-PLAN.md — EXTRACT-06 (rewrite phase, part 2): /api/voice + .env.example + README + final dashboard verify (Wave 5, Stream B) [split out of 08]
 - [ ] 09-PLAN.md — EXTRACT-09 + EXTRACT-10: ax-llm submodule + axcl deb pin + verify-third-party.sh (Wave 2, Stream C)
 - [ ] 10-PLAN.md — EXTRACT-08: CLI helpers → runtime/cli/; delete wifi-watchdog (Wave 2, Stream D)
-- [ ] 11-PLAN.md — EXTRACT-07: wake-word pipeline → runtime/wake-word/ (no biometric data) (Wave 2, Stream D)
+- [ ] 11-PLAN.md — EXTRACT-07: wake-word pipeline → runtime/wake-word/ (no biometric data, plus git-history defense check) (Wave 2, Stream D)
 - [ ] 12-PLAN.md — EXTRACT-12: ADR-0002 stripping arlowe-scheduled-summary (Wave 2, Stream D)
-- [ ] 13-PLAN.md — Smoke test convergence: openai_wrapper resolution + wake→STT→LLM→TTS→face on arlowe-1 (Wave 5)
+- [ ] 13-PLAN.md — Smoke test convergence: openai_wrapper resolution + wake→STT→LLM→TTS→face on arlowe-1 (Wave 6) [non-autonomous; requires owner present; depends on 02, 03, 03b, 04, 05, 08b, 09, 10, 11, 12]
 
 ### Phase 2: Sanitization gate
 
@@ -223,7 +225,7 @@ Plans:
 
 ### Phase 12: First-flash integration on real hardware
 
-**Goal**: Prove end-to-end that the v1 ship target works. Flash a factory-fresh Pi 5 + AX accelerator + Whisplay from a freshly built image, pair it as a fake owner, and run the full wake -> STT -> LLM -> TTS -> face loop. This is the v1 acceptance gate.
+**Goal**: Prove end-to-end that the v1 ship target works. Flash a factory-fresh Pi 5 + AX accelerator + Whisplay from a freshly built image, pair it as a fake owner, and run the full wake -> STT -> LLM -> TTS -> face loop. This is the v1 acceptance gate AND the canonical first-flash sanitized smoke test that Phase 1 plan 13 deferred to here.
 
 **Depends on**: Every prior phase
 
@@ -246,7 +248,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime extraction | 0/13 | Planned | - |
+| 1. Runtime extraction | 0/15 | Planned | - |
 | 2. Sanitization gate | 0/TBD | Not started | - |
 | 3. Service user and filesystem layout | 0/TBD | Not started | - |
 | 4. Config overlay | 0/TBD | Not started | - |

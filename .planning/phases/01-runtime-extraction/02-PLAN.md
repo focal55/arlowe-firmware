@@ -26,7 +26,6 @@ must_haves:
     - "voice_client.py imports resolve cleanly within runtime/{voice,llm,tts,face}/ — no `~/iol-monorepo` paths"
     - "Hardcoded `/home/focal55/...` venv injection is removed; deps come from runtime/voice/requirements.txt"
     - "LOG_DIR points at /var/lib/arlowe/logs/ (not source-tree-relative)"
-    - "System prompt contains no `Joe` literal"
     - "PIPER_PATH and VERIFIER_MODEL paths reroute under /opt/arlowe/ or /var/lib/arlowe/"
   artifacts:
     - path: "runtime/voice/voice_client.py"
@@ -70,7 +69,9 @@ Purpose: Land EXTRACT-01. The orchestrator is the heart of the wake → STT → 
 
 Output: `runtime/voice/` populated with sanitized source files, deps pinned, contract documented.
 
-Note: `voice_client.py` imports from `llm.router`, `tts.tts_sync`, `face.sentiment_classifier`. Those modules are populated by plans 03 (face), 04 (stt+tts), and 05 (llm). For Phase 1, the modules can be stubs at import time — the real wiring is verified in plan 13's smoke test.
+Note: `voice_client.py` imports from `llm.router`, `tts.tts_sync`, `face.sentiment_classifier`. Those modules are populated by plans 03/03b (face), 04 (stt+tts), and 05 (llm). For Phase 1, the modules can be stubs at import time — the real wiring is verified in plan 13's smoke test.
+
+**Note on the system-prompt sanitization:** The "no `Joe` literal in the system prompt" requirement is owned by plan 05 (the system prompt lives in `run_api.sh`, which plan 05 owns). It is intentionally NOT a must_have for this plan.
 </objective>
 
 <execution_context>
@@ -110,7 +111,7 @@ Then copy these files VERBATIM (no edits yet) into `runtime/voice/`:
 - `rules_engine.py` (research notes it's a stub returning `[]`; copy as-is)
 - `action_executor.py` (research notes it's a no-op stub; copy as-is)
 
-Do NOT copy: `tts_sync.py` (goes to runtime/tts/, plan 04), `audio_sync.py` (goes to runtime/tts/, plan 04 owns the canonical copy), `face_service.py` / `face.py` / `sentiment_classifier.py` (plan 03), `iol_router.py` (plan 05), `stt_server.py` (plan 04).
+Do NOT copy: `tts_sync.py` (goes to runtime/tts/, plan 04), `audio_sync.py` (goes to runtime/face/, plan 03b owns the canonical copy), `face_service.py` / `face.py` (plan 03), `sentiment_classifier.py` (plan 03b), `iol_router.py` (plan 05), `stt_server.py` (plan 04).
 
 Sanitization happens in Task 2; this task is a pure copy.
   </action>
@@ -335,5 +336,5 @@ After completion, create `.planning/phases/01-runtime-extraction/01-02-SUMMARY.m
 - Files extracted and their LOC
 - Sanitization changes applied (specific line ranges)
 - Imports rewired to new package layout
-- Open dependencies on plans 03 (face), 04 (tts), 05 (llm) for the smoke test to pass
+- Open dependencies on plans 03/03b (face), 04 (tts), 05 (llm) for the smoke test to pass
 </output>
