@@ -39,7 +39,22 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
   3. `iol_router.py` and `arlowe-scheduled-summary.service` decisions are recorded as ADRs in `docs/architecture/`, and any retained code has founder-IOL paths excised.
   4. The voice orchestrator on a sanitized Pi 5 dev unit runs the wake -> STT -> LLM -> TTS -> face flow end-to-end at least once (manual smoke test, not yet CI-gated).
 
-**Plans**: TBD
+**Plans**: 13 plans
+
+Plans:
+- [ ] 01-PLAN.md — Scaffold runtime/ + third_party/ tree; dev-pull-from-pi.sh; .gitignore for biometric data (Wave 1)
+- [ ] 02-PLAN.md — EXTRACT-01: voice orchestrator → runtime/voice/ (Wave 2, Stream A)
+- [ ] 03-PLAN.md — EXTRACT-02: face stack → runtime/face/; resolve WhisPlay driver provenance (Wave 2, Stream A)
+- [ ] 04-PLAN.md — EXTRACT-03 + EXTRACT-04: STT + TTS → runtime/{stt,tts}/; Piper manifest; remove dashboard .env.local cross-coupling (Wave 2, Stream A)
+- [ ] 05-PLAN.md — EXTRACT-05 + EXTRACT-11: LLM → runtime/llm/ (router rename); ADR-0001 (Wave 2, Stream A)
+- [ ] 06-PLAN.md — EXTRACT-06 (audit phase): dashboard route+page categorization (Wave 2, Stream B)
+- [ ] 07-PLAN.md — EXTRACT-06 (delete phase): copy dashboard, run delete pass (Wave 3, Stream B)
+- [ ] 08-PLAN.md — EXTRACT-06 (rewrite phase): rewire to /etc/arlowe/config.yml, /var/lib/arlowe/logs/ (Wave 4, Stream B)
+- [ ] 09-PLAN.md — EXTRACT-09 + EXTRACT-10: ax-llm submodule + axcl deb pin + verify-third-party.sh (Wave 2, Stream C)
+- [ ] 10-PLAN.md — EXTRACT-08: CLI helpers → runtime/cli/; delete wifi-watchdog (Wave 2, Stream D)
+- [ ] 11-PLAN.md — EXTRACT-07: wake-word pipeline → runtime/wake-word/ (no biometric data) (Wave 2, Stream D)
+- [ ] 12-PLAN.md — EXTRACT-12: ADR-0002 stripping arlowe-scheduled-summary (Wave 2, Stream D)
+- [ ] 13-PLAN.md — Smoke test convergence: openai_wrapper resolution + wake→STT→LLM→TTS→face on arlowe-1 (Wave 5)
 
 ### Phase 2: Sanitization gate
 
@@ -231,7 +246,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime extraction | 0/TBD | Not started | - |
+| 1. Runtime extraction | 0/13 | Planned | - |
 | 2. Sanitization gate | 0/TBD | Not started | - |
 | 3. Service user and filesystem layout | 0/TBD | Not started | - |
 | 4. Config overlay | 0/TBD | Not started | - |
