@@ -1,0 +1,49 @@
+name: 01 — Research / Spec
+description: Research a problem or design an approach before tests are written. Output is an ADR proposal or design doc.
+title: "[research] "
+labels: ["type:research", "agent:researcher"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the approach is unclear and needs investigation before tests can be written. The Researcher agent (or `gsd-phase-researcher`) will produce a proposal for human approval.
+  - type: textarea
+    id: question
+    attributes:
+      label: Research question
+      description: What specifically needs to be answered?
+      placeholder: "How should we implement deterministic match resolution given XState's RNG handling?"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why does this matter? What does it unblock?
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: What must any answer respect? (Existing code, ADRs, performance targets, etc.)
+    validations:
+      required: false
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: Expected deliverable
+      description: What artifact should this issue produce?
+      value: |
+        - [ ] ADR draft in `docs/architecture/proposals/`
+        - [ ] Identified options with tradeoffs
+        - [ ] Recommendation with reasoning
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Related issues, PRs, ADRs, external docs
+    validations:
+      required: false

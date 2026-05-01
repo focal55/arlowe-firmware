@@ -1,0 +1,69 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  conventional-commits:
+    name: Conventional commit title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            test
+            refactor
+            chore
+            perf
+            style
+            ci
+            build
+          requireScope: false
+          subjectPattern: ^[A-Za-z].+[^.]$
+          subjectPatternError: |
+            PR title must start with a letter and not end with a period.
+            Format: `type(scope): description`
+            Example: `feat(match-engine): add deterministic seeded RNG`
+
+  size-check:
+    name: PR size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check PR size
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          NET=$(git diff --shortstat "$BASE_SHA..$HEAD_SHA" | awk '{print $4 + $6}')
+          NET=${NET:-0}
+          echo "Net lines changed: $NET"
+          if [ "$NET" -gt 600 ]; then
+            echo "::error::PR is too large ($NET net lines). Atomic PRs are <400 lines net. Please split."
+            exit 1
+          fi
+          if [ "$NET" -gt 400 ]; then
+            echo "::warning::PR exceeds 400 net lines ($NET). Consider splitting before review."
+          fi
+
+  linked-issue:
+    name: Linked issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR description references an issue
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if echo "$BODY" | grep -qiE '(closes|fixes|resolves)[[:space:]]+#[0-9]+'; then
+            echo "PR links to an issue."
+          else
+            echo "::error::PR description must reference a linked issue with 'Closes #N', 'Fixes #N', or 'Resolves #N'."
+            exit 1
+          fi

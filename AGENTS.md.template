@@ -1,0 +1,64 @@
+# {{PROJECT_NAME}} — AGENTS.md
+
+This file is read by every agent before starting work on this project. It captures **project-specific overrides** to the global agent definitions in `~/.claude/agents/`. Most projects have very few overrides; defer to the global definitions unless this project has a genuine reason to differ.
+
+## Global agents in use
+
+- **`dev`** — implementation, makes failing tests pass
+- **`qa`** — writes failing tests from acceptance criteria
+- **`pr-reviewer`** — reviews PRs against checklist
+- **`gsd-*`** family — phase planning, research, verification, debugging
+
+See `~/.claude/agents/*.md` for global role definitions and `docs/architecture-overview.md` (in the agentic-workforce-template repo) for how they compose.
+
+## Project-specific overrides
+
+<!-- Only add entries here if this project genuinely needs them. Most should be empty. -->
+
+### DEV agent overrides
+
+<!-- Examples (delete if none apply):
+- This project uses `vitest` not `jest` — test commands: `pnpm test`, `pnpm test:watch`
+- Schema migrations require `pnpm db:migrate:create <name>` then human review before commit
+-->
+
+None.
+
+### QA agent overrides
+
+<!-- Examples:
+- Integration tests live in `apps/<app>/tests/integration/` not next to source
+- Match-engine tests must use seeded RNG fixtures from `packages/game-sdk/test-fixtures.ts`
+-->
+
+None.
+
+### PR-Reviewer agent overrides
+
+<!-- Examples:
+- Match-engine PRs require running `pnpm replay-suite` before approval (catches determinism regressions)
+- Database migration PRs require an attached migration plan in the description
+-->
+
+None.
+
+## Agents disabled in this project
+
+<!-- List any global agents that should NOT be used here. Rare. -->
+
+None.
+
+## Project-specific agents
+
+<!-- If this project needs custom agents not in the global set, define them in `.claude/agents/` and document them here. -->
+
+None.
+
+## Escalation contacts
+
+When agents add `status:needs-human` and stop, the human pickup is:
+
+- Default: @focal55
+- Architecture decisions: @focal55
+- Security: @focal55
+- Product / game design: @focal55

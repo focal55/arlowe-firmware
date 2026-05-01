@@ -1,0 +1,26 @@
+# Auto-label config for actions/labeler@v5
+# Maps file path globs to labels. Customize per project after cloning the template.
+# Examples assume a Turborepo monorepo with packages/ and apps/ — adjust freely.
+
+"package:platform":
+  - changed-files:
+      - any-glob-to-any-file: 'packages/platform-*/**'
+
+"package:games":
+  - changed-files:
+      - any-glob-to-any-file: 'packages/game-*/**'
+      - any-glob-to-any-file: 'games/**'
+
+"package:apps":
+  - changed-files:
+      - any-glob-to-any-file: 'apps/**'
+
+"package:infra":
+  - changed-files:
+      - any-glob-to-any-file: 'infra/**'
+      - any-glob-to-any-file: '.github/**'
+
+"type:docs":
+  - changed-files:
+      - any-glob-to-any-file: 'docs/**'
+      - any-glob-to-any-file: '**/*.md'

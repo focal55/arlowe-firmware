@@ -1,0 +1,53 @@
+name: 02 — QA / Test Spec
+description: Write failing tests from acceptance criteria, before implementation. QA agent picks this up.
+title: "[qa] "
+labels: ["type:qa", "agent:qa"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for tasks that need failing tests written before DEV implements. The QA agent will produce tests-only PR; a separate `[dev]` issue makes them pass.
+  - type: textarea
+    id: what
+    attributes:
+      label: What feature / change needs tests
+      description: One sentence description of the behavior under test.
+      placeholder: "Heat Meter pressure calculation given current event deck"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Specific, testable outcomes. Each becomes at least one test case.
+      value: |
+        - [ ] Given X, when Y, then Z
+        - [ ] Given empty input, returns expected default
+        - [ ] Given invalid input, raises specific error
+        - [ ] (edge case)
+        - [ ] (error path)
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What this issue explicitly does NOT cover. Prevents scope creep.
+      placeholder: "Integration with Daily Heat seed generator (separate issue)"
+    validations:
+      required: true
+  - type: input
+    id: target_files
+    attributes:
+      label: Target test file(s)
+      description: Where the new tests should live.
+      placeholder: "packages/game-underworld-rules/src/heat-meter.spec.ts"
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Issues that must complete first, or related ADRs.
+    validations:
+      required: false

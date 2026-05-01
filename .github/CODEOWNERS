@@ -1,0 +1,10 @@
+# Default owner — required reviewer on every PR.
+# In an agentic workforce, this routes PRs to the human via @focal55, who delegates
+# to the PR-Reviewer agent. Customize per project if you have additional reviewers.
+
+* @focal55
+
+# Architecture docs require explicit human attention — agents flag, human signs off.
+/docs/architecture/ @focal55
+/CLAUDE.md @focal55
+/AGENTS.md @focal55

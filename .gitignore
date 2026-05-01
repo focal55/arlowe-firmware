@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+.turbo/
+.vercel/
+out/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Local state
+.DS_Store
+*.log
+.cache/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+# Project board / planning local state
+.planning/.cache/

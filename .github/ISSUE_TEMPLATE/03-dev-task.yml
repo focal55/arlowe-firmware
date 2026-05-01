@@ -1,0 +1,59 @@
+name: 03 — DEV / Implementation
+description: Make failing tests pass with production code. DEV agent picks this up.
+title: "[dev] "
+labels: ["type:dev", "agent:dev"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for implementation work where failing tests already exist (from a `[qa]` issue or prior PR). The DEV agent will produce implementation-only code that turns the tests green.
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs to be implemented
+      description: One sentence describing the behavior.
+    validations:
+      required: true
+  - type: input
+    id: tests_pr
+    attributes:
+      label: Linked tests
+      description: Issue or PR number where the failing tests were written.
+      placeholder: "#42"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria (mirrors the test spec)
+      description: Same criteria the QA agent wrote tests against. Restate here for the DEV agent.
+      value: |
+        - [ ] All tests in [linked PR] pass green
+        - [ ] Lint clean
+        - [ ] Typecheck clean
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What this issue explicitly does NOT cover.
+    validations:
+      required: true
+  - type: textarea
+    id: target_files
+    attributes:
+      label: Files likely touched
+      description: Help the DEV agent scope its work.
+      placeholder: |
+        - packages/game-underworld-rules/src/heat-meter.ts
+        - packages/game-underworld-rules/src/index.ts
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Implementation notes
+      description: Any constraints, conventions, or "watch out for X" guidance.
+    validations:
+      required: false

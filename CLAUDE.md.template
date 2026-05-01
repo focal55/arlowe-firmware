@@ -1,0 +1,96 @@
+# {{PROJECT_NAME}} — CLAUDE.md
+
+This file is loaded into Claude Code conversations automatically when working in this project. It captures **project-specific** context. The agentic workforce protocol itself lives at the global `~/.claude/CLAUDE.md` — this file extends or overrides only what's specific to this project.
+
+## Project overview
+
+<!-- One paragraph: what this project is, who it's for, what stage it's at. -->
+
+## Tech stack
+
+<!-- The actual stack. Be specific (versions for major deps). -->
+
+## Repo layout
+
+<!-- High-level orientation. Don't duplicate the file tree — just explain what lives where. -->
+
+```
+apps/                 → Deployable applications
+packages/             → Shared libraries (platform-* are game-agnostic)
+games/                → Game-specific rules and UI (if applicable)
+services/             → Background workers
+infra/                → Database migrations, deployment config
+docs/                 → Architecture, ADRs, project docs
+.github/              → Issue templates, workflows, labels
+```
+
+## Workforce protocol applies here
+
+This project uses the **agentic workforce protocol** (default). The global `~/.claude/CLAUDE.md` contains the protocol details — agent roles, label conventions, board columns, slash commands, kill switches.
+
+Project-specific config:
+
+- **GitHub repo**: `<owner>/{{PROJECT_NAME}}`
+- **Project board number**: `<NUMBER>` (one-time: set via `bash scripts/init-project.sh`)
+- **Primary branch**: `main`
+- **Required CI checks** (set by branch protection): `Lint`, `Typecheck`, `Test`, `Conventional commit title`, `PR size`, `Linked issue`
+
+When a Claude Code session starts in this directory and the user asks "what should I work on" or starts work without a target, follow the global workforce protocol — query the board for unblocked `agent:*` issues and propose the highest priority.
+
+## Project-specific overrides
+
+<!-- Examples (delete if none apply):
+- This project uses `vitest` not `jest` — test commands: `pnpm test`, `pnpm test:watch`
+- Match-engine PRs require running `pnpm replay-suite` before approval
+- Schema migrations require explicit human approval before commit
+-->
+
+None.
+
+## Common commands
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run dev servers
+pnpm dev
+
+# Lint, typecheck, test, build
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+
+# Database (if using Supabase / Drizzle)
+pnpm db:migrate
+pnpm db:studio
+```
+
+## Environment
+
+<!-- What env vars are required, where they're sourced. -->
+
+## Deployment
+
+<!-- Where this deploys, how, who triggers it. -->
+
+## Known gotchas
+
+<!-- Things that bit a previous agent or human, recorded so they don't bite again. -->
+
+## Decision log
+
+Architecture decisions live in `docs/architecture/` as numbered ADRs. Read them before proposing significant changes.
+
+---
+
+## Workforce: opted in (default)
+
+This project uses the agentic workforce. To opt out, replace this section with:
+
+```markdown
+## Workforce: opted out
+
+This project does not use the agentic workforce protocol. Operate in interactive mode without consulting a project board or assuming standard label conventions apply.
+```

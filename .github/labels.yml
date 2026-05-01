@@ -1,0 +1,73 @@
+# Standard label set. Applied via scripts/init-project.sh on first run.
+# To sync changes after initial setup: `gh label sync -f .github/labels.yml`
+# (requires the github-label-sync npm package or equivalent — see scripts/init-project.sh)
+
+# Type — what kind of work
+- name: "type:research"
+  color: "8B5CF6"
+  description: "Research / spec / design — produces ADR proposal"
+- name: "type:dev"
+  color: "1D76DB"
+  description: "Implementation work — make tests pass"
+- name: "type:qa"
+  color: "0E8A16"
+  description: "Test-writing — failing tests before DEV"
+- name: "type:bug"
+  color: "B60205"
+  description: "Something is broken"
+- name: "type:docs"
+  color: "FBCA04"
+  description: "Documentation — ADRs, READMEs, CLAUDE.md"
+- name: "type:chore"
+  color: "BFD4F2"
+  description: "Maintenance, deps, infra plumbing"
+
+# Priority
+- name: "priority:p0"
+  color: "B60205"
+  description: "Blocker — fix now"
+- name: "priority:p1"
+  color: "D93F0B"
+  description: "This milestone"
+- name: "priority:p2"
+  color: "FBCA04"
+  description: "When convenient"
+
+# Status
+- name: "status:blocked"
+  color: "000000"
+  description: "Cannot progress until dependency resolves"
+- name: "status:needs-human"
+  color: "EE0701"
+  description: "Agent escalated — needs human decision"
+
+# Agent routing — which agent picks this up next
+- name: "agent:researcher"
+  color: "C5DEF5"
+  description: "Researcher / gsd-phase-researcher should pick this up"
+- name: "agent:qa"
+  color: "C5DEF5"
+  description: "QA agent should write failing tests"
+- name: "agent:dev"
+  color: "C5DEF5"
+  description: "DEV agent should implement"
+- name: "agent:reviewer"
+  color: "C5DEF5"
+  description: "PR-Reviewer agent should review"
+- name: "agent:verifier"
+  color: "C5DEF5"
+  description: "gsd-verifier should verify completion"
+
+# Package — auto-applied by labeler.yml; adjust per project
+- name: "package:platform"
+  color: "5319E7"
+  description: "Touches shared platform packages"
+- name: "package:games"
+  color: "5319E7"
+  description: "Touches game-specific packages"
+- name: "package:apps"
+  color: "5319E7"
+  description: "Touches app-level code"
+- name: "package:infra"
+  color: "5319E7"
+  description: "Touches CI / infra / config"

@@ -1,0 +1,37 @@
+name: 05 — Docs
+description: Documentation work — ADRs, README updates, CLAUDE.md additions, architecture docs.
+title: "[docs] "
+labels: ["type:docs", "agent:dev"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for any documentation work. DEV agent handles docs the same way as code — atomic PRs, conventional commits, scope discipline.
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs to be documented
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why now
+      description: What changed or what's missing that makes this needed?
+    validations:
+      required: true
+  - type: input
+    id: target_path
+    attributes:
+      label: Target file(s)
+      description: Where the docs should live.
+      placeholder: "docs/architecture/0007-match-engine-determinism.md"
+    validations:
+      required: true
+  - type: textarea
+    id: outline
+    attributes:
+      label: Outline / acceptance criteria
+      description: What sections, what content, what's enough.
+    validations:
+      required: true

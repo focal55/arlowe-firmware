@@ -1,0 +1,250 @@
+name: Project Board Sync
+
+# Moves project board cards between columns based on issue/PR events.
+# Pairs with the agentic workforce protocol — agents change labels and the board
+# follows automatically. The human/agents do not need to drag cards manually.
+#
+# Standard columns expected on the board:
+#   Backlog → Researching → Specced → Writing Tests → Ready for Dev →
+#   In Dev → In Review → Verifying → Done
+#
+# Required setup (one-time):
+#   1. The repo's project board exists (created by scripts/init-project.sh).
+#   2. The board's Status field has the 9 standard column options.
+#   3. A repository variable `PROJECT_NUMBER` is set to the project's number.
+#      (Set via `gh variable set PROJECT_NUMBER --body <num>`)
+#   4. A repository variable `PROJECT_OWNER` is set to the project owner login.
+#
+# How it works: Every issue/PR event is mapped to a target column. We use
+# `gh api graphql` to update the project's status field for the issue/PR's
+# project item.
+
+on:
+  issues:
+    types: [opened, labeled, unlabeled]
+  pull_request:
+    types: [opened, closed, ready_for_review, converted_to_draft]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  repository-projects: write
+
+concurrency:
+  # Don't process events for the same issue/PR in parallel — serialize per-issue.
+  group: project-sync-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: ${{ vars.PROJECT_NUMBER != '' }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    steps:
+      - name: Determine target column
+        id: column
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          target=""
+
+          case "$EVENT_NAME" in
+            issues)
+              case "$ACTION" in
+                opened)
+                  target="Backlog" ;;
+                labeled)
+                  case "$LABEL_NAME" in
+                    agent:researcher) target="Researching" ;;
+                    agent:qa)         target="Writing Tests" ;;
+                    agent:dev)        target="Ready for Dev" ;;
+                    agent:reviewer)   target="In Review" ;;
+                    agent:verifier)   target="Verifying" ;;
+                    status:loop-pause | status:blocked | status:needs-human)
+                      target="" ;;  # No move; just stay where the human/agent put it
+                  esac
+                  ;;
+              esac
+              ;;
+            pull_request)
+              case "$ACTION" in
+                opened|ready_for_review)
+                  if [ "$PR_DRAFT" = "true" ]; then
+                    target=""  # drafts don't move issue to In Review
+                  else
+                    target="In Review"
+                  fi
+                  ;;
+                closed)
+                  if [ "$PR_MERGED" = "true" ]; then
+                    target="Verifying"
+                  else
+                    target="In Dev"  # closed without merge → back to dev
+                  fi
+                  ;;
+                converted_to_draft)
+                  target="In Dev" ;;
+              esac
+              ;;
+            pull_request_review)
+              # Reviewer activity doesn't move cards — merge does.
+              target=""
+              ;;
+          esac
+
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          if [ -z "$target" ]; then
+            echo "No move required for this event."
+          else
+            echo "Target column: $target"
+          fi
+
+      - name: Resolve item id
+        id: item
+        if: steps.column.outputs.target != ''
+        env:
+          ITEM_NODE_ID: ${{ github.event.issue.node_id || github.event.pull_request.node_id }}
+        run: |
+          set -euo pipefail
+
+          # Find the project item id for this issue/PR
+          item_id=$(gh api graphql -f query='
+            query($owner: String!, $number: Int!, $contentId: ID!) {
+              user(login: $owner) {
+                projectV2(number: $number) {
+                  items(first: 100) {
+                    nodes {
+                      id
+                      content {
+                        ... on Issue { id }
+                        ... on PullRequest { id }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -F owner="$PROJECT_OWNER" -F number=$PROJECT_NUMBER -F contentId="$ITEM_NODE_ID" \
+            --jq ".data.user.projectV2.items.nodes[] | select(.content.id == \"$ITEM_NODE_ID\") | .id" || true)
+
+          # Fall back to organization() query if user() returned nothing
+          if [ -z "$item_id" ]; then
+            item_id=$(gh api graphql -f query='
+              query($owner: String!, $number: Int!, $contentId: ID!) {
+                organization(login: $owner) {
+                  projectV2(number: $number) {
+                    items(first: 100) {
+                      nodes {
+                        id
+                        content {
+                          ... on Issue { id }
+                          ... on PullRequest { id }
+                        }
+                      }
+                    }
+                  }
+                }
+              }' -F owner="$PROJECT_OWNER" -F number=$PROJECT_NUMBER -F contentId="$ITEM_NODE_ID" \
+              --jq ".data.organization.projectV2.items.nodes[] | select(.content.id == \"$ITEM_NODE_ID\") | .id" || true)
+          fi
+
+          if [ -z "$item_id" ]; then
+            echo "::warning::Issue/PR not found on project board (project #$PROJECT_NUMBER, owner $PROJECT_OWNER). Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "item_id=$item_id" >> "$GITHUB_OUTPUT"
+            echo "Found project item: $item_id"
+          fi
+
+      - name: Resolve status field and option ids
+        id: field
+        if: steps.column.outputs.target != '' && steps.item.outputs.skip != 'true'
+        env:
+          TARGET: ${{ steps.column.outputs.target }}
+        run: |
+          set -euo pipefail
+
+          fields=$(gh api graphql -f query='
+            query($owner: String!, $number: Int!) {
+              user(login: $owner) {
+                projectV2(number: $number) {
+                  id
+                  fields(first: 20) {
+                    nodes {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                        options { id name }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -F owner="$PROJECT_OWNER" -F number=$PROJECT_NUMBER || \
+            gh api graphql -f query='
+            query($owner: String!, $number: Int!) {
+              organization(login: $owner) {
+                projectV2(number: $number) {
+                  id
+                  fields(first: 20) {
+                    nodes {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                        options { id name }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -F owner="$PROJECT_OWNER" -F number=$PROJECT_NUMBER)
+
+          project_id=$(echo "$fields" | jq -r '.. | objects | select(.id and (.fields // false)) | .id' | head -1)
+          status_field=$(echo "$fields" | jq -r '.. | objects | select(.name? == "Status")')
+          field_id=$(echo "$status_field" | jq -r '.id')
+          option_id=$(echo "$status_field" | jq --arg t "$TARGET" -r '.options[] | select(.name == $t) | .id')
+
+          if [ -z "$option_id" ] || [ "$option_id" = "null" ]; then
+            echo "::warning::Status option '$TARGET' not found on project. Add it via the web UI."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "project_id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "field_id=$field_id" >> "$GITHUB_OUTPUT"
+          echo "option_id=$option_id" >> "$GITHUB_OUTPUT"
+
+      - name: Update status
+        if: steps.column.outputs.target != '' && steps.item.outputs.skip != 'true' && steps.field.outputs.skip != 'true'
+        env:
+          PROJECT_ID: ${{ steps.field.outputs.project_id }}
+          ITEM_ID: ${{ steps.item.outputs.item_id }}
+          FIELD_ID: ${{ steps.field.outputs.field_id }}
+          OPTION_ID: ${{ steps.field.outputs.option_id }}
+          TARGET: ${{ steps.column.outputs.target }}
+        run: |
+          set -euo pipefail
+
+          gh api graphql -f query='
+            mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId
+                itemId: $itemId
+                fieldId: $fieldId
+                value: { singleSelectOptionId: $optionId }
+              }) {
+                projectV2Item { id }
+              }
+            }' -F projectId="$PROJECT_ID" -F itemId="$ITEM_ID" -F fieldId="$FIELD_ID" -F optionId="$OPTION_ID"
+
+          echo "Moved card to: $TARGET"

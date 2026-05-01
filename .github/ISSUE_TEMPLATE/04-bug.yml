@@ -1,0 +1,62 @@
+name: 04 — Bug
+description: Report a bug that needs fixing. Will be split into QA (regression test) and DEV (fix) before workforce starts.
+title: "[bug] "
+labels: ["type:bug", "agent:researcher"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bug reports start with a Researcher / human triage to determine root cause and approach. Once specced, this becomes a `[qa]` issue (regression test) and a `[dev]` issue (the fix).
+  - type: textarea
+    id: summary
+    attributes:
+      label: What's broken
+      description: One sentence describing the symptom.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Numbered, deterministic steps to trigger the bug.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "p0 — blocks shipping"
+        - "p1 — should fix this milestone"
+        - "p2 — fix when convenient"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, OS, build version, anything relevant.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / errors / screenshots
+    validations:
+      required: false
