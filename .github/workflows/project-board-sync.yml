@@ -1,16 +1,19 @@
 name: Project Board Sync
 
 # Moves project board cards between columns based on issue/PR events.
-# Pairs with the agentic workforce protocol — agents change labels and the board
-# follows automatically. The human/agents do not need to drag cards manually.
+# Pairs with the agentic workforce protocol — labels are the source of truth
+# for stage/owner/blockers; the board column is a coarse "is this being worked
+# on" view. Agents and humans don't drag cards manually.
 #
-# Standard columns expected on the board:
-#   Backlog → Researching → Specced → Writing Tests → Ready for Dev →
-#   In Dev → In Review → Verifying → Done
+# Standard columns expected on the board (3-column layout):
+#   Todo → In Progress → Done
+#
+# Stage information lives in labels (type:*, agent:*, status:*), not columns.
+# The board view filters on those labels for actionable queues.
 #
 # Required setup (one-time):
 #   1. The repo's project board exists (created by scripts/init-project.sh).
-#   2. The board's Status field has the 9 standard column options.
+#   2. The board's Status field has options: Todo, In Progress, Done.
 #   3. A repository variable `PROJECT_NUMBER` is set to the project's number.
 #      (Set via `gh variable set PROJECT_NUMBER --body <num>`)
 #   4. A repository variable `PROJECT_OWNER` is set to the project owner login.
@@ -21,11 +24,9 @@ name: Project Board Sync
 
 on:
   issues:
-    types: [opened, labeled, unlabeled]
+    types: [opened, reopened, closed]
   pull_request:
     types: [opened, closed, ready_for_review, converted_to_draft]
-  pull_request_review:
-    types: [submitted]
 
 permissions:
   contents: read
@@ -52,7 +53,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
-          LABEL_NAME: ${{ github.event.label.name }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
@@ -62,44 +62,29 @@ jobs:
           case "$EVENT_NAME" in
             issues)
               case "$ACTION" in
-                opened)
-                  target="Backlog" ;;
-                labeled)
-                  case "$LABEL_NAME" in
-                    agent:researcher) target="Researching" ;;
-                    agent:qa)         target="Writing Tests" ;;
-                    agent:dev)        target="Ready for Dev" ;;
-                    agent:reviewer)   target="In Review" ;;
-                    agent:verifier)   target="Verifying" ;;
-                    status:loop-pause | status:blocked | status:needs-human)
-                      target="" ;;  # No move; just stay where the human/agent put it
-                  esac
-                  ;;
+                opened|reopened) target="Todo" ;;
+                closed)          target="Done" ;;
               esac
               ;;
             pull_request)
               case "$ACTION" in
                 opened|ready_for_review)
                   if [ "$PR_DRAFT" = "true" ]; then
-                    target=""  # drafts don't move issue to In Review
+                    target=""  # drafts stay in Todo
                   else
-                    target="In Review"
-                  fi
-                  ;;
-                closed)
-                  if [ "$PR_MERGED" = "true" ]; then
-                    target="Verifying"
-                  else
-                    target="In Dev"  # closed without merge → back to dev
+                    target="In Progress"
                   fi
                   ;;
                 converted_to_draft)
-                  target="In Dev" ;;
+                  target="Todo" ;;
+                closed)
+                  if [ "$PR_MERGED" = "true" ]; then
+                    target="Done"
+                  else
+                    target="Todo"  # closed without merge → back to queue
+                  fi
+                  ;;
               esac
-              ;;
-            pull_request_review)
-              # Reviewer activity doesn't move cards — merge does.
-              target=""
               ;;
           esac
 
