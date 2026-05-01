@@ -195,17 +195,110 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Filled by roadmap creation in Phase 8. Empty initially.
+Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by gsd-roadmapper) | | |
+| EXTRACT-01 | Phase 1 | Pending |
+| EXTRACT-02 | Phase 1 | Pending |
+| EXTRACT-03 | Phase 1 | Pending |
+| EXTRACT-04 | Phase 1 | Pending |
+| EXTRACT-05 | Phase 1 | Pending |
+| EXTRACT-06 | Phase 1 | Pending |
+| EXTRACT-07 | Phase 1 | Pending |
+| EXTRACT-08 | Phase 1 | Pending |
+| EXTRACT-09 | Phase 1 | Pending |
+| EXTRACT-10 | Phase 1 | Pending |
+| EXTRACT-11 | Phase 1 | Pending |
+| EXTRACT-12 | Phase 1 | Pending |
+| SANIT-01 | Phase 2 | Pending |
+| SANIT-02 | Phase 2 | Pending |
+| SANIT-03 | Phase 2 | Pending |
+| SANIT-04 | Phase 2 | Pending |
+| SANIT-05 | Phase 2 | Pending |
+| SANIT-06 | Phase 2 | Pending |
+| SANIT-07 | Phase 2 | Pending |
+| SANIT-08 | Phase 2 | Pending |
+| USER-01 | Phase 3 | Pending |
+| USER-02 | Phase 3 | Pending |
+| USER-03 | Phase 3 | Pending |
+| USER-04 | Phase 3 | Pending |
+| USER-05 | Phase 3 | Pending |
+| AUDIO-01 | Phase 5 | Pending |
+| AUDIO-02 | Phase 5 | Pending |
+| AUDIO-03 | Phase 5 | Pending |
+| AUDIO-04 | Phase 5 | Pending |
+| CONFIG-01 | Phase 4 | Pending |
+| CONFIG-02 | Phase 4 | Pending |
+| CONFIG-03 | Phase 4 | Pending |
+| CONFIG-04 | Phase 4 | Pending |
+| CONFIG-05 | Phase 4 | Pending |
+| CONFIG-06 | Phase 4 | Pending |
+| IDENT-01 | Phase 7 | Pending |
+| IDENT-02 | Phase 7 | Pending |
+| IDENT-03 | Phase 7 | Pending |
+| IDENT-04 | Phase 7 | Pending |
+| IDENT-05 | Phase 7 | Pending |
+| IDENT-06 | Phase 7 | Pending |
+| PAIR-01 | Phase 8 | Pending |
+| PAIR-02 | Phase 8 | Pending |
+| PAIR-03 | Phase 8 | Pending |
+| PAIR-04 | Phase 8 | Pending |
+| PAIR-05 | Phase 8 | Pending |
+| PAIR-06 | Phase 8 | Pending |
+| PAIR-07 | Phase 8 | Pending |
+| WAKE-01 | Phase 8 | Pending |
+| WAKE-02 | Phase 8 | Pending |
+| WAKE-03 | Phase 8 | Pending |
+| IMAGE-01 | Phase 6 | Pending |
+| IMAGE-02 | Phase 6 | Pending |
+| IMAGE-03 | Phase 6 | Pending |
+| IMAGE-04 | Phase 6 | Pending |
+| IMAGE-05 | Phase 6 | Pending |
+| IMAGE-06 | Phase 6 | Pending |
+| PART-01 | Phase 6 | Pending |
+| PART-02 | Phase 6 | Pending |
+| PART-03 | Phase 6 | Pending |
+| PART-04 | Phase 6 | Pending |
+| PART-05 | Phase 6 | Pending |
+| PART-06 | Phase 6 | Pending |
+| OTA-01 | Phase 9 | Pending |
+| OTA-02 | Phase 9 | Pending |
+| OTA-03 | Phase 9 | Pending |
+| OTA-04 | Phase 9 | Pending |
+| OTA-05 | Phase 9 | Pending |
+| OTA-06 | Phase 9 | Pending |
+| OTA-07 | Phase 9 | Pending |
+| SUPP-01 | Phase 10 | Pending |
+| SUPP-02 | Phase 10 | Pending |
+| SUPP-03 | Phase 10 | Pending |
+| SUPP-04 | Phase 10 | Pending |
+| SUPP-05 | Phase 10 | Pending |
+| SUPP-06 | Phase 10 | Pending |
+| SUPP-07 | Phase 10 | Pending |
+| DASH-01 | Phase 8 | Pending |
+| DASH-02 | Phase 8 | Pending |
+| DASH-03 | Phase 11 | Pending |
+| DASH-04 | Phase 11 | Pending |
+| DASH-05 | Phase 11 | Pending |
+| DASH-06 | Phase 2 | Pending |
+| DASH-07 | Phase 2 | Pending |
+| BOOT-01 | Phase 11 | Pending |
+| BOOT-02 | Phase 11 | Pending |
+| BOOT-03 | Phase 11 | Pending |
+| BOOT-04 | Phase 11 | Pending |
+| BOOT-05 | Phase 11 | Pending |
+| LOG-01 | Phase 11 | Pending |
+| LOG-02 | Phase 11 | Pending |
+| LOG-03 | Phase 11 | Pending |
+
+**Phase 12 (First-flash integration on real hardware) does not introduce new REQ-IDs; it verifies the integration of all prior requirements end-to-end on real hardware as the v1 ship gate.**
 
 **Coverage:**
 - v1 requirements: 92 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 92 ⚠️ (will resolve after roadmap)
+- Mapped to phases: 92
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-01*
-*Last updated: 2026-05-01 after initial definition*
+*Traceability mapped: 2026-04-30 (12-phase v1 roadmap)*
