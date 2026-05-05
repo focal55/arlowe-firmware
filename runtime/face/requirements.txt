@@ -1,0 +1,19 @@
+# runtime/face -- Python deps for the face HTTP service + sentiment classifier
+# Pinned from arlowe-1 system Python and ~/venvs/voice/ on 2026-05-02
+# WhisPlay vendor driver is NOT a pip dep -- see third_party/whisplay-driver/PROVENANCE.md
+#
+# Note: face_service.py currently uses stdlib http.server; Flask is included for
+# future endpoint expansion. sentiment_classifier.py uses stdlib urllib; requests
+# is included for HTTP helper use by downstream callers.
+
+# face_service.py -- HTTP service framework (system Python on arlowe-1)
+Flask==3.1.1
+
+# sentiment_classifier.py -- HTTP to Qwen NPU endpoint
+requests==2.32.3
+
+# audio_sync.py -- amplitude analysis for lip-sync
+numpy==2.3.5
+
+# face.py -- PIL rendering to the WhisPlay display (system Python on arlowe-1)
+Pillow==11.1.0
