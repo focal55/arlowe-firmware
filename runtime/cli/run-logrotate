@@ -1,0 +1,8 @@
+#!/bin/bash
+# Run logrotate with Arlowe config
+#
+# Env overrides:
+#   ARLOWE_LOGROTATE_CONF  Config file path (default: /opt/arlowe/runtime/cli/logrotate.conf)
+
+CONF="${ARLOWE_LOGROTATE_CONF:-/opt/arlowe/runtime/cli/logrotate.conf}"
+/usr/sbin/logrotate --state /var/lib/arlowe/logrotate.status "$CONF"

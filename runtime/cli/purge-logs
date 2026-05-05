@@ -1,0 +1,30 @@
+#!/bin/bash
+# Log purge script for Arlowe
+# Keeps 7 days of daily logs, truncates debug log if over 10MB
+#
+# Env overrides:
+#   ARLOWE_LOGS_DIR  Log directory (default: /var/lib/arlowe/logs)
+
+LOG_DIR="${ARLOWE_LOGS_DIR:-/var/lib/arlowe/logs}"
+RETENTION_DAYS=7
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') Starting log purge..."
+
+# Delete daily logs older than retention period
+find "$LOG_DIR" -name "voice_*.log" -mtime +$RETENTION_DAYS -delete -print 2>/dev/null | while read f; do
+    echo "  Deleted: $f"
+done
+
+# Truncate debug log if over 10MB
+DEBUG_LOG="$LOG_DIR/voice_assistant.log"
+if [ -f "$DEBUG_LOG" ]; then
+    SIZE=$(stat -f%z "$DEBUG_LOG" 2>/dev/null || stat -c%s "$DEBUG_LOG" 2>/dev/null)
+    MAX_SIZE=$((10 * 1024 * 1024))  # 10MB
+
+    if [ "$SIZE" -gt "$MAX_SIZE" ]; then
+        echo "  Debug log is ${SIZE} bytes, truncating to last 1000 lines..."
+        tail -n 1000 "$DEBUG_LOG" > "$DEBUG_LOG.tmp" && mv "$DEBUG_LOG.tmp" "$DEBUG_LOG"
+    fi
+fi
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') Log purge complete."
