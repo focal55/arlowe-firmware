@@ -1,0 +1,25 @@
+# runtime/tts/manifest.yml
+# Pinned Piper assets that the image build verifies before packaging.
+# Update procedure: bump in a follow-up PR with both URL and sha256 changed atomically.
+#
+# SHA-256 values verified 2026-05-02 via ssh arlowe-1 'sha256sum ~/models/piper/piper'
+# and 'sha256sum ~/models/piper-voices/en_US-lessac-medium.onnx{,.json}'.
+
+piper:
+  binary:
+    version: "1.2.0"
+    url: "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_aarch64.tar.gz"
+    # SHA-256 of the extracted piper binary (not the tarball).
+    # Verified against ~/models/piper/piper on arlowe-1 (2026-05-02).
+    sha256: 0c44a6360a21367b5d03b8656c3e274f4de715f6533245d8c1f17c242631912b
+    install_to: "/opt/arlowe/runtime/tts/bin/piper"
+
+  voices:
+    - id: en_US-lessac-medium
+      url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+      config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+      sha256: 5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f
+      config_sha256: efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0
+      install_to: "/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx"
+      config_install_to: "/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx.json"
+      default: true
