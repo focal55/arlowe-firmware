@@ -1,0 +1,49 @@
+#!/bin/bash
+# Arlowe TTS - speak text through Piper with face sync
+# Usage: speak "text to say"
+# Options:
+#   --no-face    Skip face state changes
+#
+# Env overrides:
+#   PIPER_BIN    Path to piper binary   (default: /opt/arlowe/runtime/tts/bin/piper)
+#   PIPER_VOICE  Path to .onnx voice model (default: /opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx)
+
+FACE_SYNC=true
+if [ "$1" = "--no-face" ]; then
+    FACE_SYNC=false
+    shift
+fi
+
+TEXT="$*"
+if [ -z "$TEXT" ]; then
+    read TEXT
+fi
+
+PIPER="${PIPER_BIN:-/opt/arlowe/runtime/tts/bin/piper}"
+MODEL="${PIPER_VOICE:-/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx}"
+TMPFILE=$(mktemp /tmp/tts_XXXXXX.wav)
+FACE_URL="http://localhost:8080/state"
+
+# Notify face we're about to talk
+if [ "$FACE_SYNC" = true ]; then
+    # Save current state (best effort)
+    PREV_STATE=$(curl -s http://localhost:8080/status 2>/dev/null | grep -o '"state":"[^"]*"' | cut -d'"' -f4)
+    [ -z "$PREV_STATE" ] && PREV_STATE="idle"
+
+    curl -s -X POST "$FACE_URL" -d '{"state":"talking"}' >/dev/null 2>&1
+fi
+
+# Generate speech
+echo "$TEXT" | $PIPER --model $MODEL --output_file $TMPFILE 2>/dev/null
+
+# TODO(phase-5): plughw:2,0 hardcoded; replace with auto-detected device.
+# Resample to 48kHz for WM8960 and play
+sox $TMPFILE -r 48000 -c 2 -t wav - 2>/dev/null | aplay -D plughw:2,0 -q 2>/dev/null
+
+# Restore face state
+if [ "$FACE_SYNC" = true ]; then
+    curl -s -X POST "$FACE_URL" -d "{\"state\":\"$PREV_STATE\"}" >/dev/null 2>&1
+fi
+
+# Cleanup
+rm -f $TMPFILE
