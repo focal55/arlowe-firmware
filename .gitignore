@@ -34,3 +34,24 @@ Thumbs.db
 
 # Project board / planning local state
 .planning/.cache/
+
+# === Phase 1 Runtime Extraction ===
+# Founder voice biometric data must NEVER enter this repo (research R6).
+*.pkl
+runtime/wake-word/positive/
+runtime/wake-word/negative/
+runtime/wake-word/*.pkl
+
+# Local dev stash from scripts/dev-pull-from-pi.sh — never commit live Pi mirrors.
+.dev-stash/
+
+# Standard Python / Next.js noise that will accumulate in runtime/ subtrees.
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+node_modules/
+.next/
+.env.local
+.env.*.local
