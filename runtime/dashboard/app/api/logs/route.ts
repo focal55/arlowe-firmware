@@ -1,17 +1,21 @@
+// /api/logs — reads /var/lib/arlowe/logs/ for file appenders and journalctl
+// for the product service set. Founder paths removed in plan 08
+// (Phase 1 runtime extraction).
+//
+// Service set: arlowe-voice, arlowe-face, arlowe-dashboard,
+// qwen-{tokenizer,api,openai}, whisper-stt. See ROADMAP Phase 11 for the
+// canonical service ordering that BOOT-03 codifies.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile, readdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { execSync } from 'child_process';
 
-// TODO(plan-08): repoint to /var/lib/arlowe/logs/ and drop SESSION_DIR/CRON_RUNS_DIR (workforce paths)
-const VOICE_LOG_DIR = '/home/focal55/whisplay/logs';
-const OPENCLAW_LOG_DIR = '/home/focal55/.openclaw/logs';
-const SESSION_DIR = '/home/focal55/.openclaw/agents/main/sessions';
-const CRON_RUNS_DIR = '/home/focal55/.openclaw/cron/runs';
+const VOICE_LOG_DIR = '/var/lib/arlowe/logs';
 
 export interface LogEntry {
   timestamp: string;
-  type: 'voice' | 'command' | 'session' | 'subagent' | 'cron' | 'service';
+  type: 'voice' | 'command' | 'service';
   content: string;
   metadata?: Record<string, unknown>;
 }
@@ -81,154 +85,26 @@ function parseVoiceLogs(content: string, dateStr: string): LogEntry[] {
   return logs;
 }
 
-// ─── Command logs ───
-function parseCommandLogs(content: string): LogEntry[] {
-  const logs: LogEntry[] = [];
-  for (const line of content.split('\n').filter(l => l.trim())) {
-    try {
-      const e = JSON.parse(line);
-      logs.push({
-        timestamp: e.timestamp,
-        type: 'command',
-        content: `/${e.action} from ${e.source || 'unknown'}`,
-        metadata: { action: e.action, sessionKey: e.sessionKey, source: e.source },
-      });
-    } catch { /* skip */ }
-  }
-  return logs;
-}
-
-// ─── OpenClaw session messages ───
-async function parseSessionLogs(start: Date, end: Date): Promise<LogEntry[]> {
-  const logs: LogEntry[] = [];
-  if (!existsSync(SESSION_DIR)) return logs;
-
-  const files = await readdir(SESSION_DIR);
-  // Sort by modification time descending, take recent
-  const sorted = files.filter(f => f.endsWith('.jsonl')).slice(-30);
-
-  for (const file of sorted) {
-    try {
-      const content = await readFile(`${SESSION_DIR}/${file}`, 'utf-8');
-      const lines = content.split('\n').filter(l => l.trim());
-
-      // Check first line for session metadata
-      let sessionLabel = '';
-      let isSubagent = false;
-      const firstLine = lines[0] ? JSON.parse(lines[0]) : null;
-      if (firstLine?.type === 'session') {
-        // Sub-agent sessions have 'subagent' in their id path typically
-        const sessionId = firstLine.id || '';
-        // Check for label in spawn metadata or session key pattern
-        isSubagent = content.includes('"subagent"') || content.includes('agent:main:subagent');
-      }
-
-      // Track current model for this session
-      let currentModel = '';
-      let currentProvider = '';
-
-      for (const line of lines) {
-        try {
-          const d = JSON.parse(line);
-          const ts = d.timestamp ? new Date(d.timestamp) : null;
-          
-          // Track model changes even outside date range
-          if (d.type === 'model_change') {
-            currentProvider = d.provider || '';
-            currentModel = d.modelId || '';
-          }
-          
-          if (!ts || ts < start || ts > end) continue;
-
-          if (d.type === 'message' && d.message) {
-            const role = d.message.role;
-            let msgContent = d.message.content;
-
-            // Get model from message or tracked state
-            const msgProvider = d.message.provider || currentProvider || '';
-            const msgModel = d.message.model || currentModel || '';
-
-            if (Array.isArray(msgContent)) {
-              const textBlock = msgContent.find((c: Record<string, unknown>) => c.type === 'text');
-              if (textBlock) msgContent = String(textBlock.text);
-              else {
-                const toolCall = msgContent.find((c: Record<string, unknown>) => c.type === 'toolCall');
-                if (toolCall) msgContent = `🔧 ${toolCall.name}(${String(JSON.stringify(toolCall.arguments) || '').slice(0, 60)})`;
-                else continue;
-              }
-            }
-
-            if (typeof msgContent !== 'string') msgContent = String(msgContent || '');
-            if (!msgContent.trim() || msgContent.length < 3) continue;
-            if (role === 'user' && msgContent.startsWith('Read HEARTBEAT')) continue;
-
-            if (role === 'user' || role === 'assistant') {
-              const isAssistant = role === 'assistant';
-              logs.push({
-                timestamp: d.timestamp,
-                type: isSubagent ? 'subagent' : 'session',
-                content: msgContent.slice(0, 200),
-                metadata: {
-                  role,
-                  sessionId: file.replace('.jsonl', ''),
-                  provider: isAssistant ? msgProvider : undefined,
-                  model: isAssistant ? msgModel : undefined,
-                  label: sessionLabel || undefined,
-                },
-              });
-            }
-          } else if (d.type === 'model_change' && ts >= start && ts <= end) {
-            logs.push({
-              timestamp: d.timestamp,
-              type: isSubagent ? 'subagent' : 'session',
-              content: `Model → ${d.provider}/${d.modelId}`,
-              metadata: { role: 'system', event: 'model_change', provider: d.provider, model: d.modelId },
-            });
-          }
-        } catch { /* skip bad line */ }
-      }
-    } catch { /* skip bad file */ }
-  }
-  return logs;
-}
-
-// ─── Cron run logs ───
-async function parseCronLogs(start: Date, end: Date): Promise<LogEntry[]> {
-  const logs: LogEntry[] = [];
-  if (!existsSync(CRON_RUNS_DIR)) return logs;
-
-  const files = await readdir(CRON_RUNS_DIR);
-  for (const file of files.filter(f => f.endsWith('.jsonl'))) {
-    try {
-      const content = await readFile(`${CRON_RUNS_DIR}/${file}`, 'utf-8');
-      for (const line of content.split('\n').filter(l => l.trim())) {
-        try {
-          const d = JSON.parse(line);
-          const ts = d.ts ? new Date(d.ts) : null;
-          if (!ts || ts < start || ts > end) continue;
-
-          logs.push({
-            timestamp: ts.toISOString(),
-            type: 'cron',
-            content: `Cron ${d.action || 'run'}: ${d.status || 'unknown'}${d.error ? ' — ' + String(d.error).slice(0, 100) : ''}`,
-            metadata: { jobId: d.jobId, action: d.action, status: d.status, error: d.error },
-          });
-        } catch { /* skip */ }
-      }
-    } catch { /* skip */ }
-  }
-  return logs;
-}
-
 // ─── Service events (systemd) ───
 function parseServiceLogs(start: Date, end: Date): LogEntry[] {
   const logs: LogEntry[] = [];
   try {
     const since = start.toISOString();
     const until = end.toISOString();
-    // TODO(plan-08): expand journalctl filters to product services (qwen-*, arlowe-*, whisper-stt)
+    const services = [
+      'arlowe-voice',
+      'arlowe-face',
+      'arlowe-dashboard',
+      'qwen-tokenizer',
+      'qwen-api',
+      'qwen-openai',
+      'whisper-stt',
+    ];
+    const unitArgs = services.map(s => `-u ${s}`).join(' ');
+    // Phase 1: services run as --user units on the dev device.
+    // Phase 11 (image build) converts to system units; update flag at that point.
     const output = execSync(
-      `journalctl --user -u arlowe-voice -u arlowe-face -u arlowe-dashboard -u qwen-api -u qwen-openai -u whisper-stt --since "${since}" --until "${until}" --no-pager -o json 2>/dev/null | tail -200`,
+      `journalctl --user ${unitArgs} --since "${since}" --until "${until}" --no-pager -o json 2>/dev/null | tail -200`,
       { encoding: 'utf-8', timeout: 5000 }
     );
     for (const line of output.split('\n').filter(l => l.trim())) {
@@ -266,7 +142,7 @@ export async function GET(request: NextRequest) {
   const all: LogEntry[] = [];
 
   try {
-    const types = logType === 'all' ? ['voice', 'command', 'session', 'cron', 'service'] : [logType];
+    const types = logType === 'all' ? ['voice', 'service'] : [logType];
 
     // Voice
     if (types.includes('voice') && existsSync(VOICE_LOG_DIR)) {
@@ -279,25 +155,6 @@ export async function GET(request: NextRequest) {
         const content = await readFile(`${VOICE_LOG_DIR}/${file}`, 'utf-8');
         all.push(...parseVoiceLogs(content, dm[1]));
       }
-    }
-
-    // Commands
-    if (types.includes('command') && existsSync(`${OPENCLAW_LOG_DIR}/commands.log`)) {
-      const content = await readFile(`${OPENCLAW_LOG_DIR}/commands.log`, 'utf-8');
-      all.push(...parseCommandLogs(content).filter(l => {
-        const d = new Date(l.timestamp);
-        return d >= start && d <= end;
-      }));
-    }
-
-    // Sessions
-    if (types.includes('session')) {
-      all.push(...await parseSessionLogs(start, end));
-    }
-
-    // Cron
-    if (types.includes('cron')) {
-      all.push(...await parseCronLogs(start, end));
     }
 
     // Services
