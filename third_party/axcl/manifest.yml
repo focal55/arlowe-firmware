@@ -1,0 +1,13 @@
+# axcl host driver pinning
+# Phase 1 plan 09; distribution rights decision recorded in DISTRIBUTION-RIGHTS.md.
+
+axcl:
+  version: "V3.10.2"
+  filename: "axcl_host_aarch64_V3.10.2.deb"
+  sha256: "1d6bd551644df30e39e3adbe3f32ab9b1d4cdc9c9d12752c27ebc99b35725b94"
+  # url is null because redistribution rights are unresolved (see DISTRIBUTION-RIGHTS.md).
+  # Strategy: user-supplies-file (option C). Obtain from Axera and place at the path
+  # documented in INSTALL.md before running scripts/verify-third-party.sh.
+  url: null
+  install_to_image: true
+  notes: "See third_party/axcl/INSTALL.md for sourcing instructions."
