@@ -1,0 +1,18 @@
+#!/bin/bash
+# Quick STT helper - records and transcribes
+# Usage: stt [duration_seconds]
+
+DURATION=${1:-5}
+TMPFILE=$(mktemp --suffix=.wav)
+
+echo "Recording for ${DURATION}s..."
+# TODO(phase-5): plughw:2,0 hardcoded; replace with auto-detected device.
+arecord -D plughw:2,0 -f S16_LE -r 16000 -c 1 -d "$DURATION" "$TMPFILE" 2>/dev/null
+
+echo "Transcribing..."
+RESULT=$(curl -s -X POST http://localhost:8082/transcribe --data-binary @"$TMPFILE")
+TEXT=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('text',''))")
+
+rm -f "$TMPFILE"
+
+echo ">>> $TEXT"
