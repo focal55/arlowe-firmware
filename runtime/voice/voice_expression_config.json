@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "description": "Voice activity to face expression mapping configuration",
+  "mappings": {
+    "speaking_start": {
+      "expression": "talking",
+      "background": "talking",
+      "duration_ms": null,
+      "description": "When TTS starts speaking"
+    },
+    "speaking_end": {
+      "expression": "idle",
+      "background": "default",
+      "duration_ms": null,
+      "description": "When TTS finishes speaking"
+    },
+    "listening_start": {
+      "expression": "listening",
+      "background": "wake",
+      "duration_ms": null,
+      "description": "When microphone starts recording"
+    },
+    "listening_end": {
+      "expression": "thinking",
+      "background": "wake",
+      "duration_ms": null,
+      "description": "When microphone stops recording"
+    },
+    "thinking_start": {
+      "expression": "thinking",
+      "background": "wake",
+      "duration_ms": null,
+      "description": "When processing user input"
+    },
+    "thinking_end": {
+      "expression": "idle",
+      "background": "default",
+      "duration_ms": null,
+      "description": "When thinking completes"
+    },
+    "error": {
+      "expression": "sad",
+      "background": "error",
+      "duration_ms": 2000,
+      "description": "When an error occurs"
+    },
+    "wake_word": {
+      "expression": "listening",
+      "background": "wake",
+      "duration_ms": null,
+      "description": "When wake word is detected"
+    },
+    "success": {
+      "expression": "happy",
+      "background": "default",
+      "duration_ms": 1500,
+      "description": "When an action succeeds"
+    },
+    "confused": {
+      "expression": "confused",
+      "background": "default",
+      "duration_ms": 2000,
+      "description": "When no speech detected or unclear input"
+    }
+  },
+  "defaults": {
+    "idle_expression": "idle",
+    "idle_background": "default",
+    "transition_speed": 0.3
+  }
+}
