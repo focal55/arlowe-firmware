@@ -1,0 +1,27 @@
+#!/bin/bash
+# Quick face control helper
+# Usage: face <state> [bg] [source]
+# Examples:
+#   face thinking wake
+#   face talking talking cloud
+#   face idle
+#   face discord thinking
+#   face discord message cloud
+#   face discord idle
+
+FACE_API="http://localhost:8080"
+
+if [ "$1" = "discord" ]; then
+    activity="${2:-message}"
+    source="${3:-cloud}"
+    curl -s -X POST "$FACE_API/discord" \
+        -H "Content-Type: application/json" \
+        -d "{\"activity\":\"$activity\",\"source\":\"$source\"}" > /dev/null
+else
+    state="${1:-idle}"
+    bg="${2:-default}"
+    source="${3:-}"
+    curl -s -X POST "$FACE_API/state" \
+        -H "Content-Type: application/json" \
+        -d "{\"state\":\"$state\",\"bg\":\"$bg\",\"source\":\"$source\"}" > /dev/null
+fi

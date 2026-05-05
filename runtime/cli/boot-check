@@ -1,0 +1,90 @@
+#!/bin/bash
+# Arlowe Boot Verification Script
+# Run after reboot to verify all services are operational
+#
+# Env overrides:
+#   ARLOWE_SYSTEMCTL_FLAGS  Flags passed to systemctl (default: --user)
+#                           Set to empty string for system-level units (Phase 11+)
+
+# TODO(phase-11): --user mode flips to system-level when image build lands.
+SYSTEMCTL_FLAGS="${ARLOWE_SYSTEMCTL_FLAGS:---user}"
+
+echo "============================================================"
+echo "           ARLOWE BOOT VERIFICATION"
+echo "============================================================"
+echo ""
+
+PASS=0
+FAIL=0
+
+check_service() {
+    local svc=$1
+    local desc=$2
+    if systemctl $SYSTEMCTL_FLAGS is-active --quiet $svc; then
+        echo "OK  $desc"
+        ((PASS++))
+    else
+        echo "FAIL $desc"
+        ((FAIL++))
+    fi
+}
+
+check_port() {
+    local port=$1
+    local desc=$2
+    if lsof -ti :$port >/dev/null 2>&1; then
+        echo "OK  $desc (port $port)"
+        ((PASS++))
+    else
+        echo "FAIL $desc (port $port NOT listening)"
+        ((FAIL++))
+    fi
+}
+
+echo "CORE SERVICES:"
+echo "------------------------------------------------------------"
+check_service qwen-tokenizer "Qwen Tokenizer"
+check_service qwen-api "Qwen LLM API"
+check_service qwen-openai "Qwen OpenAI Wrapper"
+check_service whisper-stt "Whisper STT Server"
+check_service arlowe-face "Face Display Service"
+check_service arlowe-voice "Voice Assistant"
+check_service arlowe-dashboard "Arlowe Dashboard"
+
+echo ""
+echo "NETWORK ENDPOINTS:"
+echo "------------------------------------------------------------"
+check_port 12345 "Tokenizer Service"
+check_port 8000 "Qwen Native API"
+check_port 8001 "Qwen OpenAI API"
+check_port 8082 "STT Server"
+check_port 8080 "Face Control API"
+check_port 3000 "Dashboard"
+
+echo ""
+echo "HARDWARE:"
+echo "------------------------------------------------------------"
+if /usr/bin/axcl/axcl-smi >/dev/null 2>&1; then
+    echo "OK  Axera NPU detected"
+    ((PASS++))
+else
+    echo "FAIL Axera NPU not responding"
+    ((FAIL++))
+fi
+
+# TODO(phase-5): plughw:2,0 hardcoded; replace with auto-detected device.
+if arecord -D plughw:2,0 -d 1 /dev/null 2>/dev/null; then
+    echo "OK  Microphone (WM8960)"
+    ((PASS++))
+else
+    echo "WARN Microphone may be in use"
+fi
+
+echo ""
+echo "============================================================"
+echo "Results: $PASS passed, $FAIL failed"
+if [ $FAIL -eq 0 ]; then
+    echo "ALL SYSTEMS OPERATIONAL"
+else
+    echo "Some services need attention"
+fi
