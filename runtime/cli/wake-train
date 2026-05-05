@@ -1,0 +1,45 @@
+#!/bin/bash
+# Wake word training helper
+# Usage: wake-train [positive|negative|status|train|test]
+#
+# Env overrides:
+#   ARLOWE_WAKE_WORD_DIR  Directory containing training scripts and samples
+#                         (default: /opt/arlowe/runtime/wake-word)
+#   ARLOWE_VENV           Python venv prefix (default: /opt/arlowe/venv)
+
+WAKE_DIR="${ARLOWE_WAKE_WORD_DIR:-/opt/arlowe/runtime/wake-word}"
+PYTHON="${ARLOWE_VENV:-/opt/arlowe/venv}/bin/python3"
+
+cd "$WAKE_DIR"
+
+case "${1:-status}" in
+    positive|pos)
+        "$PYTHON" collect_samples.py positive
+        ;;
+    negative|neg)
+        "$PYTHON" collect_samples.py negative
+        ;;
+    status|s)
+        "$PYTHON" collect_samples.py status
+        ;;
+    train|t)
+        "$PYTHON" train_verifier.py
+        ;;
+    test)
+        "$PYTHON" test_verifier.py
+        ;;
+    *)
+        echo "Wake Word Training Helper"
+        echo ""
+        echo "Usage: wake-train [command]"
+        echo ""
+        echo "Commands:"
+        echo "  positive  - Record 'Hey Arlowe' samples (need 50)"
+        echo "  negative  - Record other speech samples (need 30)"
+        echo "  status    - Show current sample counts"
+        echo "  train     - Train the verifier model"
+        echo "  test      - Test wake word detection"
+        echo ""
+        "$PYTHON" collect_samples.py status
+        ;;
+esac
