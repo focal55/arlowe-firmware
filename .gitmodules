@@ -1,0 +1,4 @@
+[submodule "third_party/ax-llm"]
+	path = third_party/ax-llm
+	url = https://github.com/AXERA-TECH/ax-llm.git
+	branch = axcl-context
