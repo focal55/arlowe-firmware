@@ -1,0 +1,23 @@
+# runtime/voice — Python deps for the voice orchestrator
+# Pinned from arlowe-1 ~/venvs/voice/ on 2026-05-02
+# Update procedure: regenerate from pip freeze on the dev unit; bump in a follow-up PR.
+
+# Wake word detection
+openwakeword==0.4.0
+onnxruntime==1.23.2
+
+# Audio I/O
+PyAudio==0.2.14
+
+# Numeric / signal processing
+numpy==2.3.5
+scipy==1.17.0
+noisereduce==3.0.3
+
+# HTTP (voice_client → face, STT, and via llm.router → LLM)
+requests==2.32.5
+urllib3==2.6.3
+
+# ML utils (verifier training / inference via scikit-learn classifier)
+scikit-learn==1.8.0
+joblib==1.5.3
