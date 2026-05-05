@@ -45,8 +45,11 @@ jobs:
           NET=$(git diff --shortstat "$BASE_SHA..$HEAD_SHA" | awk '{print $4 + $6}')
           NET=${NET:-0}
           echo "Net lines changed: $NET"
-          if [ "$NET" -gt 600 ]; then
-            echo "::error::PR is too large ($NET net lines). Atomic PRs are <400 lines net. Please split."
+          # Hard cap raised to 1500 during Phase 1 (runtime extraction): pulling whole
+          # Python files out of a monorepo is monolithic by nature; voice_client.py
+          # alone is 543 LOC. Restore to 600 once Phase 1 closes and surgical work resumes.
+          if [ "$NET" -gt 1500 ]; then
+            echo "::error::PR is too large ($NET net lines). Hard cap is 1500 during Phase 1. Please split."
             exit 1
           fi
           if [ "$NET" -gt 400 ]; then
