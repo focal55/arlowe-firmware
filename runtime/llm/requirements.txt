@@ -1,0 +1,10 @@
+# LLM runtime dependencies
+# Pinned from arlowe-1 voice venv (~/venvs/voice/). Bump with care and
+# re-test on the Pi before merging — the ax-llm binary is ABI-sensitive.
+
+# File locking for thread-safe usage-stats writes
+filelock>=3.12.0,<4
+
+# Tokenizer HTTP server (qwen2.5_tokenizer_uid.py)
+# The transformers package loads the qwen2.5_tokenizer/ directory at startup.
+transformers>=4.40.0,<5
