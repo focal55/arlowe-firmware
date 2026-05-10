@@ -26,7 +26,6 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      // TODO(plan-08): expand fetches to include product-relevant health/voice payload
       const [healthRes, voiceRes] = await Promise.all([
         fetch('/api/health'),
         fetch('/api/voice'),
