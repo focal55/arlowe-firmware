@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-LOG_DIR = Path("/var/lib/arlowe/logs/voice")
+LOG_DIR = Path(os.environ.get("ARLOWE_LOGS_DIR", "/var/lib/arlowe/logs")) / "voice"
 KEEP_DAYS = 7
 
 def cleanup_old_logs():

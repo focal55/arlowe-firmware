@@ -5,22 +5,22 @@ Uses local NPU (Qwen model) for real-time sentiment analysis.
 Maps sentiment to facial expressions.
 """
 import json
+import os
 import urllib.request
 import urllib.error
 from enum import Enum
 from pathlib import Path
 from typing import Tuple, Optional
 
-# localhost:8001 is the OpenAI-compat shim. See research notes / plan 13:
-# the path may be replumbed to localhost:8000 (ax-llm native) once the
-# qwen-openai resolution lands. Heuristic fallback handles the broken case.
-QWEN_URL = "http://localhost:8001/v1/chat/completions"
+# Resolved per ADR-0001 §Resolution (option-2, plan 13): query ax-llm
+# native OpenAI surface on :8000 directly. The openai_wrapper.py shim is gone.
+QWEN_URL = "http://localhost:8000/v1/chat/completions"
 
 # Load order: /etc/arlowe/config.yml (post-pairing overlay, Phase 4),
-# falling back to /var/lib/arlowe/state/whisplay-config.json for dev.
+# falling back to <state>/whisplay-config.json for dev.
 # During Phase 1 we accept the fallback path; Phase 4 wires the overlay.
-CONFIG_OVERLAY = Path("/etc/arlowe/config.yml")
-CONFIG_PATH = Path("/var/lib/arlowe/state/whisplay-config.json")
+CONFIG_OVERLAY = Path(os.environ.get("ARLOWE_CONFIG_PATH", "/etc/arlowe/config.yml"))
+CONFIG_PATH = Path(os.environ.get("ARLOWE_STATE_DIR", "/var/lib/arlowe/state")) / "whisplay-config.json"
 
 
 class Sentiment(Enum):

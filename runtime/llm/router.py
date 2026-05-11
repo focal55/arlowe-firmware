@@ -22,10 +22,12 @@ from face.sentiment_classifier import analyze_and_express, Sentiment
 
 # Usage stats file — whisplay local bookkeeping; not shared with any other
 # service. Writes to the arlowe state directory instead of the old developer
-# workspace location. See ADR-0001.
-USAGE_STATS_PATH = Path("/var/lib/arlowe/state/usage-stats.json")
-USAGE_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+# workspace location. See ADR-0001. State dir overridable for tests + dev.
+_STATE_DIR = Path(os.environ.get("ARLOWE_STATE_DIR", "/var/lib/arlowe/state"))
+USAGE_STATS_PATH = _STATE_DIR / "usage-stats.json"
 USAGE_LOCK_PATH = USAGE_STATS_PATH.with_suffix(".lock")
+# Lazy mkdir — at write time, not import time. Import must not require
+# write permission to the state dir (smoke-test runtimes mount /tmp paths).
 
 # Local Qwen API
 # Resolved per ADR-0001 §Resolution (option-2, plan 13): point directly at
@@ -127,6 +129,8 @@ def log_usage(provider: str, input_tokens: int = 0, output_tokens: int = 0,
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     try:
+        # Ensure the state dir exists before FileLock tries to create its lockfile.
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
         lock = FileLock(str(USAGE_LOCK_PATH), timeout=5)
         with lock:
             # Read existing stats
