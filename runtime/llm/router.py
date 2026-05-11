@@ -29,12 +29,18 @@ USAGE_LOCK_PATH = USAGE_STATS_PATH.with_suffix(".lock")
 # Lazy mkdir — at write time, not import time. Import must not require
 # write permission to the state dir (smoke-test runtimes mount /tmp paths).
 
-# Local Qwen API
-# Resolved per ADR-0001 §Resolution (option-2, plan 13): point directly at
-# ax-llm's native OpenAI-compatible surface on :8000. The intermediate
-# openai_wrapper.py shim is no longer in the path; qwen-openai.service is
-# scheduled for removal from the systemd unit set in Phase 11.
-QWEN_URL = "http://localhost:8000/v1/chat/completions"
+# Local Qwen API — ax-llm native (option-2 revised, plan 13 smoke-test).
+# The originally-assumed OpenAI-compat surface (/v1/chat/completions) does
+# not exist on the running ax-llm build (Feb 2026 axcl-context branch).
+# Authoritative routes per /home/focal55/ax-llm/docs/http_api.md and the
+# binary's own registered routes:
+#   POST /api/chat   — synchronous {messages: [...]}  →  {done, message}
+#   POST /api/reset  — KV cache + system_prompt reset
+#   POST /api/generate, GET /api/generate_provider — streaming variant
+# See ADR-0001 §Resolution for the option-1/2/3 history.
+QWEN_BASE = "http://localhost:8000"
+QWEN_URL = f"{QWEN_BASE}/api/chat"
+QWEN_RESET_URL = f"{QWEN_BASE}/api/reset"
 
 # Claude Code CLI (Claude Agent, non-interactive print mode).
 # Resolved via ARLOWE_CLAUDE_BIN env var, then PATH lookup, then a
@@ -228,7 +234,7 @@ def reset_local() -> bool:
             "system_prompt": "You are Arlowe, a friendly AI assistant with a calm, curious personality. Be brief, conversational, and helpful. Reply in 1-2 sentences."
         }).encode()
         req = urllib.request.Request(
-            QWEN_NATIVE_URL + "/api/reset",
+            QWEN_RESET_URL,
             data=data,
             headers={"Content-Type": "application/json"}
         )
@@ -246,15 +252,15 @@ def query_local(text: str) -> tuple[str, bool]:
     input_tokens = estimate_tokens(text)
 
     try:
-        # No system role - Qwen wrapper doesn't support it
-        # Prepend persona instruction to user message
+        # ax-llm /api/chat expects {messages: [...]}; system_prompt is set
+        # globally by the systemd unit's --system_prompt flag. Persona prompt
+        # is prepended in the user message for backward compat with the wrapper
+        # era; later phases can move it to /api/reset's system_prompt.
         prompt = f"[You are Arlowe, a friendly AI assistant. Reply in 1-2 sentences.]\n{text}"
         data = json.dumps({
-            "model": "qwen2.5-1.5b-instruct",
             "messages": [
                 {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 100
+            ]
         }).encode()
 
         req = urllib.request.Request(
@@ -266,18 +272,18 @@ def query_local(text: str) -> tuple[str, bool]:
         with urllib.request.urlopen(req, timeout=30) as resp:
             latency_ms = int((time.time() - start_time) * 1000)
             result = json.loads(resp.read().decode())
-            if "choices" in result and len(result["choices"]) > 0:
-                content = result["choices"][0].get("message", {}).get("content", "")
-                if content.strip():
-                    # Catch KV cache overflow error
-                    if "SetKVCache failed" in content or "context may be full" in content:
-                        print("  [router] KV cache full — resetting and retrying", flush=True)
-                        reset_local()
-                        return query_local(text)  # Retry once after reset
+            # ax-llm /api/chat shape: {done: true, message: "..."}
+            content = result.get("message", "")
+            if content and content.strip():
+                # Catch KV cache overflow error
+                if "SetKVCache failed" in content or "context may be full" in content:
+                    print("  [router] KV cache full — resetting and retrying", flush=True)
+                    reset_local()
+                    return query_local(text)  # Retry once after reset
 
-                    output_tokens = estimate_tokens(content)
-                    log_usage("qwen-local", input_tokens, output_tokens, latency_ms, success=True)
-                    return content.strip(), True
+                output_tokens = estimate_tokens(content)
+                log_usage("qwen-local", input_tokens, output_tokens, latency_ms, success=True)
+                return content.strip(), True
 
         latency_ms = int((time.time() - start_time) * 1000)
         log_usage("qwen-local", input_tokens, 0, latency_ms, success=False)

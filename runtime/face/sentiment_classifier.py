@@ -12,9 +12,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Tuple, Optional
 
-# Resolved per ADR-0001 §Resolution (option-2, plan 13): query ax-llm
-# native OpenAI surface on :8000 directly. The openai_wrapper.py shim is gone.
-QWEN_URL = "http://localhost:8000/v1/chat/completions"
+# ax-llm native /api/chat (option-2 revised per plan 13 smoke-test discovery —
+# the OpenAI-compat path doesn't exist on the running ax-llm build).
+QWEN_URL = "http://localhost:8000/api/chat"
 
 # Load order: /etc/arlowe/config.yml (post-pairing overlay, Phase 4),
 # falling back to <state>/whisplay-config.json for dev.
@@ -114,13 +114,11 @@ Text: "{text}"
 
 Sentiment:"""
 
+        # ax-llm /api/chat shape: minimal {messages: [...]} request.
         data = json.dumps({
-            "model": "qwen2.5-1.5b-instruct",
             "messages": [
                 {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 10,  # We only need one word
-            "temperature": 0.1  # Low temperature for consistent classification
+            ]
         }).encode()
 
         req = urllib.request.Request(
@@ -131,8 +129,8 @@ Sentiment:"""
 
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             result = json.loads(resp.read().decode())
-            if "choices" in result and len(result["choices"]) > 0:
-                content = result["choices"][0].get("message", {}).get("content", "").strip().lower()
+            content = result.get("message", "").strip().lower()
+            if content:
 
                 # Parse response - look for sentiment keywords
                 if "positive" in content:
