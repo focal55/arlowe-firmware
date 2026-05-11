@@ -35,29 +35,38 @@ from openwakeword.model import Model as WakeWordModel
 import pyaudio
 from face.sentiment_classifier import Sentiment
 
-# Paths
-PIPER_PATH = Path("/opt/arlowe/runtime/tts/bin/piper")
-PIPER_MODEL = Path("/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx")
-VERIFIER_MODEL = Path("/var/lib/arlowe/wake-word/verifier.pkl")
+# Paths — defaults match product layout; overridable for tests and dev units.
+PIPER_PATH = Path(os.environ.get("ARLOWE_PIPER_PATH", "/opt/arlowe/runtime/tts/bin/piper"))
+PIPER_MODEL = Path(os.environ.get(
+    "ARLOWE_PIPER_MODEL",
+    "/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx",
+))
+VERIFIER_MODEL = Path(os.environ.get(
+    "ARLOWE_VERIFIER_MODEL",
+    "/var/lib/arlowe/wake-word/verifier.pkl",
+))
 # TODO(phase-5): Replace plughw:2,0 with config-driven audio device selection.
-RECORD_DEVICE = "plughw:2,0"
-PLAY_DEVICE = "plughw:2,0"
+RECORD_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE", "plughw:2,0")
+PLAY_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE", "plughw:2,0")
 
 # Wake word detection thresholds
 BASE_THRESHOLD = 0.20
 VERIFIER_THRESHOLD = 0.30
 
 # Face control
-FACE_API = "http://localhost:8080"
+FACE_API = os.environ.get("ARLOWE_FACE_URL", "http://localhost:8080")
+
+# STT server
+STT_URL = os.environ.get("ARLOWE_STT_URL", "http://localhost:8082/transcribe")
 
 # Orchestration Dashboard
-DASHBOARD_URL = "http://localhost:3000"
+DASHBOARD_URL = os.environ.get("ARLOWE_DASHBOARD_URL", "http://localhost:3000")
 
 # Fan control
 FAN_PWM = "/sys/class/hwmon/hwmon2/pwm1"
 
-# Logging
-LOG_DIR = Path("/var/lib/arlowe/logs/voice")
+# Logging — ARLOWE_LOGS_DIR is the shared base; voice subdir lives under it.
+LOG_DIR = Path(os.environ.get("ARLOWE_LOGS_DIR", "/var/lib/arlowe/logs")) / "voice"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -294,7 +303,7 @@ def transcribe(audio_path: str) -> str:
             audio_data = f.read()
         
         req = urllib.request.Request(
-            "http://localhost:8082/transcribe",
+            STT_URL,
             data=audio_data,
             headers={"Content-Type": "application/octet-stream"}
         )
