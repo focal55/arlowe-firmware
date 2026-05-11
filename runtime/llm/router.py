@@ -17,10 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from filelock import FileLock
 
-# Import sentiment classifier
-import sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sentiment_classifier import analyze_and_express, Sentiment
+# Sentiment classifier lives in the sibling face/ package after extraction.
+from face.sentiment_classifier import analyze_and_express, Sentiment
 
 # Usage stats file — whisplay local bookkeeping; not shared with any other
 # service. Writes to the arlowe state directory instead of the old developer
