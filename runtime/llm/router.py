@@ -30,11 +30,11 @@ USAGE_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
 USAGE_LOCK_PATH = USAGE_STATS_PATH.with_suffix(".lock")
 
 # Local Qwen API
-# NOTE: This URL routes through openai_wrapper.py on :8001 today.
-# qwen-openai.service is currently in restart loop — see ADR-0001 §Resolution.
-# Plan 13's smoke test prep either restores the wrapper or repoints this to :8000.
-QWEN_URL = "http://localhost:8001/v1/chat/completions"
-QWEN_NATIVE_URL = "http://localhost:8000"
+# Resolved per ADR-0001 §Resolution (option-2, plan 13): point directly at
+# ax-llm's native OpenAI-compatible surface on :8000. The intermediate
+# openai_wrapper.py shim is no longer in the path; qwen-openai.service is
+# scheduled for removal from the systemd unit set in Phase 11.
+QWEN_URL = "http://localhost:8000/v1/chat/completions"
 
 # Claude Code CLI (Claude Agent, non-interactive print mode).
 # Resolved via ARLOWE_CLAUDE_BIN env var, then PATH lookup, then a
