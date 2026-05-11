@@ -5,7 +5,7 @@
 **Date:** 2026-05-01
 **Phase:** 1 (Runtime extraction)
 **Closes:** EXTRACT-11
-**Relates to:** EXTRACT-05 (openai_wrapper.py resolution, deferred to plan 13)
+**Relates to:** EXTRACT-05 (openai_wrapper.py resolution, resolved 2026-05-10 in plan 13)
 
 ## Context
 
@@ -41,21 +41,46 @@ Concrete sanitization landed in plan 05:
 - All log prefixes updated from `[IOL]` to `[router]`
 - All `iol_route(...)` callsites updated to `llm_route(...)` (in plan 02, voice_client.py)
 
-## openai_wrapper.py — resolution (deferred to plan 13)
+## openai_wrapper.py — resolution (resolved 2026-05-10 in plan 13)
 
-Phase 1's smoke test on arlowe-1 needs the local LLM path to either work or be
-explicitly bypassed. Plan 13 picks one of:
+**Decision: option-2.** `QWEN_URL` in `runtime/llm/router.py` now points at
+`http://localhost:8000/v1/chat/completions` (ax-llm native OpenAI-compatible
+surface). The `openai_wrapper.py` shim is eliminated; `qwen-openai.service` is
+no longer in the request path.
 
-1. **Recover from git history** — `git -C ~/iol-monorepo log --all --diff-filter=D --summary -- "**/openai_wrapper.py"`. Restore if found.
-2. **Eliminate the wrapper** — point `QWEN_URL` at `localhost:8000` (ax-llm native API; verified working). Lowest LOC delta. **Recommended.**
-3. **Skip in Phase 1** — smoke test passes on cloud-only routing; restore local in a later phase. Documented gap.
+### Why option-2
 
-The decision lands in plan 13 because that's where the smoke-test prep runs and
-where we can verify-by-running. Plan 05 records the options and the recommendation;
-plan 13 picks one and documents which.
+- **Verified working live.** `curl http://localhost:8000/v1/models` on arlowe-1
+  returns ok against the running ax-llm process. The native surface speaks the
+  OpenAI `/v1/chat/completions` shape that `voice_client.py` already expects.
+- **Lowest LOC delta.** One URL constant changed; no new file.
+- **Removes a moving part.** One fewer service to keep alive. The previous
+  3-service path (`qwen-tokenizer` → `qwen-openai` shim → `qwen-api`) collapses
+  to 2 (`qwen-tokenizer` → ax-llm at `:8000`).
+- Plan 13 task 1 recommended option-2 with auto-fallback from option-1 if git
+  recovery failed. Option-1 was not attempted because option-2 is verified
+  working today and recovery would have served only to preserve a shim with no
+  current consumer.
 
-`QWEN_URL` currently points at `:8001` (the broken wrapper endpoint). The comment
-above the constant in `runtime/llm/router.py` documents this and references this ADR.
+### Post-fix observable behaviour
+
+After plan 13 staging on arlowe-1:
+- A voice query causes `voice_client.py` → `llm.router.query_local()` → POST
+  to `http://localhost:8000/v1/chat/completions`.
+- ax-llm responds in the OpenAI chat-completion shape.
+- `voice_client.py` consumes `response["choices"][0]["message"]["content"]`
+  unchanged from the wrapper era.
+- Round-trip target: under 5s wake-to-speech (validated in
+  `docs/operations/phase-1-smoke-test.md` Observed-run section).
+
+### Follow-up work
+
+- **Phase 11 (boot health, dashboard, log management):** drop
+  `qwen-openai.service` from the systemd unit set entirely. Update the
+  dashboard's `/api/voice` and `/api/logs` service-list constants accordingly.
+- **Smoke test:** Plan 13 task 4 exercises the new path end-to-end on
+  arlowe-1; outcome captured in
+  `docs/operations/phase-1-smoke-test.md`.
 
 ## Cloud-path credential dependency (Phase 7)
 
