@@ -13,12 +13,12 @@ Runs as a single Python process under the `arlowe` system user (currently the de
 
 ## Outbound HTTP calls
 
-| Target | URL | Used for |
+| Target | URL (default; env override) | Used for |
 |---|---|---|
-| face service | `http://localhost:8080/state` | render face expression and background during each pipeline stage |
-| STT server | `http://localhost:8082/transcribe` | transcribe wake-window audio via faster-whisper |
-| LLM router | via `llm.router` (delegates internally to `localhost:8001` or `claude` CLI) | generate response text |
-| dashboard | `http://localhost:3000` | rules engine fetches orchestration config; stub does not call this today |
+| face service | `http://localhost:8080/state` (`ARLOWE_FACE_URL`) | render face expression and background during each pipeline stage |
+| STT server | `http://localhost:8082/transcribe` (`ARLOWE_STT_URL`) | transcribe wake-window audio via faster-whisper |
+| LLM router | via `llm.router` (delegates internally to `localhost:8000` or `claude` CLI) | generate response text |
+| dashboard | `http://localhost:3000` (`ARLOWE_DASHBOARD_URL`) | rules engine fetches orchestration config; stub does not call this today |
 
 ## How to run locally on arlowe-1
 
@@ -46,6 +46,23 @@ The process streams diagnostic output to stdout. Structured voice logs go to `/v
 ## Dependencies
 
 See `requirements.txt`. Run from `/opt/arlowe/venv/` at image time or from the dev venv during development.
+
+## Environment overrides
+
+All filesystem paths and sibling-service URLs are configurable via environment variables. Defaults match the product layout (`/opt/arlowe/...`, `/var/lib/arlowe/...`).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ARLOWE_PIPER_PATH` | `/opt/arlowe/runtime/tts/bin/piper` | Piper TTS binary |
+| `ARLOWE_PIPER_MODEL` | `/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx` | Piper voice model |
+| `ARLOWE_VERIFIER_MODEL` | `/var/lib/arlowe/wake-word/verifier.pkl` | Wake-word verifier `.pkl` |
+| `ARLOWE_ALSA_DEVICE` | `plughw:2,0` | ALSA record + play device |
+| `ARLOWE_FACE_URL` | `http://localhost:8080` | Face service base URL |
+| `ARLOWE_STT_URL` | `http://localhost:8082/transcribe` | STT endpoint |
+| `ARLOWE_DASHBOARD_URL` | `http://localhost:3000` | Dashboard base URL |
+| `ARLOWE_LOGS_DIR` | `/var/lib/arlowe/logs` | Base logs dir (`voice/` subdir created here) |
+
+Set these via the systemd unit's `Environment=` lines on dev/test units, or globally in the image build for production.
 
 ## Known limitations
 
