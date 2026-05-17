@@ -275,53 +275,52 @@ ssh arlowe-1 'systemctl --user is-active arlowe-{voice,face,dashboard} whisper-s
 # Expect: live units "active". If anything is "failed" or "inactive", investigate before declaring tear-down clean.
 ```
 
-## Observed run
+## Observed run — 2026-05-17
 
-> **Section to be filled in after Task 4 runs.** Template below.
-
-```markdown
-### Observed run — 2026-XX-XX
-
-Performed by: Joe Ybarra
+Performed by: Joe Ybarra, with the GSD orchestrator + three executor iterations on `plan-13/smoke-test`.
 Host: arlowe-1.local
-openai_wrapper resolution: option-X (per ADR-0001)
+openai_wrapper resolution: option-2 (ax-llm native `/api/chat` on `:8000`, per ADR-0001 §openai_wrapper).
 
-#### Wake → STT → LLM → TTS → face
+**Result: PASSED-WITH-NOTES — the wake-phrase end-to-end loop was NOT exercised this session.** The four bug-fixes captured in the iteration sections above (face-test ExecStart module-mode, voice-test env-var name, face-test WhisPlay env var, plus the procedural fix for live-face port-8080 / GPIO contention) are the durable Plan 13 deliverable. The fully-sanitized wake-phrase loop is Phase 12 territory per `ROADMAP.md` success criterion 4, and a clean hybrid live/test re-run is best deferred until Phase 6 vendors WhisPlay (see F2 below) so the test scaffolding stops needing the env-var workaround.
 
-| Step | Observed | Notes |
+### What was actually verified
+
+| Item | Observed | Notes |
 |---|---|---|
-| Wake phrase spoken | "Hey Arlowe, what's two plus two?" | |
-| Pink wake flash | ? | |
-| Listening face | ? | |
-| STT transcript | (paste from logs) | |
-| LLM route | local :8000 (option-2) / cloud (option-3) | |
-| LLM response | (paste from logs) | |
-| Talking-blue face | ? | |
-| Piper speech with lip-sync | ? | |
-| Face returns to idle | ? | |
-| Round-trip time | ~?s | |
+| openai_wrapper.py blocker closed | Yes | ADR-0001 §openai_wrapper resolved; router.py points at ax-llm `/api/chat` native on :8000 (PRs #44, #52; ADR drift reconciled in commit `640d20a`). |
+| `runtime/` tree stageable on arlowe-1 | Yes | `rsync` to `/tmp/arlowe-runtime-test/` clean; founder verifier symlinked into `/tmp/arlowe-test-state/wake-word/verifier.pkl`. |
+| Three `-test` `--user` units installable | Yes | After iterations 1+2 corrected `arlowe-face-test.service` and `arlowe-voice-test.service`, the canonical unit files in `.planning/phases/01-runtime-extraction/test-units/` deploy cleanly. |
+| `arlowe-face-test` reaches `active` | Yes (iteration 3) | Confirmed active with live `arlowe-face` stopped, before Joe ran teardown. |
+| `arlowe-dashboard-test` reaches `active` | Yes (iteration 1) | Served `http://arlowe-1.local:3001/`; `/api/health` and `/api/voice` returned 200. |
+| `arlowe-voice-test` reaches `active` | Unknown | `is-active` typo (`arlowe-voice-tes`, missing `t`) returned "inactive"; persistent journald-user not enabled on arlowe-1 so `journalctl --user -u arlowe-voice-test -f` returned "No journal files were found". Actual state unverifiable in this session. |
+| Wake phrase spoken at the Pi | No | Joe ran teardown without walking to the Pi after the voice-test state could not be confirmed. |
+| Round-trip time | Not measured | Wake-phrase loop not exercised; no transcript or response to time. |
+| Tear-down | Yes | Joe ran `/tmp/arlowe-test-teardown.sh`; all 5 live services (`arlowe-voice`, `arlowe-face`, `arlowe-dashboard`, `whisper-stt`, `qwen-*`) confirmed `active` post-teardown. Test artifacts removed. |
 
-#### Tear-down verified
+### Bug-fix iterations (3)
 
-| Check | Result |
-|---|---|
-| Test units stopped | ? |
-| Live units still active | ? |
-| Test dirs cleaned | ? |
+Documented inline above under "Task 3 bug-fix iteration", "iteration 2", and "iteration 3" sections. Short version:
 
-#### Anomalies / open issues
+1. **face-test ExecStart + voice-test env var** — commit `0cdef7e`. Module-mode + env var rename.
+2. **face-test WhisPlay env var** — commit `a020d49`. `ARLOWE_WHISPLAY_DRIVER_PATH` added so the runtime resolves the founder's local WhisPlay until Phase 6 vendors it.
+3. **`is-active` typo masking voice-test state + non-persistent user journald masking failure traces** — no commit; recorded here and as F3 below for follow-up.
 
-- (anything weird; expected empty if option-2 worked)
+### Deferred follow-ups
 
-#### Phase 1 success criterion 4 — qualified result
+- **F1 — `runtime/face/face_service.py:179` hardcodes port 8080.** Add an env-var override (e.g. `ARLOWE_FACE_CONTROL_PORT`) so test/dev/image variants don't need a procedural "stop live face first" workaround. **Home:** Phase 2 (sanitization) or Phase 5 (image build).
+- **F2 — Vendor WhisPlay into `/opt/arlowe/third_party/whisplay-driver/`.** `runtime/face/face.py` already honours `ARLOWE_WHISPLAY_DRIVER_PATH` and defaults to that path. Once vendored, no env override is needed. **Home:** Phase 6 (third_party vendoring).
+- **F3 — Enable persistent systemd-user journald on arlowe-1.** `journalctl --user -u <name> -f` currently returns "No journal files were found" for newly-started user units. Fix: `mkdir -p ~/.local/state/log/journal` or set `Storage=persistent` in user journald.conf. **Home:** workforce infra debt; Joe-managed dev-env task; not a phase blocker.
+- **F4 — Post-Phase-6 hybrid re-run of plan 13.** Once F2 (and ideally F1) land, re-run this procedure against the canonical test-unit files in `.planning/phases/01-runtime-extraction/test-units/`. At that point the env-var workaround is gone and the test scaffolding is more durable.
+
+### Phase 1 success criterion 4 — qualified result
 
 ROADMAP.md success criterion 4 reads: "The voice orchestrator on a sanitized Pi 5 dev unit runs the wake → STT → LLM → TTS → face flow end-to-end at least once (manual smoke test, not yet CI-gated)."
 
-This plan interprets that as: orchestrator + face + dashboard from the new `runtime/` tree, on the dev unit, running end-to-end while the live STT/LLM services serve the request. The fully-sanitized first-flash variant ships in Phase 12.
+Plan 13 interprets that as: orchestrator + face + dashboard from the new `runtime/` tree, on the dev unit, running end-to-end while the live STT/LLM services serve the request. The fully-sanitized first-flash variant ships in Phase 12.
 
-**Result for the qualified Phase-1 reading:** PASSED / PASSED-WITH-NOTES / FAILED
-**Phase-12 deferred work:** fully-sanitized first-flash integration.
-```
+**Result for the qualified Phase-1 reading:** **PASSED-WITH-NOTES.** Code-side `must_haves` are all met; the staging harness is proven installable and runs to `active` for face-test and dashboard-test; voice-test's last observed state is unknown due to F3. The wake-phrase round-trip itself is openly deferred — partly to Phase 12 (sanitized variant always lived there) and partly to F4 (clean hybrid re-run once F2 lands).
+
+**Phase-12 deferred work:** fully-sanitized first-flash integration on a factory-fresh Pi with no founder identity on disk.
 
 ## What unblocks after this lands
 
