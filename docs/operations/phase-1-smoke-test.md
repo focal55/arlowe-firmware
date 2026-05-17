@@ -1,6 +1,6 @@
 # Phase 1 Smoke Test — Procedure and Run Log
 
-> **Status:** prepared 2026-05-10; staged on arlowe-1 2026-05-16 by Plan 13 Task 3 (`plan-13/smoke-test` branch). `/tmp/arlowe-runtime-test/` populated, three `-test` user units installed (inactive after the Task 3 bug-fix iteration), founder verifier symlinked into `/tmp/arlowe-test-state/wake-word/verifier.pkl`, tear-down script at `/tmp/arlowe-test-teardown.sh`. Observed-run section to be filled by Joe after Task 4 executes.
+> **Status:** prepared 2026-05-10; staged on arlowe-1 2026-05-16 by Plan 13 Task 3 (`plan-13/smoke-test` branch). `/tmp/arlowe-runtime-test/` populated, three `-test` user units installed (inactive after the Task 3 bug-fix iterations), founder verifier symlinked into `/tmp/arlowe-test-state/wake-word/verifier.pkl`, tear-down script at `/tmp/arlowe-test-teardown.sh`. Observed-run section to be filled by Joe after Task 4 executes.
 
 ## Task 3 bug-fix iteration (2026-05-16)
 
@@ -22,6 +22,30 @@ ssh arlowe-1 'systemctl --user daemon-reload && \
 ```
 
 After the fix, all three units come up `inactive` and the dashboard-test remains `active` (it was never stopped).
+
+## Task 3 bug-fix iteration 2 (2026-05-17)
+
+The second Task 4 attempt (after iteration 1's fixes) was run with the live `arlowe-voice` unit still active. Voice-test failed on mic contention (expected — caveat already in this doc) and face-test failed on a third bug. Direct invocation gave a clean traceback. Recording here so the third try doesn't repeat it.
+
+| Unit | Failure | Root cause | Fix |
+|---|---|---|---|
+| `arlowe-face-test` | `ModuleNotFoundError: No module named 'WhisPlay'` | `runtime/face/face.py:19-25` honours `ARLOWE_WHISPLAY_DRIVER_PATH` env var, defaulting to `/opt/arlowe/third_party/whisplay-driver` (the Phase-6 vendored location, not yet populated on arlowe-1). The founder's driver lives at `/home/focal55/Library/Whisplay/Driver/WhisPlay.py`. The unit didn't set the env var so the import resolved nowhere. | Add `Environment=ARLOWE_WHISPLAY_DRIVER_PATH=/home/focal55/Library/Whisplay/Driver` to `arlowe-face-test.service`. Source untouched — banned-literal hack stays out of the runtime tree per Phase 2 sanitization. |
+| `arlowe-voice-test` | mic contention with live `arlowe-voice` | Both units open the same ALSA capture device. Already covered by the "Mic contention caveat" below; not a unit-file bug. | Procedural: stop live voice before starting test voice. Restart live voice during tear-down. |
+
+Verified post-fix on 2026-05-17: `ssh arlowe-1 'PYTHONPATH=/home/focal55/Library/Whisplay/Driver /usr/bin/python3 -c "import WhisPlay; print(WhisPlay.__file__)"'` returns `/home/focal55/Library/Whisplay/Driver/WhisPlay.py`. After redeploying the corrected unit file the WhisPlay import resolved cleanly — the next traceback hit a different problem (face-port + GPIO contention with live `arlowe-face`, see iteration 3 below) which proves the env-var fix works.
+
+## Task 3 bug-fix iteration 3 (2026-05-17, surfaced during iteration-2 verify-start)
+
+After iteration 2 deployed the WhisPlay env var, starting `arlowe-face-test` with the live `arlowe-face` unit still active surfaced a hardware/port contention identical in shape to the voice-test mic contention.
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| `OSError: [Errno 98] Address already in use` on port 8080 | `runtime/face/face_service.py:179` hardcodes the control-server port to 8080. Live face (PID 63316) owns the port. | Procedural: stop live `arlowe-face` before starting test face. Restart during tear-down. Future: optional env-var override for the port (deferred — out of plan-13 scope; tracked as Phase 2 sanitization candidate or Phase 5 image-build cleanup). |
+| `lgpio.error: 'GPIO not allocated'` during `WhisPlayBoard.__init__` | Live face holds the Whisplay SPI/GPIO pins (DC, RST, LED). Two processes cannot both claim them. | Procedural: same as port contention — stop live face first. |
+
+Live `arlowe-face` was unaffected by the failed start (PID 63316 unchanged, 0 restarts, journal quiet). The contention is fail-fast on the test process, not a degradation of live. Joe's "live face MUST continue showing what it shows" guardrail held.
+
+**Net of iterations 2 + 3:** the test-units themselves are now correct. Remaining Task-4 work is purely procedural — Joe must stop **both** live voice and live face before starting their test counterparts, and restart both during tear-down.
 
 ## Scope and limits (READ FIRST)
 
@@ -143,6 +167,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/tmp/arlowe-runtime-test:/home/focal55/venvs/voice/lib/python3.13/site-packages
 Environment=ARLOWE_LOGS_DIR=/tmp/arlowe-test-state/logs
 Environment=ARLOWE_STATE_DIR=/tmp/arlowe-test-state
+Environment=ARLOWE_WHISPLAY_DRIVER_PATH=/home/focal55/Library/Whisplay/Driver
 WorkingDirectory=/tmp/arlowe-runtime-test
 ExecStart=/usr/bin/python3 -m face.face_service
 Restart=no
@@ -176,13 +201,15 @@ Note: `whisper-stt` and `qwen-*` are NOT included. Those continue to run from th
 
 > **Mic contention caveat (discovered 2026-05-16 during Task 4 retry prep):** the live `arlowe-voice` service was active during the first Task 4 attempt. Both `arlowe-voice` and `arlowe-voice-test` try to open the same ALSA capture device, so running them concurrently is expected to fail (mic device busy or wake-word miss). The Task 4 procedure now explicitly pauses the live voice unit before starting the test unit and restarts it during tear-down.
 
+> **Face contention caveat (discovered 2026-05-17 during iteration-2 verify-start):** identical-shape problem for face. Both `arlowe-face` and `arlowe-face-test` try to (a) bind port 8080 for the face control server and (b) acquire the same Whisplay SPI/GPIO pins. Running them concurrently fails fast on the test process (live face is unaffected). The Task 4 procedure pauses live `arlowe-face` before starting test face and restarts it during tear-down. Same procedural rule as voice.
+
 ## Smoke-test commands
 
 ```bash
-# 0. Stop the live voice unit to release the mic. ONLY do this once Joe is
-#    physically at the Pi and ready to run the test — the live voice unit is
-#    his daily driver.
-ssh arlowe-1 'systemctl --user stop arlowe-voice'
+# 0. Stop the live voice + face units to release the mic, Whisplay GPIO, and
+#    face control port 8080. ONLY do this once Joe is physically at the Pi and
+#    ready to run the test — the live units are his daily driver.
+ssh arlowe-1 'systemctl --user stop arlowe-voice arlowe-face'
 
 # 1. Start the test units in dependency order: face + dashboard first, then voice
 ssh arlowe-1 'systemctl --user daemon-reload && \
@@ -239,8 +266,9 @@ ssh arlowe-1 'systemctl --user stop arlowe-voice-test arlowe-face-test arlowe-da
 # Remove staged tree and test state
 ssh arlowe-1 'rm -rf /tmp/arlowe-runtime-test /tmp/arlowe-test-state'
 
-# Restart the live voice unit (was stopped at step 0 to release the mic)
-ssh arlowe-1 'systemctl --user start arlowe-voice'
+# Restart the live voice + face units (both were stopped at step 0 to release
+# mic, Whisplay GPIO, and port 8080)
+ssh arlowe-1 'systemctl --user start arlowe-face arlowe-voice'
 
 # Confirm live units active again
 ssh arlowe-1 'systemctl --user is-active arlowe-{voice,face,dashboard} whisper-stt qwen-tokenizer qwen-api 2>/dev/null || true'

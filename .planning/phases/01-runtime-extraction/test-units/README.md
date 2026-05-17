@@ -49,6 +49,54 @@ No bugs. Came up clean, served `http://arlowe-1.local:3001/` with `/api/health`
 and `/api/voice` returning 200. Included here for completeness so all three
 canonical units live in one place.
 
+## Bugs found and fixed during Task 4 iteration 2 (2026-05-17)
+
+The second Task 4 attempt (after iteration-1 fixes) revealed a third unit-file
+bug on face-test. Iteration-2 also confirmed (by elimination) that voice-test
+was failing on mic contention, not a unit-file bug.
+
+### arlowe-face-test.service (env-var fix)
+
+`runtime/face/face.py:19-25` honours `ARLOWE_WHISPLAY_DRIVER_PATH` and defaults
+to `/opt/arlowe/third_party/whisplay-driver` — the Phase-6 vendored location
+that does not yet exist on `arlowe-1`. The founder's WhisPlay driver actually
+lives at `/home/focal55/Library/Whisplay/Driver/WhisPlay.py` (single file). The
+old `sys.path.insert(0, '/home/focal55/Library/Whisplay/Driver')` hack was
+deliberately removed in Plan 03b as a banned-literal target for Phase 2.
+
+The unit file did not set the env var, so the import resolved nowhere and
+crashed with `ModuleNotFoundError: No module named 'WhisPlay'`.
+
+Fix: add `Environment=ARLOWE_WHISPLAY_DRIVER_PATH=/home/focal55/Library/Whisplay/Driver`
+to the unit. Source untouched — the banned literal stays out of `runtime/`.
+
+### arlowe-voice-test.service
+
+No unit-file bug. The failure was mic contention with the live `arlowe-voice`
+unit, which had been left running during the first retry. See
+`docs/operations/phase-1-smoke-test.md` "Mic contention caveat" — the Task 4
+procedure now explicitly stops live voice before starting test voice.
+
+## Hardware contention surfaced during iteration-2 verify-start (2026-05-17)
+
+After the env-var fix above, starting `arlowe-face-test` while the live
+`arlowe-face` unit was still running surfaced an identical-shape problem to
+voice-test's mic contention:
+
+1. `OSError: [Errno 98] Address already in use` — `face_service.py:179`
+   hardcodes the HTTP control-server port to 8080. Live face owns it.
+2. `lgpio.error: 'GPIO not allocated'` — both processes try to claim the
+   Whisplay SPI/GPIO pins (DC, RST, LED).
+
+This is not a unit-file bug — it's parallel-hardware-resource contention. The
+Task 4 procedure now stops **both** live voice and live face before starting
+their test counterparts (and restarts both during tear-down). Live face was
+unaffected by the failed test start (PID unchanged, 0 restarts, journal quiet).
+
+A future hardening: the face control-server port could honour an env-var
+override so a parallel test could bind 8081 instead of 8080. Out of plan-13
+scope (tracked as a Phase 2 sanitization / Phase 5 image-build candidate).
+
 ## Notes
 
 - `whisper-stt` and `qwen-*` are NOT in this set. They are reused from the live
