@@ -1,6 +1,6 @@
 # Phase 1 Smoke Test — Procedure and Run Log
 
-> **Status:** prepared 2026-05-10 by Plan 13 prep work (`docs/state-and-smoke-test-runbook` PR). Observed-run section to be filled by Joe after Task 4 executes on arlowe-1.
+> **Status:** prepared 2026-05-10; staged on arlowe-1 2026-05-16 by Plan 13 Task 3 (`plan-13/smoke-test` branch). `/tmp/arlowe-runtime-test/` populated, three `-test` user units installed (inactive), founder verifier symlinked into `/tmp/arlowe-test-state/wake-word/verifier.pkl`, tear-down script at `/tmp/arlowe-test-teardown.sh`. Observed-run section to be filled by Joe after Task 4 executes.
 
 ## Scope and limits (READ FIRST)
 
