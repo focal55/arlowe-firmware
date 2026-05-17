@@ -7,18 +7,18 @@
 
 ### Extraction (`EXTRACT`)
 
-- [ ] **EXTRACT-01**: `voice_client.py` extracts to `runtime/voice/`; retains wake → STT → LLM → TTS → face orchestration
-- [ ] **EXTRACT-02**: `face_service.py`, `face.py`, `sentiment_classifier.py`, `audio_sync.py` extract to `runtime/face/`; tcp/8080 face service preserved
-- [ ] **EXTRACT-03**: `stt_server.py` extracts to `runtime/stt/`; faster-whisper HTTP server on tcp/8082 preserved
-- [ ] **EXTRACT-04**: TTS invocation (currently `~/bin/speak`) extracts to `runtime/tts/` with a Piper voice asset manifest
-- [ ] **EXTRACT-05**: ax-llm runtime invocation (`run_api.sh`, `qwen2.5_tokenizer_uid.py`, `openai_wrapper.py`) extracts to `runtime/llm/`
-- [ ] **EXTRACT-06**: `arlowe-dashboard` Next.js app extracts to `runtime/dashboard/`; tcp/3000 preserved
-- [ ] **EXTRACT-07**: Wake-word training pipeline (`~/wake_word/`) extracts to `runtime/wake-word/`; generic-model swap path documented
-- [ ] **EXTRACT-08**: CLI helpers (`face`, `speak`, `stt`, `record`, `boot-check`, `purge-logs`, `run-logrotate`, `wake-train`, `wifi-watchdog`) extract to `runtime/cli/`, sanitized
-- [ ] **EXTRACT-09**: `ax-llm` vendored as a git submodule under `third_party/ax-llm/` (not copied)
-- [ ] **EXTRACT-10**: `axcl_host_aarch64_V3.10.2.deb` pinned by version + checksum; hash verified at image build
-- [ ] **EXTRACT-11**: `iol_router.py` reviewed; clean version extracted OR stubbed; founder IOL integration paths excised
-- [ ] **EXTRACT-12**: `arlowe-scheduled-summary.service` reviewed; extracted if generic, stripped if founder-only; decision recorded as ADR
+- [x] **EXTRACT-01**: `voice_client.py` extracts to `runtime/voice/`; retains wake → STT → LLM → TTS → face orchestration
+- [x] **EXTRACT-02**: `face_service.py`, `face.py`, `sentiment_classifier.py`, `audio_sync.py` extract to `runtime/face/`; tcp/8080 face service preserved
+- [x] **EXTRACT-03**: `stt_server.py` extracts to `runtime/stt/`; faster-whisper HTTP server on tcp/8082 preserved
+- [x] **EXTRACT-04**: TTS invocation (currently `~/bin/speak`) extracts to `runtime/tts/` with a Piper voice asset manifest
+- [x] **EXTRACT-05**: ax-llm runtime invocation (`run_api.sh`, `qwen2.5_tokenizer_uid.py`, `openai_wrapper.py`) extracts to `runtime/llm/` (option-2: router points at ax-llm `/api/chat` native; `openai_wrapper.py` shim eliminated per ADR-0001)
+- [x] **EXTRACT-06**: `arlowe-dashboard` Next.js app extracts to `runtime/dashboard/`; tcp/3000 preserved
+- [x] **EXTRACT-07**: Wake-word training pipeline (`~/wake_word/`) extracts to `runtime/wake-word/`; generic-model swap path documented
+- [x] **EXTRACT-08**: CLI helpers (`face`, `speak`, `stt`, `record`, `boot-check`, `purge-logs`, `run-logrotate`, `wake-train`, `wifi-watchdog`) extract to `runtime/cli/`, sanitized
+- [x] **EXTRACT-09**: `ax-llm` vendored as a git submodule under `third_party/ax-llm/` (not copied)
+- [x] **EXTRACT-10**: `axcl_host_aarch64_V3.10.2.deb` pinned by version + checksum; hash verified at image build
+- [x] **EXTRACT-11**: `iol_router.py` reviewed; clean version extracted OR stubbed; founder IOL integration paths excised (extracted as `runtime/llm/router.py`; ADR-0001)
+- [x] **EXTRACT-12**: `arlowe-scheduled-summary.service` reviewed; extracted if generic, stripped if founder-only; decision recorded as ADR (stripped; ADR-0002)
 
 ### Sanitization & identity hygiene (`SANIT`)
 

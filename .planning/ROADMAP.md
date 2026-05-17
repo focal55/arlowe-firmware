@@ -10,7 +10,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - Integer phases (1-12): Planned v1 work
 - Decimal phases (e.g., 2.1): Reserved for urgent insertions during execution
 
-- [ ] **Phase 1: Runtime extraction** - Carve `whisplay/` and `arlowe-dashboard/` out of `iol-monorepo` into `runtime/`; vendor `ax-llm`; pin Axera kernel module
+- [x] **Phase 1: Runtime extraction** - Carve `whisplay/` and `arlowe-dashboard/` out of `iol-monorepo` into `runtime/`; vendor `ax-llm`; pin Axera kernel module (complete 2026-05-17, qualified — SC4 hardware loop deferred per plan 13)
 - [ ] **Phase 2: Sanitization gate** - CI grep gate fails the build on any banned literal; founder-only services blocked at image-build time; UI snapshot test enforces no-founder copy
 - [ ] **Phase 3: Service user and filesystem layout** - Dedicated `arlowe` system user; code at `/opt/arlowe/`; state at `/var/lib/arlowe/`; system-level systemd units with sandboxing
 - [ ] **Phase 4: Config overlay** - Schema-validated `defaults.yml` + `/etc/arlowe/config.yml` overlay; every personal literal flows through config
@@ -248,7 +248,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime extraction | 0/15 | Planned | - |
+| 1. Runtime extraction | 15/15 | Complete (qualified — SC4 hardware loop deferred to Phase 12; see plan 13 SUMMARY F1-F4) | 2026-05-17 |
 | 2. Sanitization gate | 0/TBD | Not started | - |
 | 3. Service user and filesystem layout | 0/TBD | Not started | - |
 | 4. Config overlay | 0/TBD | Not started | - |
