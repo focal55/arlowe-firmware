@@ -166,7 +166,7 @@ ssh arlowe-1 'journalctl --user -u arlowe-voice-test -f'
 | Listening | Face transitions to "listening" expression | The Pi |
 | 5s record window | Mic captures audio | journalctl voice |
 | STT | Transcript appears (close to "what's two plus two") | journalctl voice |
-| LLM call | Option-2: POST to `http://localhost:8000/v1/chat/completions`. Option-3: cloud Claude. | journalctl voice |
+| LLM call | Option-2: POST to `http://localhost:8000/api/chat` (ax-llm native; see ADR-0001 for the post-PR-52 endpoint refinement). Option-3: cloud Claude. | journalctl voice |
 | LLM response | Reply text in logs | journalctl voice |
 | Talking | Face transitions to "talking-blue" | The Pi |
 | TTS | Piper synthesizes; lip-sync animates | The Pi (audio + face) |

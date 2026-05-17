@@ -44,9 +44,19 @@ Concrete sanitization landed in plan 05:
 ## openai_wrapper.py — resolution (resolved 2026-05-10 in plan 13)
 
 **Decision: option-2.** `QWEN_URL` in `runtime/llm/router.py` now points at
-`http://localhost:8000/v1/chat/completions` (ax-llm native OpenAI-compatible
-surface). The `openai_wrapper.py` shim is eliminated; `qwen-openai.service` is
-no longer in the request path.
+`http://localhost:8000/api/chat` (ax-llm's native chat endpoint). The
+`openai_wrapper.py` shim is eliminated; `qwen-openai.service` is no longer
+in the request path.
+
+Originally rewired to `/v1/chat/completions`; refined to ax-llm's native
+`/api/chat` in PR #52 (commit `ff8214f`) after the OpenAI-compat surface
+returned unexpected shapes against the running ax-llm build (Feb 2026
+axcl-context branch). The authoritative routes are documented in
+`ax-llm/docs/http_api.md`:
+
+- `POST /api/chat` — synchronous `{messages: [...]}` → `{done, message}`
+- `POST /api/reset` — KV cache + system_prompt reset
+- `POST /api/generate`, `GET /api/generate_provider` — streaming variant
 
 ### Why option-2
 
@@ -66,10 +76,10 @@ no longer in the request path.
 
 After plan 13 staging on arlowe-1:
 - A voice query causes `voice_client.py` → `llm.router.query_local()` → POST
-  to `http://localhost:8000/v1/chat/completions`.
-- ax-llm responds in the OpenAI chat-completion shape.
-- `voice_client.py` consumes `response["choices"][0]["message"]["content"]`
-  unchanged from the wrapper era.
+  to `http://localhost:8000/api/chat`.
+- ax-llm responds with `{done: true, message: "..."}`. The router consumes
+  `response["message"]` directly (no `choices[0].message.content` indirection
+  — that path belonged to the eliminated OpenAI-compat era).
 - Round-trip target: under 5s wake-to-speech (validated in
   `docs/operations/phase-1-smoke-test.md` Observed-run section).
 
