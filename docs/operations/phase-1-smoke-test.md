@@ -1,6 +1,27 @@
 # Phase 1 Smoke Test — Procedure and Run Log
 
-> **Status:** prepared 2026-05-10; staged on arlowe-1 2026-05-16 by Plan 13 Task 3 (`plan-13/smoke-test` branch). `/tmp/arlowe-runtime-test/` populated, three `-test` user units installed (inactive), founder verifier symlinked into `/tmp/arlowe-test-state/wake-word/verifier.pkl`, tear-down script at `/tmp/arlowe-test-teardown.sh`. Observed-run section to be filled by Joe after Task 4 executes.
+> **Status:** prepared 2026-05-10; staged on arlowe-1 2026-05-16 by Plan 13 Task 3 (`plan-13/smoke-test` branch). `/tmp/arlowe-runtime-test/` populated, three `-test` user units installed (inactive after the Task 3 bug-fix iteration), founder verifier symlinked into `/tmp/arlowe-test-state/wake-word/verifier.pkl`, tear-down script at `/tmp/arlowe-test-teardown.sh`. Observed-run section to be filled by Joe after Task 4 executes.
+
+## Task 3 bug-fix iteration (2026-05-16)
+
+The first Task 4 attempt (issuing `systemctl --user start` for the three units) revealed two unit-file bugs that had to be patched before retry. Recording here so future re-runs of Plan 13 do not repeat them. Canonical, corrected unit-file source lives at `.planning/phases/01-runtime-extraction/test-units/` in the repo.
+
+| Unit | Initial state | Root cause | Fix |
+|---|---|---|---|
+| `arlowe-dashboard-test` | active, serving `http://arlowe-1.local:3001/`, `/api/health` + `/api/voice` returning 200 | none | none |
+| `arlowe-face-test` | failed with `ImportError: attempted relative import with no known parent package` | `face_service.py` uses `from .face import ArloweeFace, State` (Plan 03b restructured `runtime/face/` into a package). `ExecStart=/usr/bin/python3 .../face_service.py` invokes it as a top-level script with no package context. | Switch to module mode: `ExecStart=/usr/bin/python3 -m face.face_service`. `WorkingDirectory=/tmp/arlowe-runtime-test` and the existing `PYTHONPATH` make `face` resolvable as an implicit namespace package (no `__init__.py` needed under Python 3). |
+| `arlowe-voice-test` | failed with `FileNotFoundError: '/var/lib/arlowe/wake-word/verifier.pkl'` | Unit set `Environment=ARLOWE_WAKE_WORD_VERIFIER=...` but `runtime/voice/voice_client.py` line 44-46 reads `ARLOWE_VERIFIER_MODEL`. The variable was set in the env but never read, so the fallback hardcoded path was used and crashed. | Rename the env line to `ARLOWE_VERIFIER_MODEL=/tmp/arlowe-test-state/wake-word/verifier.pkl`. Source untouched — the unit file had the wrong variable name. |
+
+Both fixes are in the canonical unit files in `.planning/phases/01-runtime-extraction/test-units/`. To re-deploy after edits:
+
+```bash
+scp .planning/phases/01-runtime-extraction/test-units/*.service \
+    arlowe-1:~/.config/systemd/user/
+ssh arlowe-1 'systemctl --user daemon-reload && \
+              systemctl --user reset-failed arlowe-face-test arlowe-voice-test 2>/dev/null || true'
+```
+
+After the fix, all three units come up `inactive` and the dashboard-test remains `active` (it was never stopped).
 
 ## Scope and limits (READ FIRST)
 
@@ -79,21 +100,31 @@ ssh arlowe-1 'mkdir -p ~/.config/systemd/user && \
 
 ## Test unit files
 
-Write these to `/tmp/arlowe-runtime-test/systemd-test/` on arlowe-1 (Task 3 of Plan 13 should template these into the runtime tree before rsync, or write them inline below).
+Canonical source for the three `-test` units lives at `.planning/phases/01-runtime-extraction/test-units/` in the repo. Deploy them with:
+
+```bash
+scp .planning/phases/01-runtime-extraction/test-units/*.service \
+    arlowe-1:~/.config/systemd/user/
+ssh arlowe-1 'systemctl --user daemon-reload'
+```
+
+The files at the time of writing (post Task-3 bug-fix iteration):
 
 **`arlowe-voice-test.service`**
 ```ini
 [Unit]
-Description=Arlowe voice orchestrator (test mode)
+Description=Arlowe voice orchestrator (test mode, plan-13 smoke test)
 After=arlowe-face-test.service arlowe-dashboard-test.service
+Wants=arlowe-face-test.service arlowe-dashboard-test.service
 
 [Service]
 Type=simple
-Environment=PYTHONPATH=/tmp/arlowe-runtime-test
-Environment=ARLOWE_WAKE_WORD_VERIFIER=/tmp/arlowe-test-state/wake-word/verifier.pkl
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/tmp/arlowe-runtime-test:/home/focal55/venvs/voice/lib/python3.13/site-packages
+Environment=ARLOWE_VERIFIER_MODEL=/tmp/arlowe-test-state/wake-word/verifier.pkl
 Environment=ARLOWE_LOGS_DIR=/tmp/arlowe-test-state/logs
-Environment=ARLOWE_ALSA_DEVICE=plughw:2,0
-ExecStart=%h/venvs/voice/bin/python /tmp/arlowe-runtime-test/voice/voice_client.py
+Environment=ARLOWE_STATE_DIR=/tmp/arlowe-test-state
+ExecStart=/usr/bin/python3 /tmp/arlowe-runtime-test/voice/voice_client.py
 Restart=no
 
 [Install]
@@ -103,13 +134,17 @@ WantedBy=default.target
 **`arlowe-face-test.service`**
 ```ini
 [Unit]
-Description=Arlowe face service (test mode)
+Description=Arlowe face service (test mode, plan-13 smoke test)
+After=network.target
 
 [Service]
 Type=simple
-Environment=PYTHONPATH=/tmp/arlowe-runtime-test
-Environment=ARLOWE_WHISPLAY_DRIVER_PATH=%h/Library/Whisplay/Driver
-ExecStart=/usr/bin/python3 /tmp/arlowe-runtime-test/face/face_service.py
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/tmp/arlowe-runtime-test:/home/focal55/venvs/voice/lib/python3.13/site-packages
+Environment=ARLOWE_LOGS_DIR=/tmp/arlowe-test-state/logs
+Environment=ARLOWE_STATE_DIR=/tmp/arlowe-test-state
+WorkingDirectory=/tmp/arlowe-runtime-test
+ExecStart=/usr/bin/python3 -m face.face_service
 Restart=no
 
 [Install]
@@ -119,16 +154,18 @@ WantedBy=default.target
 **`arlowe-dashboard-test.service`**
 ```ini
 [Unit]
-Description=Arlowe dashboard (test mode, port 3001)
+Description=Arlowe dashboard (test mode, port 3001, plan-13 smoke test)
+After=network.target
 
 [Service]
 Type=simple
+WorkingDirectory=/tmp/arlowe-runtime-test/dashboard
+Environment=NODE_ENV=development
 Environment=PORT=3001
 Environment=ARLOWE_CONFIG_PATH=/tmp/arlowe-test-state/config.yml
 Environment=ARLOWE_LOGS_DIR=/tmp/arlowe-test-state/logs
 Environment=ARLOWE_SYSTEMCTL_MODE=user
-WorkingDirectory=/tmp/arlowe-runtime-test/dashboard
-ExecStart=/usr/bin/pnpm dev
+ExecStart=/bin/bash -c 'cd /tmp/arlowe-runtime-test/dashboard && /home/focal55/.npm-global/bin/pnpm dev -p 3001 -H 0.0.0.0'
 Restart=no
 
 [Install]
@@ -137,25 +174,32 @@ WantedBy=default.target
 
 Note: `whisper-stt` and `qwen-*` are NOT included. Those continue to run from the live stack. This is the M1 scope limit.
 
+> **Mic contention caveat (discovered 2026-05-16 during Task 4 retry prep):** the live `arlowe-voice` service was active during the first Task 4 attempt. Both `arlowe-voice` and `arlowe-voice-test` try to open the same ALSA capture device, so running them concurrently is expected to fail (mic device busy or wake-word miss). The Task 4 procedure now explicitly pauses the live voice unit before starting the test unit and restarts it during tear-down.
+
 ## Smoke-test commands
 
 ```bash
-# Start in dependency order: face + dashboard first, then voice
+# 0. Stop the live voice unit to release the mic. ONLY do this once Joe is
+#    physically at the Pi and ready to run the test — the live voice unit is
+#    his daily driver.
+ssh arlowe-1 'systemctl --user stop arlowe-voice'
+
+# 1. Start the test units in dependency order: face + dashboard first, then voice
 ssh arlowe-1 'systemctl --user daemon-reload && \
               systemctl --user start arlowe-face-test arlowe-dashboard-test && \
               sleep 3 && \
               systemctl --user start arlowe-voice-test'
 
-# Verify all three are active
+# 2. Verify all three are active
 ssh arlowe-1 'systemctl --user is-active arlowe-{face,dashboard,voice}-test'
 # Expect: three "active" lines.
 
-# Tail voice logs in a second terminal
+# 3. Tail voice logs in a second terminal
 ssh arlowe-1 'journalctl --user -u arlowe-voice-test -f'
 # Expect: "ARLOWE VOICE CLIENT" banner, wake-word model load, mic listen.
 
-# Walk to the Pi and speak clearly:
-#   "Hey Arlowe, what's two plus two?"
+# 4. Walk to the Pi and speak clearly:
+#      "Hey Arlowe, what's two plus two?"
 ```
 
 ## Expected outputs
@@ -195,10 +239,12 @@ ssh arlowe-1 'systemctl --user stop arlowe-voice-test arlowe-face-test arlowe-da
 # Remove staged tree and test state
 ssh arlowe-1 'rm -rf /tmp/arlowe-runtime-test /tmp/arlowe-test-state'
 
-# Confirm live units still active
-ssh arlowe-1 'systemctl --user is-active arlowe-{voice,face,dashboard} 2>/dev/null || true; \
-              systemctl is-active whisper-stt qwen-tokenizer qwen-api 2>/dev/null || true'
-# Expect: live units still "active". If anything flipped to "failed", investigate before declaring tear-down clean.
+# Restart the live voice unit (was stopped at step 0 to release the mic)
+ssh arlowe-1 'systemctl --user start arlowe-voice'
+
+# Confirm live units active again
+ssh arlowe-1 'systemctl --user is-active arlowe-{voice,face,dashboard} whisper-stt qwen-tokenizer qwen-api 2>/dev/null || true'
+# Expect: live units "active". If anything is "failed" or "inactive", investigate before declaring tear-down clean.
 ```
 
 ## Observed run

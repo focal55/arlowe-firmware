@@ -1,0 +1,17 @@
+[Unit]
+Description=Arlowe dashboard (test mode, port 3001, plan-13 smoke test)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/tmp/arlowe-runtime-test/dashboard
+Environment=NODE_ENV=development
+Environment=PORT=3001
+Environment=ARLOWE_CONFIG_PATH=/tmp/arlowe-test-state/config.yml
+Environment=ARLOWE_LOGS_DIR=/tmp/arlowe-test-state/logs
+Environment=ARLOWE_SYSTEMCTL_MODE=user
+ExecStart=/bin/bash -c 'cd /tmp/arlowe-runtime-test/dashboard && /home/focal55/.npm-global/bin/pnpm dev -p 3001 -H 0.0.0.0'
+Restart=no
+
+[Install]
+WantedBy=default.target
