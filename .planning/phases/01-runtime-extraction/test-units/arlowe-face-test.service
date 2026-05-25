@@ -1,0 +1,17 @@
+[Unit]
+Description=Arlowe face service (test mode, plan-13 smoke test)
+After=network.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/tmp/arlowe-runtime-test:/home/focal55/venvs/voice/lib/python3.13/site-packages
+Environment=ARLOWE_LOGS_DIR=/tmp/arlowe-test-state/logs
+Environment=ARLOWE_STATE_DIR=/tmp/arlowe-test-state
+Environment=ARLOWE_WHISPLAY_DRIVER_PATH=/home/focal55/Library/Whisplay/Driver
+WorkingDirectory=/tmp/arlowe-runtime-test
+ExecStart=/usr/bin/python3 -m face.face_service
+Restart=no
+
+[Install]
+WantedBy=default.target

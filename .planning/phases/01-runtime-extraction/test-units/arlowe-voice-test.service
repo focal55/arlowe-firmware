@@ -1,0 +1,17 @@
+[Unit]
+Description=Arlowe voice orchestrator (test mode, plan-13 smoke test)
+After=arlowe-face-test.service arlowe-dashboard-test.service
+Wants=arlowe-face-test.service arlowe-dashboard-test.service
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/tmp/arlowe-runtime-test:/home/focal55/venvs/voice/lib/python3.13/site-packages
+Environment=ARLOWE_VERIFIER_MODEL=/tmp/arlowe-test-state/wake-word/verifier.pkl
+Environment=ARLOWE_LOGS_DIR=/tmp/arlowe-test-state/logs
+Environment=ARLOWE_STATE_DIR=/tmp/arlowe-test-state
+ExecStart=/usr/bin/python3 /tmp/arlowe-runtime-test/voice/voice_client.py
+Restart=no
+
+[Install]
+WantedBy=default.target
