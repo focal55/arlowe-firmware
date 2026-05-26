@@ -72,7 +72,13 @@ Plans:
   3. A snapshot test against rendered dashboard UI text (and screenshots from a headless run) fails on any banned literal, including links to founder repos or workforce-internal endpoints.
   4. The current `runtime/` tree passes all sanitization checks: zero references to founder hostname, account, SSID, email, home path, or monorepo path.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Banlist + grep gate runner + allow-list + CI workflow + self-test (Wave 1, foundational)
+- [ ] 02-02-PLAN.md — Unit-name block extension + `--scan-dir DIR` flag for Phase 6 reuse (Wave 2, depends on 02-01)
+- [ ] 02-03-PLAN.md — Dashboard Playwright sanitize.spec.ts + CI wiring (Wave 2, depends on 02-01; parallel with 02-02)
+- [ ] 02-04-PLAN.md — Runtime/ tree SC4 cleanup sweep + F5 ADR-0001 fix; drives all gates green on main (Wave 3, depends on 02-01, 02-02, 02-03)
 
 ### Phase 3: Service user and filesystem layout
 
@@ -249,7 +255,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Runtime extraction | 15/15 | Complete (qualified — SC4 hardware loop deferred to Phase 12; see plan 13 SUMMARY F1-F4) | 2026-05-17 |
-| 2. Sanitization gate | 0/TBD | Not started | - |
+| 2. Sanitization gate | 0/4 | Planned | - |
 | 3. Service user and filesystem layout | 0/TBD | Not started | - |
 | 4. Config overlay | 0/TBD | Not started | - |
 | 5. Audio device auto-detection | 0/TBD | Not started | - |
