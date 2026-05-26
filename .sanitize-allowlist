@@ -1,0 +1,37 @@
+# .sanitize-allowlist
+# Path globs (gitignore-style) of tracked files allowed to contain banned identity literals.
+# Single `*` does NOT cross `/`; use `**` for recursive matching.
+# If you're tempted to add a new entry, ask: does this file ship in the firmware image?
+# If yes, fix the literal instead of allow-listing.
+
+# Planning artifacts that document banned literals as part of their purpose.
+.planning/**
+
+# Architecture decision records and operational docs that capture historical state.
+docs/architecture/**
+docs/architecture-overview.md
+docs/operations/phase-1-smoke-test.md
+
+# Journey entries (workforce diary; never ships in firmware).
+docs/journey/**
+
+# Workforce / template plumbing — references @focal55 the GitHub username, not founder
+# identity in the firmware sense. None of these files ship in the image.
+.github/CODEOWNERS
+.github/ISSUE_TEMPLATE/config.yml
+AGENTS.md.template
+README.md
+
+# Dev pull script: references arlowe-1 because that's the dev unit it pulls from.
+scripts/dev-pull-from-pi.sh
+
+# Third-party distribution paperwork.
+third_party/axcl/DISTRIBUTION-RIGHTS.md
+third_party/axcl/INSTALL.md
+third_party/whisplay-driver/PROVENANCE.md
+
+# Sanitize gate self-references (the data files contain the literals by design).
+.sanitize-allowlist
+scripts/sanitize/banlist.txt
+scripts/sanitize/unit-prefixes.txt
+scripts/sanitize/test-check.sh
