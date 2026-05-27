@@ -1,5 +1,10 @@
 name: Sanitize
 
+# Phase 2 / Plan 02 state: two real gates in effect.
+#   Gate 1 — grep gate: banned identity literals in tracked files (Plan 01)
+#   Gate 2 — unit-name block: banned systemd unit basenames in tracked unit files (Plan 02)
+# Gate 3 (dashboard rendered-text) added by Plan 03.
+#
 # NO `paths:` filter — required checks + path filtering = "pending forever" trap.
 # A PR that only touches docs/ wouldn't trigger the workflow; the required check
 # would stay in "Expected — Waiting for status" forever, blocking merge.
@@ -34,8 +39,8 @@ jobs:
         run: sudo apt-get install -y ripgrep
       - name: Verify ripgrep is available
         run: rg --version
-      - name: Run grep gate
-        run: bash scripts/sanitize/check.sh --grep-only
+      - name: Run grep + units gates
+        run: bash scripts/sanitize/check.sh
 
   self-test:
     name: Gate self-test
