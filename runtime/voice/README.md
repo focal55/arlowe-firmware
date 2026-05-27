@@ -20,7 +20,7 @@ Runs as a single Python process under the `arlowe` system user (currently the de
 | LLM router | via `llm.router` (delegates internally to `localhost:8000` or `claude` CLI) | generate response text |
 | dashboard | `http://localhost:3000` (`ARLOWE_DASHBOARD_URL`) | rules engine fetches orchestration config; stub does not call this today |
 
-## How to run locally on arlowe-1
+## How to run locally on a Pi 5 dev unit
 
 Requires the face service, STT server, and LLM router to be running first.
 

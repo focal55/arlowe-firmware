@@ -60,9 +60,12 @@ axcl-context branch). The authoritative routes are documented in
 
 ### Why option-2
 
-- **Verified working live.** `curl http://localhost:8000/v1/models` on arlowe-1
-  returns ok against the running ax-llm process. The native surface speaks the
-  OpenAI `/v1/chat/completions` shape that `voice_client.py` already expects.
+- **Verified working live.** `curl -s -XPOST http://localhost:8000/api/chat \
+  -d '{"messages":[{"role":"user","content":"ping"}]}'` on a Pi 5 dev unit
+  returns `{done: true, message: {...}}`. `voice_client.py` was updated in
+  PR #52 to speak ax-llm's native shape; the previous assumption that ax-llm
+  would expose the OpenAI `/v1/chat/completions` surface returned malformed
+  responses on the running build.
 - **Lowest LOC delta.** One URL constant changed; no new file.
 - **Removes a moving part.** One fewer service to keep alive. The previous
   3-service path (`qwen-tokenizer` → `qwen-openai` shim → `qwen-api`) collapses

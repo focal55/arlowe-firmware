@@ -61,11 +61,11 @@ These are system-level binaries installed via pi-gen at image build time — not
 ### PyYAML
 
 PyYAML is required for the `/etc/arlowe/config.yml` overlay loader.
-Verified present in the arlowe-1 voice venv at version `6.0.3`.
+Verified present in a Pi 5 dev unit's voice venv at version `6.0.3`.
 
 If PyYAML is absent on a fresh venv:
 ```bash
-ssh arlowe-1 '~/venvs/voice/bin/pip install PyYAML==6.0.3'
+ssh <your-dev-pi> '~/venvs/voice/bin/pip install PyYAML==6.0.3'
 ```
 
 This install requirement is also noted in plan 13 (smoke-test prerequisites).
@@ -73,10 +73,10 @@ This install requirement is also noted in plan 13 (smoke-test prerequisites).
 ### Piper assets
 
 Assets are not included in the repo. The image build fetches and verifies them using
-`manifest.yml`. For the Phase 1 smoke test on arlowe-1, the assets are already present
+`manifest.yml`. For the Phase 1 smoke test on a Pi 5 dev unit, the assets are already present
 at `~/models/piper/piper` and `~/models/piper-voices/en_US-lessac-medium.onnx`.
 
-## Running / testing on arlowe-1
+## Running / testing on a Pi 5 dev unit
 
 ```python
 from pathlib import Path
@@ -96,7 +96,7 @@ Or run the built-in test:
 
 ## Known limitations
 
-- `PLAY_DEVICE` defaults to `plughw:2,0` (USB combo card on arlowe-1). Phase 5 will make
+- `PLAY_DEVICE` defaults to `plughw:2,0` (USB combo card on the dev unit used for Phase 1 testing). Phase 5 will make
   this config-driven via audio auto-detect.
 - Cloud TTS path (ElevenLabs) requires an owner-provisioned key. Phase 4 and 7 wire this
   fully through first-boot pairing + customer-bound API key. On a sanitized customer unit

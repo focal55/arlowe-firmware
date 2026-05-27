@@ -49,7 +49,7 @@ Both paths log token counts and latency to `/var/lib/arlowe/state/usage-stats.js
 | `AX_LLM_BIN` | `/opt/arlowe/runtime/llm/bin/main_api_axcl_aarch64` | Path to ax-llm binary (used by `run_api.sh`) |
 | `QWEN_MODEL_DIR` | `/opt/arlowe/models/qwen2.5-7b-int4-ax650` | Path to Qwen model directory (used by `run_api.sh`) |
 
-For the Phase 1 smoke test on arlowe-1, override `AX_LLM_BIN` and `QWEN_MODEL_DIR`
+For the Phase 1 smoke test on a Pi 5 dev unit, override `AX_LLM_BIN` and `QWEN_MODEL_DIR`
 to point at the existing locations under `~/ax-llm/` and `~/models/`. See plan 13.
 
 ## openai_wrapper.py status

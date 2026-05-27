@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Arlowe Dashboard",
-  description: "Control panel for Arlowe-1",
+  description: "Control panel for your Arlowe device",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

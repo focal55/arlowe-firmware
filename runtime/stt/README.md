@@ -36,7 +36,7 @@ before responding. VAD filtering is on (`min_silence_duration_ms=500`).
 `~/.cache/huggingface/`. In the image build, pre-populate `/var/lib/arlowe/models/whisper/`
 to skip the runtime download.
 
-## Running on arlowe-1
+## Running on a Pi 5 dev unit
 
 ```bash
 # Activate the voice venv and start the server

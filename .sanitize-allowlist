@@ -35,3 +35,20 @@ third_party/whisplay-driver/PROVENANCE.md
 scripts/sanitize/banlist.txt
 scripts/sanitize/unit-prefixes.txt
 scripts/sanitize/test-check.sh
+runtime/dashboard/tests/sanitize.spec.ts
+
+# --- Dev-pinning provenance allow-list (Plan 04 SC4 cleanup) ---
+# The runtime/*/requirements.txt comments record which dev unit the pins were
+# captured from and when. These are audit-trail metadata that never render as
+# user-facing strings and never ship as a service. Rewriting them loses real
+# provenance value (we'd no longer know which Pi the pins are calibrated against).
+# Decision rationale: 02-04-PLAN.md disposition matrix.
+runtime/voice/requirements.txt
+runtime/face/requirements.txt
+runtime/stt/requirements.txt
+runtime/tts/requirements.txt
+runtime/llm/requirements.txt
+runtime/wake-word/requirements.txt
+
+# Same reasoning: tts/manifest.yml's SHA-256-verified-on comments are provenance.
+runtime/tts/manifest.yml

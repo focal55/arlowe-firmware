@@ -58,7 +58,7 @@ See `.env.example` for the full documented list. Key knobs:
 | `ARLOWE_LOGS_DIR` | `/var/lib/arlowe/logs` | Voice log directory read by `/api/logs` |
 | `DASHBOARD_API_SECRET` | (unset) | Bearer token for protected routes; Phase 7 wires owner-pairing |
 
-## Running locally on arlowe-1
+## Running locally on a Pi 5 dev unit
 
 ```bash
 cd runtime/dashboard
