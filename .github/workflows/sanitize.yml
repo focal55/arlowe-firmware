@@ -5,9 +5,14 @@ name: Sanitize
 # would stay in "Expected — Waiting for status" forever, blocking merge.
 # The full scan takes ~2s on the current tree; path-gating is not worth the risk.
 #
-# To promote this to a required check: Settings → Branches → branch protection rule
-# → "Require status checks to pass" → add "Banlist + unit-name block" and
-# "Gate self-test". Do this AFTER the workflow has run green on a few PRs.
+# Three gates:
+#   banlist-and-units      — grep gate + systemd unit-name block (Plans 01–02)
+#   self-test              — deliberate-failure cases for the bash gates
+#   dashboard-rendered-text — Playwright rendered-HTML scan (Plan 03)
+#
+# To promote to required checks: Settings → Branches → branch protection rule
+# → "Require status checks to pass" → add job names. Do this AFTER the workflow
+# has run green on a few PRs.
 
 on:
   pull_request:
@@ -41,3 +46,30 @@ jobs:
         run: sudo apt-get install -y ripgrep
       - name: Run deliberate-failure self-test
         run: bash scripts/sanitize/test-check.sh
+
+  dashboard-rendered-text:
+    name: Dashboard rendered-text gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runtime/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: runtime/dashboard/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Build dashboard
+        run: pnpm build
+      - name: Run sanitize spec
+        run: pnpm exec playwright test tests/sanitize.spec.ts --project=chromium
+        env:
+          CI: 'true'
