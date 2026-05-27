@@ -34,13 +34,13 @@ See `third_party/whisplay-driver/PROVENANCE.md` for driver source, license, and
 installation instructions. The driver is a vendor-supplied Python module that ships
 with the WhisPlay display hardware -- it is not available via pip.
 
-On arlowe-1 today the driver lives at `~/Library/Whisplay/Driver/WhisPlay.py`
+On a dev Pi today the driver typically lives at `~/Library/Whisplay/Driver/WhisPlay.py`
 (system-wide install). Image-build (Phase 11) will bake it into `/opt/arlowe/`.
 
 ## Sentiment classifier behaviour
 
 1. On incoming text, `sentiment_classifier.py` first tries `localhost:8001/v1/chat/completions`
-   (the Qwen OpenAI-compat shim). As of Phase 1, this endpoint is broken on arlowe-1
+   (the Qwen OpenAI-compat shim). As of Phase 1, this endpoint is broken in the Phase 1 baseline
    (see research notes / plan 13 for the qwen-openai resolution). The NPU path times
    out and falls through to the heuristic.
 
@@ -56,7 +56,7 @@ On arlowe-1 today the driver lives at `~/Library/Whisplay/Driver/WhisPlay.py`
 Phase 1 smoke test passes via the heuristic path. The NPU path is not required for
 the Phase 1 success criterion.
 
-## Running locally on arlowe-1
+## Running locally on a Pi 5 dev unit
 
 ```bash
 cd /path/to/runtime

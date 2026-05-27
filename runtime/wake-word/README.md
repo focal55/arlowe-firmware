@@ -90,11 +90,12 @@ EXTRACT-07.
 
 ## Duplicate at whisplay package level (deliberately not extracted)
 
-`~/iol-monorepo/packages/whisplay/wake_word/` exists on arlowe-1 alongside the canonical
-`~/wake_word/`. Research Q5 confirmed that `voice_client.py` looks for the verifier under
-`~/wake_word/` -- that is the canonical path. The whisplay-level copy (which has its own
-`record_negative.py`, `record_positive.py`, `test_wake.py`) was an earlier split and is stale.
-Only the canonical `~/wake_word/` scripts were extracted here.
+An older copy of the wake-word pipeline existed in the founder dev monorepo (pre-extraction);
+the `runtime/wake-word/` tree is the canonical post-extraction location. Research Q5 confirmed
+that `voice_client.py` looks for the verifier under `~/wake_word/` -- that is the canonical path.
+The whisplay-level copy (which has its own `record_negative.py`, `record_positive.py`,
+`test_wake.py`) was an earlier split and is stale. Only the canonical `~/wake_word/` scripts
+were extracted here.
 
 ## Env knobs
 

@@ -3,7 +3,7 @@
 #
 # Paths are resolved at runtime via env vars so the image build can provision
 # them under /opt/arlowe/ without editing this file.
-# For the Phase 1 smoke test on arlowe-1, set:
+# For local smoke-testing on a Pi 5 dev unit with the AX accelerator, set:
 #   AX_LLM_BIN=~/ax-llm/build/main_api_axcl_aarch64
 #   QWEN_MODEL_DIR=~/models/Qwen2.5-7B-Instruct/qwen2.5-7b-ctx-int4-ax650
 # See plan-13 smoke-test notes for the exact export commands.

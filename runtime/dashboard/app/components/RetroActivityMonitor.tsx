@@ -137,7 +137,7 @@ export default function RetroActivityMonitor() {
           <div className="retro-header">
             <span className="text-retro-amber">╔══════════════════════════════════════╗</span>
             <span className="text-retro-amber">║</span>
-            <span className="text-retro-green"> ARLOWE-1 SYSTEM MONITOR </span>
+            <span className="text-retro-green"> ARLOWE SYSTEM MONITOR </span>
             <span className="text-retro-amber">║</span>
             <span className="text-retro-amber">║</span>
             <span className="text-retro-green"> {currentTime} </span>

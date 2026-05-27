@@ -32,7 +32,7 @@ USAGE_LOCK_PATH = USAGE_STATS_PATH.with_suffix(".lock")
 # Local Qwen API — ax-llm native (option-2 revised, plan 13 smoke-test).
 # The originally-assumed OpenAI-compat surface (/v1/chat/completions) does
 # not exist on the running ax-llm build (Feb 2026 axcl-context branch).
-# Authoritative routes per /home/focal55/ax-llm/docs/http_api.md and the
+# Authoritative routes per ax-llm's docs/http_api.md (vendored at third_party/ax-llm/) and the
 # binary's own registered routes:
 #   POST /api/chat   — synchronous {messages: [...]}  →  {done, message}
 #   POST /api/reset  — KV cache + system_prompt reset
