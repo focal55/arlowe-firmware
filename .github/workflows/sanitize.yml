@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
       - name: Verify ripgrep is available
         run: rg --version
       - name: Run grep gate
@@ -35,5 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
       - name: Run deliberate-failure self-test
         run: bash scripts/sanitize/test-check.sh

@@ -10,6 +10,11 @@
 #   --scan-dir DIR  (reserved for Plan 06 image-build hook; not yet implemented)
 #
 # No flag defaults to --grep-only. When Plan 02 lands, no-flag will run both gates.
+#
+# Exit codes:
+#   0  clean — no banned literals found
+#   1  banned literal detected in at least one tracked file
+#   2  tool dependency missing (e.g., ripgrep not installed)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +43,8 @@ if [[ "$MODE" == "units-only" ]]; then
 fi
 
 # --- grep-only mode ---
+
+command -v rg >/dev/null 2>&1 || { echo "check.sh: rg not found; install ripgrep" >&2; exit 2; }
 
 # Build a pathspec array from .sanitize-allowlist (gitignore-style globs).
 # git ls-files honors :(exclude,glob) pathspecs with gitignore semantics.
