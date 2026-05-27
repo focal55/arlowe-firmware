@@ -83,11 +83,14 @@ export default defineConfig({
     // },
   ],
 
-  /* Run the Next.js production server before starting the tests */
+  /* Run the Next.js production server before starting the tests.
+   * `pnpm build` is required because `next start` needs .next/ artifacts to exist.
+   * Without it, starting the server on a fresh checkout fails with
+   * "Could not find a production build in the .next directory." */
   webServer: {
-    command: 'pnpm start -p 3000',
+    command: 'pnpm build && pnpm start -p 3000',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120000,
+    timeout: 180000,
   },
 });
