@@ -94,7 +94,14 @@ Plans:
   3. Every shipping systemd unit is system-level (no `--user` units), runs as the `arlowe` user, and applies `PrivateTmp`, `ProtectSystem`, and unit-appropriate `ReadWritePaths`.
   4. A test on the dev image verifies that the runtime cannot write outside `/var/lib/arlowe/` (and explicit allow-listed paths) when running under the configured sandbox.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Provisioning scripts (install-arlowe-user + install-arlowe-fs) + Docker testbed + SC1/SC2 assertions + layout-reference doc (Wave 1, foundational; OTA-01 amendment noted)
+- [ ] 03-02-PLAN.md — Six systemd unit files + install-units.sh + SC3 assertions (systemd-analyze verify + security) (Wave 2, depends on 03-01)
+- [ ] 03-03-PLAN.md — Udev rules (Axera + GPIO/SPI defense-in-depth) + polkit rule (arlowe→systemctl arlowe-*) + axcl-deb diagnostic (Wave 2, depends on 03-01; parallel with 03-02)
+- [ ] 03-04-PLAN.md — CLI symlinks installer + boot-check ARLOWE_SYSTEMCTL_FLAGS default flip to system-level (Wave 2, depends on 03-01; parallel with 03-02, 03-03)
+- [ ] 03-05-PLAN.md — arlowe-1 staging-user harness: install/uninstall, SC4 sandbox write-deny on real hardware, speculative-group + gpiochip resolution (Wave 3; non-autonomous, depends on 03-01..04)
 
 ### Phase 4: Config overlay
 
@@ -255,8 +262,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Runtime extraction | 15/15 | Complete (qualified — SC4 hardware loop deferred to Phase 12; see plan 13 SUMMARY F1-F4) | 2026-05-17 |
-| 2. Sanitization gate | 0/4 | Planned | - |
-| 3. Service user and filesystem layout | 0/TBD | Not started | - |
+| 2. Sanitization gate | 4/4 | Complete | 2026-05-27 |
+| 3. Service user and filesystem layout | 0/5 | Planned | - |
 | 4. Config overlay | 0/TBD | Not started | - |
 | 5. Audio device auto-detection | 0/TBD | Not started | - |
 | 6. Image build with A/B partitions | 0/TBD | Not started | - |
