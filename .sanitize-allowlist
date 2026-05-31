@@ -52,3 +52,9 @@ runtime/wake-word/requirements.txt
 
 # Same reasoning: tts/manifest.yml's SHA-256-verified-on comments are provenance.
 runtime/tts/manifest.yml
+
+# Phase 3 assertion script: contains the founder-absent negative check by design.
+# The assertion `getent passwd focal55 && fail "..."` IS the sanitization check
+# for the runtime — it verifies the founder user was not provisioned on the device.
+# This file never ships in the firmware image (tests/ is not a pi-gen stage).
+tests/phase-3/assertions/01-user-shape.sh
