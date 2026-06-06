@@ -1,0 +1,23 @@
+# Arlowe Phase 3: Axera device permissions
+# Grants the `arlowe` group read/write to the AXCL device nodes installed by
+# axcl_host_aarch64_V3.10.2.deb. The deb itself may or may not ship udev rules
+# (see scripts/provision/extract-axcl-udev-from-deb.sh). If the deb ships
+# conflicting rules, this file's higher number (90 vs typical 60s) wins on
+# last-rule-applied semantics for matching attributes.
+#
+# Device nodes:
+#   /dev/axcl_host  — the main AXCL host control interface (NPU access)
+#   /dev/ax_mmb_dev — the multimedia buffer interface (shared memory)
+#
+# Required by:
+#   - arlowe-face.service (WhisPlay display driver uses NPU for face recognition)
+#   - arlowe-voice.service (uses NPU for wake-word and STT inference)
+#   - arlowe-llm.service (uses NPU for local LLM inference)
+#
+# Verified on real hardware: plan 03-05 / tests/phase-3/staging/.
+# DeviceAllow= in the unit files is necessary but not sufficient — the kernel
+# device-node permissions must also permit arlowe to open the node; this rule
+# closes that gap.
+
+KERNEL=="axcl_host",  OWNER="root", GROUP="arlowe", MODE="0660"
+KERNEL=="ax_mmb_dev", OWNER="root", GROUP="arlowe", MODE="0660"

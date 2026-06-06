@@ -1,0 +1,34 @@
+// Arlowe Phase 3: allow the `arlowe` user (which dashboard, voice, etc. run as)
+// to start/stop/restart/reload arlowe-*, qwen-*, and whisper-stt units via
+// systemctl, WITHOUT sudo. Required by:
+//   - dashboard POST /api/voice (Phase 1 inherited; restarts arlowe-voice)
+//   - dashboard POST /api/config (Phase 4 will use; restarts affected services)
+//   - pairing daemon completion (Phase 8 will use; starts runtime services)
+//
+// This rule does NOT grant:
+//   - daemon-reload (units don't change at runtime; only OTA / install scripts touch them)
+//   - editing unit files (those are root-owned and read-only at runtime)
+//   - managing system units OUTSIDE the arlowe/qwen/whisper-stt prefixes
+//   - any action on any non-arlowe user's behalf
+//
+// References:
+//   - https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html
+//   - org.freedesktop.systemd1.manage-units polkit action ID
+
+polkit.addRule(function(action, subject) {
+    if (action.id !== "org.freedesktop.systemd1.manage-units") {
+        return;
+    }
+    if (subject.user !== "arlowe") {
+        return;
+    }
+    var unit = action.lookup("unit");
+    if (!unit) {
+        return;
+    }
+    if (unit.indexOf("arlowe-") === 0 ||
+        unit.indexOf("qwen-") === 0 ||
+        unit === "whisper-stt.service") {
+        return polkit.Result.YES;
+    }
+});

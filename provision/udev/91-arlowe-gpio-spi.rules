@@ -1,0 +1,23 @@
+# Arlowe Phase 3: GPIO and SPI device permissions (defense-in-depth)
+#
+# Pi OS's stock /etc/udev/rules.d/99-com.rules typically sets these to
+# group=gpio/spi 0660 already. We re-assert with a lower number (91 vs 99)
+# to ensure our rule is visible in case pi-gen ordering or a stripped Pi OS
+# Lite image omits 99-com.rules. Both rules produce identical permissions so
+# there is no conflict, only redundancy.
+#
+# Covers both gpiochip0 (main bank, legacy) and gpiochip4 (RP1 chip on Pi 5).
+# Research §12.4 documents the Pi 5 RP1 chip enumeration; the KERNEL wildcard
+# matches both. Plan 05 confirms which chip the WhisPlay driver actually opens.
+#
+# Required by:
+#   - arlowe-face.service (WhisPlay SPI LCD panel needs /dev/spidev* and gpiochip)
+#
+# Note: gpiochip0 and gpiochip4 are matched by the gpiochip[0-9]* wildcard below;
+# the individual names are listed explicitly in comments for plan 05 auditing.
+
+# gpiochip0 (main GPIO bank on Pi 4 and earlier; also present on Pi 5 as alias)
+# gpiochip4 (RP1 chip GPIO controller on Pi 5 — the primary GPIO bank on Pi 5)
+KERNEL=="gpiochip[0-9]*", OWNER="root", GROUP="gpio", MODE="0660"
+KERNEL=="gpiomem",         OWNER="root", GROUP="gpio", MODE="0660"
+KERNEL=="spidev*",         OWNER="root", GROUP="spi",  MODE="0660"
