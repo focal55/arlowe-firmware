@@ -3,11 +3,14 @@
 # Run after reboot to verify all services are operational
 #
 # Env overrides:
-#   ARLOWE_SYSTEMCTL_FLAGS  Flags passed to systemctl (default: --user)
-#                           Set to empty string for system-level units (Phase 11+)
+#   ARLOWE_SYSTEMCTL_FLAGS  Flags passed to systemctl
+#                           Default: '' (system-level units, Phase 3+ image)
+#                           Set to '--user' for ad-hoc test invocations
+#                           against legacy --user units in dev-stash/.
 
-# TODO(phase-11): --user mode flips to system-level when image build lands.
-SYSTEMCTL_FLAGS="${ARLOWE_SYSTEMCTL_FLAGS:---user}"
+# Phase 3 plan 04: default flipped from '--user' to '' to align with
+# the system-level unit files shipped in plan 03-02.
+SYSTEMCTL_FLAGS="${ARLOWE_SYSTEMCTL_FLAGS:-}"
 
 echo "============================================================"
 echo "           ARLOWE BOOT VERIFICATION"
