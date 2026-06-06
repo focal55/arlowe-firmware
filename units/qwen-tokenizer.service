@@ -1,0 +1,39 @@
+[Unit]
+Description=Qwen tokenizer HTTP service
+After=network.target
+
+[Service]
+Type=simple
+User=arlowe
+Group=arlowe
+WorkingDirectory=/opt/arlowe/runtime/llm
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/arlowe/venvs/llm/bin/python /opt/arlowe/runtime/llm/qwen2.5_tokenizer_uid.py
+Restart=on-failure
+RestartSec=5
+
+# Sandbox hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+ReadWritePaths=/var/lib/arlowe/logs/llm
+
+[Install]
+WantedBy=multi-user.target

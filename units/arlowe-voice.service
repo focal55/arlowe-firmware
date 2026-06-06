@@ -1,0 +1,65 @@
+[Unit]
+Description=Arlowe voice orchestrator (wake -> STT -> LLM -> TTS -> face)
+After=arlowe-face.service whisper-stt.service qwen-api.service network.target sound.target
+Wants=arlowe-face.service whisper-stt.service qwen-api.service
+Requires=arlowe-face.service
+
+[Service]
+Type=simple
+User=arlowe
+Group=arlowe
+SupplementaryGroups=audio dialout
+WorkingDirectory=/opt/arlowe/runtime
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/arlowe/runtime
+Environment=ARLOWE_PIPER_PATH=/opt/arlowe/runtime/tts/bin/piper
+Environment=ARLOWE_PIPER_MODEL=/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx
+Environment=ARLOWE_VERIFIER_MODEL=/var/lib/arlowe/wake-word/verifier.pkl
+Environment=ARLOWE_FACE_URL=http://localhost:8080
+Environment=ARLOWE_STT_URL=http://localhost:8082/transcribe
+Environment=ARLOWE_LOGS_DIR=/var/lib/arlowe/logs
+Environment=ARLOWE_STATE_DIR=/var/lib/arlowe/state
+ExecStart=/opt/arlowe/venvs/voice/bin/python -m voice.voice_client
+Restart=on-failure
+RestartSec=10
+
+# Sandbox hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# Drop only @privileged (not @resources); Python subprocess compat per research §10
+SystemCallFilter=~@privileged
+# RestrictRealtime=no required for pyaudio realtime scheduling (SCHED_FIFO paths)
+RestrictRealtime=no
+RestrictSUIDSGID=yes
+# AF_NETLINK required for ALSA device enumeration via kernel
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+# ALSA audio device access; PrivateDevices=no required for DeviceAllow
+PrivateDevices=no
+DeviceAllow=/dev/snd/* rw
+DeviceAllow=/dev/snd/seq rw
+DeviceAllow=/dev/snd/timer r
+
+# Writable paths
+ReadWritePaths=/var/lib/arlowe/state /var/lib/arlowe/logs /var/lib/arlowe/conversations
+
+# RemoveIPC=no preserves POSIX shared memory for pyaudio/ALSA (research §12.7)
+RemoveIPC=no
+
+# FIXME(F4, Phase 4): voice_client.py shells out to 'sudo tee' for fan control;
+# will break under NoNewPrivileges=yes. Fan control path errors at runtime but
+# the service still starts. Phase 4 owns the fix (udev hwmon chgrp or removal).
+
+[Install]
+WantedBy=multi-user.target

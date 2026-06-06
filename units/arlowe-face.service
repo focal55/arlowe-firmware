@@ -1,0 +1,57 @@
+[Unit]
+Description=Arlowe face display service
+Documentation=man:arlowe-face(8)
+After=network.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arlowe
+Group=arlowe
+SupplementaryGroups=gpio spi video
+WorkingDirectory=/opt/arlowe/runtime
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/arlowe/runtime
+Environment=ARLOWE_WHISPLAY_DRIVER_PATH=/opt/arlowe/third_party/whisplay-driver
+Environment=ARLOWE_STATE_DIR=/var/lib/arlowe/state
+Environment=ARLOWE_LOGS_DIR=/var/lib/arlowe/logs
+ExecStart=/opt/arlowe/venvs/voice/bin/python -m face.face_service
+Restart=on-failure
+RestartSec=5
+
+# Sandbox hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# SPI + GPIO + framebuffer access; PrivateDevices=no required for DeviceAllow
+PrivateDevices=no
+DeviceAllow=/dev/spidev0.0 rw
+DeviceAllow=/dev/spidev0.1 rw
+DeviceAllow=/dev/gpiomem rw
+DeviceAllow=/dev/gpiochip0 rw
+DeviceAllow=/dev/gpiochip4 rw
+DeviceAllow=/dev/fb0 rw
+ReadWritePaths=/var/lib/arlowe/state /var/lib/arlowe/logs/face
+
+# FIXME(F1, Phase 4): port 8080 hardcoded in face_service.py; Phase 4 config
+# overlay will drive this via ARLOWE_FACE_PORT from /etc/arlowe/config.yml.
+# AmbientCapabilities not needed: 8080 > 1024.
+
+[Install]
+WantedBy=multi-user.target

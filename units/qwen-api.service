@@ -1,0 +1,43 @@
+[Unit]
+Description=Qwen LLM API server (ax-llm native)
+After=qwen-tokenizer.service network.target
+Requires=qwen-tokenizer.service
+
+[Service]
+Type=simple
+User=arlowe
+Group=arlowe
+WorkingDirectory=/opt/arlowe/runtime/llm
+Environment=AX_LLM_BIN=/opt/arlowe/runtime/llm/bin/main_api_axcl_aarch64
+Environment=QWEN_MODEL_DIR=/opt/arlowe/models/qwen2.5-7b-int4-ax650
+# ax-llm vendor tooling (axcl-smi etc.) lives under third_party/axcl/bin
+Environment=PATH=/opt/arlowe/third_party/axcl/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/arlowe/runtime/llm/run_api.sh
+Restart=on-failure
+RestartSec=10
+
+# Sandbox hardening
+# ProtectKernelModules omitted: ax-llm may load kernel modules at startup
+# ProtectKernelLogs and ProtectClock omitted: pending hardware-loop verification
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=no
+DeviceAllow=/dev/axcl_host rw
+DeviceAllow=/dev/ax_mmb_dev rw
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+ReadWritePaths=/var/lib/arlowe/logs/llm
+
+[Install]
+WantedBy=multi-user.target
