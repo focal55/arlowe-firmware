@@ -1,0 +1,51 @@
+[Unit]
+Description=Arlowe local dashboard (Next.js standalone)
+After=network.target
+
+[Service]
+Type=simple
+User=arlowe
+Group=arlowe
+WorkingDirectory=/opt/arlowe/runtime/dashboard
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=NEXT_PRIVATE_CACHE_DIR=/var/lib/arlowe/dashboard/cache
+Environment=ARLOWE_CONFIG_PATH=/etc/arlowe/config.yml
+Environment=ARLOWE_LOGS_DIR=/var/lib/arlowe/logs
+Environment=ARLOWE_SYSTEMCTL_MODE=system
+ExecStart=/usr/bin/node /opt/arlowe/runtime/dashboard/server.js
+Restart=on-failure
+RestartSec=5
+
+# Sandbox hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+PrivateDevices=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Dashboard writes cache and logs only. /etc/arlowe/config.yml is intentionally
+# NOT in ReadWritePaths — the dashboard POST /api/config route goes through a
+# privileged helper.
+# FIXME(Phase 4): wire the privileged-helper write path (polkit or setuid helper)
+# so the dashboard can persist config to /etc/arlowe/config.yml.
+ReadWritePaths=/var/lib/arlowe/dashboard /var/lib/arlowe/logs/dashboard
+
+[Install]
+WantedBy=multi-user.target

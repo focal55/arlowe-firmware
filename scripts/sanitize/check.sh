@@ -17,8 +17,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
 
 BANLIST="$SCRIPT_DIR/banlist.txt"
 ALLOWLIST=".sanitize-allowlist"
@@ -58,6 +56,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# git rev-parse and cd are only needed when using git-backed (non --scan-dir) mode.
+# Skip when running inside a Docker testbed where git is not installed.
+if [[ -z "$SCAN_DIR" ]]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  cd "$REPO_ROOT"
+fi
 
 # ---------------------------------------------------------------------------
 # Grep gate
