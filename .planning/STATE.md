@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-04-30)
 
 **Core value:** A factory-fresh Pi 5 + AX accelerator + Whisplay can flash this image, boot, pair to an owner, and run wake -> STT -> LLM -> TTS -> face entirely on-device, with no founder identity present anywhere in the image.
-**Current focus:** Phase 2 complete. Phase 3 (service user and filesystem layout) planned, ready to execute.
+**Current focus:** Phase 3 (service user and filesystem layout) complete, passed-with-notes (#73–#75 cleanups merged). Phase 4 (config overlay) is next — planning now.
 
 ## Current Position
 
-Phase: 2 of 12 (Sanitization gate) — COMPLETE
-Plan: 4 of 4 in Phase 2
-Status: Phase 2 closed 2026-05-27. All four SC criteria met (grep gate, units gate, dashboard Playwright gate, runtime/ zero banned literals). Phase 3 plans (5) and research committed in this PR.
-Last activity: 2026-05-27 -- Phase 2 PRs #58-#61 all merged; Phase 3 plans ready to seed as issues via /issue-from-plan 3
+Phase: 3 of 12 (Service user and filesystem layout) — COMPLETE (passed-with-notes)
+Plan: 5 of 5 in Phase 3
+Status: Phase 3 closed 2026-06-07. SC1–3 via Docker testbed; SC4 verified on REAL hardware via the arlowe-1 staging harness (plan 03-05). Phase-4 cleanups #73–#75 already merged: supplementary groups tightened to {audio,gpio,spi}; Axera NPU nodes → 0660 root:arlowe (broken axcl-deb rule removed by installer); founder-absence check split into image-only 06-image-sanitization.sh.
+Last activity: 2026-06-07 -- PRs #68–#72 (Phase 3) + #76–#77 (cleanups) merged; sanitize gate green on main; planning Phase 4.
 
-Progress: Phase 1 [██████████] 100% qualified; Phase 2 [██████████] 100% complete; Phase 3 [░░░░░░░░░░] 0/5 planned
+Progress: Phase 1 [██████████] 100% qualified; Phase 2 [██████████] 100%; Phase 3 [██████████] 100% complete; Phase 4 [░░░░░░░░░░] planning
 
 ## Performance Metrics
 
@@ -28,7 +28,8 @@ Progress: Phase 1 [██████████] 100% qualified; Phase 2 [█�
 |-------|-------|------|--------|
 | 1 | 15 | 15 | Complete (qualified) |
 | 2 | 4 | 4 | Complete |
-| 3 | 5 | 0 | Planned |
+| 3 | 5 | 5 | Complete (passed-with-notes) |
+| 4 | TBD | 0 | Planning |
 
 **Recent Trend (Phase 2):**
 - 02-01: grep gate runner, allow-list, CI workflow (#58)
@@ -49,6 +50,9 @@ Recent decisions affecting current work:
 - **WhisPlay driver**: PiSugar (Apache 2.0). Strategy A — vendor at image build (Phase 6).
 - **ax-llm submodule**: pinned at `df75c34c…` on `axcl-context` branch.
 - **axcl deb**: SHA-256 pinned in `third_party/axcl/manifest.yml`, never committed (Strategy C). `scripts/verify-third-party.sh` gates.
+- **Phase 3 layout** (resolved): `arlowe` system user (uid<1000, HOME=/var/lib/arlowe, nologin); code root-owned at `/opt/arlowe`, state at `/var/lib/arlowe`; six system-level units with PrivateTmp/ProtectSystem=strict/ReadWritePaths sandboxing; CLI symlinks at `/usr/local/sbin/arlowe-*`; udev (gpio/spi/axera) + polkit (arlowe→systemctl arlowe-*/qwen-*/whisper-stt) rules. SC4 (write-deny outside /var/lib/arlowe) verified on real hardware.
+- **Phase 3 group set** (resolved #73): the `arlowe` *user* is created with supplementary groups {audio, gpio, spi} only; `video`+`dialout` dropped (unused on hardware — no /dev/fb0, WM8960 codec is I2C/in-kernel). **Residual debt:** `units/arlowe-face.service` still declares `SupplementaryGroups=gpio spi video` + `DeviceAllow=/dev/fb0` — #73 fixed the user-creation + assertions but missed the unit, so the face *service process* still gets `video` at runtime. Tracked for cleanup (see todos / new issue); intentionally NOT touched by Phase 4.
+- **Axera NPU perms** (resolved #75): nodes 0660 root:arlowe; `install-arlowe-udev-polkit.sh` removes the axcl deb's broken `GROUP="<users>"` rule. Runtime verification deferred to Phase 6 image (can't verify on the focal55 dev Pi without breaking the daily-driver LLM).
 
 ### Pending Todos
 
@@ -72,6 +76,6 @@ Workforce-infra debt tracked in Claude's memory store:
 
 ## Session Continuity
 
-Last session: 2026-05-27
-Stopped at: Phase 2 closed. Phase 3 research + 5 plans drafted and committed. Branch `chore/phase-3-seed` opened to land planning artifacts. Next step: merge this PR, then run `/issue-from-plan 3` to populate board for workforce-tick dispatch.
-Resume file: branch `chore/phase-3-seed`, `.planning/phases/03-service-user-and-filesystem-layout/`
+Last session: 2026-06-07
+Stopped at: Phase 3 fully complete (5 plans merged via PRs #68–#72; SC4 hardware-verified). Phase-4 cleanups #73–#75 merged; sanitize gate green on main. Now planning Phase 4 (config overlay).
+Resume file: `.planning/phases/04-config-overlay/` (being created)
