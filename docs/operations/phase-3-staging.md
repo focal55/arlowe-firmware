@@ -72,17 +72,39 @@ cannot pass on the founder's own dev Pi. See follow-ups.
 | gpiochip0 vs gpiochip4? | `/dev/gpiochip4` is a symlink → `gpiochip0`; `/dev/gpiomem` absent on this kernel; WhisPlay opens `gpiochip0` | narrow DeviceAllow to `gpiochip0`; the gpiomem udev line is a no-op here |
 | axcl deb conflict? | deb ships `/etc/udev/rules.d/axcl_host.rules` setting `axcl_host`/`ax_mmb_dev` to `0666 root:root`; it sorts **after** our `90-arlowe-axera.rules`, so the deb wins — our rule is inert on real hw, and `0666` is looser than our intended `0660 root:arlowe` | rename ours to sort last (`95-`/`99-`) or reconcile |
 
-## Decisions for follow-up (Phase 4 cleanup)
+## Decisions for follow-up (Phase 4 cleanup) — resolved 2026-06-07 (issues #73–#75)
 
-1. Drop `video` and `dialout` from `install-arlowe-user.sh`; tighten the granted
-   set to `{audio, gpio, spi}`. Update `01-user-shape.sh` group checks to match.
-2. Narrow the gpiochip `DeviceAllow` in `units/arlowe-face.service` to
-   `/dev/gpiochip0`; drop the dead `/dev/gpiomem` udev line.
-3. Split the founder-absence check out of `01-user-shape.sh` into an image-only
-   assertion so 01 is cleanly reusable by the staging harness.
-4. Rename `90-arlowe-axera.rules` to sort after the axcl deb's `axcl_host.rules`
-   (or reconcile the two), and decide whether `0666 root:root` on the NPU node is
-   acceptable or should be tightened to `0660 root:arlowe`.
+1. **Done (#73, PR #76):** dropped `video` + `dialout` from `install-arlowe-user.sh`
+   (granted set now `{audio, gpio, spi}`); `01-user-shape.sh` group checks updated.
+2. **Won't-fix (#74):** the gpiochip `DeviceAllow` is intentionally NOT narrowed and
+   the `gpiomem` line is kept. Narrowing removes no real privilege — a `DeviceAllow`
+   for a symlinked/absent node grants access to nothing — and risks breaking face on
+   a kernel that enumerates the RP1 bank differently (gpiochip4 was a symlink to
+   gpiochip0 on one boot and absent on another). The misleading "primary GPIO bank"
+   comment in `91-arlowe-gpio-spi.rules` was corrected instead.
+3. **Done (#73, PR #76):** founder-absence check split into image-only
+   `06-image-sanitization.sh`; `01` is now dev-Pi-reusable.
+4. **Done (#75):** NPU nodes tightened to **`0660 root:arlowe`** on the image. The
+   deb's `axcl_host.rules` turned out to be a packaging bug — an unsubstituted
+   `GROUP="<users>"` placeholder + `0666`, which is the actual cause of the
+   `root:root 0666` nodes. Rather than out-sort a broken rule by filename (which
+   would also break the staging harness's `9X-` naming), `install-arlowe-udev-polkit.sh`
+   removes the broken deb rule so `90-arlowe-axera.rules` governs; the rule now
+   covers all four exposed nodes (`axcl_host`, `ax_mmb_dev`, `msg_userdev`, `p2p`).
+
+   **Decision / risk-acceptance (Joe, 2026-06-07):** tighten to `0660 root:arlowe`
+   on the production image. Residual accepted: (a) `root` and the `arlowe` service
+   keep NPU access — required for the LLM; (b) the dev Pi keeps the deb's
+   `0666 root:root` (the production installer is not run there, so the daily-driver
+   LLM running as `focal55` is unaffected). Tightening costs no firmware
+   functionality — the NPU consumer runs as `arlowe` — and removes the NPU driver's
+   ioctl/DMA surface from non-`arlowe` local UIDs (defense-in-depth on a device
+   running network-facing services).
+
+   **Runtime verification deferred to Phase 6:** applying the winning rule on the dev
+   Pi would re-own the NPU away from `focal55` and break the daily-driver LLM, so it
+   can only be verified on a clean image (arlowe user, no daily-driver). This change
+   is verified syntactically + by `04-udev-polkit-shape.sh` shape assertions.
 
 ## Limits
 

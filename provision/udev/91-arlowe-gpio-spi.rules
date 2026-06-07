@@ -6,18 +6,17 @@
 # Lite image omits 99-com.rules. Both rules produce identical permissions so
 # there is no conflict, only redundancy.
 #
-# Covers both gpiochip0 (main bank, legacy) and gpiochip4 (RP1 chip on Pi 5).
-# Research §12.4 documents the Pi 5 RP1 chip enumeration; the KERNEL wildcard
-# matches both. Plan 05 confirms which chip the WhisPlay driver actually opens.
+# The gpiochip[0-9]* wildcard intentionally matches whichever chips the kernel
+# presents. Plan 05 found this enumeration is NOT stable on the Pi 5 dev kernel
+# (6.12 rpt / trixie): the WhisPlay driver opens gpiochip0, and gpiochip4
+# is sometimes a symlink to gpiochip0 and sometimes absent across boots. The
+# broad wildcard is therefore the robust choice — do NOT narrow it to a specific
+# chip, or face breaks on a kernel that enumerates the RP1 bank differently.
 #
 # Required by:
 #   - arlowe-face.service (WhisPlay SPI LCD panel needs /dev/spidev* and gpiochip)
-#
-# Note: gpiochip0 and gpiochip4 are matched by the gpiochip[0-9]* wildcard below;
-# the individual names are listed explicitly in comments for plan 05 auditing.
 
-# gpiochip0 (main GPIO bank on Pi 4 and earlier; also present on Pi 5 as alias)
-# gpiochip4 (RP1 chip GPIO controller on Pi 5 — the primary GPIO bank on Pi 5)
+# Matches gpiochip0 (and gpiochip4 when present — symlink/alias on this kernel).
 KERNEL=="gpiochip[0-9]*", OWNER="root", GROUP="gpio", MODE="0660"
 KERNEL=="gpiomem",         OWNER="root", GROUP="gpio", MODE="0660"
 KERNEL=="spidev*",         OWNER="root", GROUP="spi",  MODE="0660"

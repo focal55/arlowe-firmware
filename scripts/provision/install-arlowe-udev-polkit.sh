@@ -44,6 +44,17 @@ install -m 0644 -o root -g root "${UDEV_SRC}"/*.rules /etc/udev/rules.d/
 # Install polkit rules (mode 0644, root:root — standard for polkit rules.d).
 install -m 0644 -o root -g root "${POLKIT_SRC}"/*.rules /etc/polkit-1/rules.d/
 
+# The axcl deb ships /etc/udev/rules.d/axcl_host.rules with an unsubstituted
+# GROUP="<users>" placeholder + MODE=0666, leaving the NPU nodes world-writable
+# (root:root 0666; the bogus group silently fails). Remove that broken rule so
+# 90-arlowe-axera.rules governs the nodes (root:arlowe 0660). Guarded on the
+# placeholder so we only touch the known-broken version. See plan 03-05.
+_axcl_deb_rule=/etc/udev/rules.d/axcl_host.rules
+if [[ -f "${_axcl_deb_rule}" ]] && grep -q 'GROUP="<users>"' "${_axcl_deb_rule}"; then
+    rm -f "${_axcl_deb_rule}"
+    echo "[install-udev-polkit] removed axcl deb's broken udev rule (GROUP=\"<users>\" placeholder)"
+fi
+
 # Reload udev. In Docker containers without a running udev daemon this is a
 # no-op; the error is suppressed with a diagnostic message so CI doesn't fail.
 if command -v udevadm >/dev/null 2>&1; then

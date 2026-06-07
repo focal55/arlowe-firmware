@@ -1,23 +1,25 @@
-# Arlowe Phase 3: Axera device permissions
-# Grants the `arlowe` group read/write to the AXCL device nodes installed by
-# axcl_host_aarch64_V3.10.2.deb. The deb itself may or may not ship udev rules
-# (see scripts/provision/extract-axcl-udev-from-deb.sh). If the deb ships
-# conflicting rules, this file's higher number (90 vs typical 60s) wins on
-# last-rule-applied semantics for matching attributes.
+# Arlowe Phase 3/4: Axera NPU device permissions — root:arlowe 0660.
 #
-# Device nodes:
-#   /dev/axcl_host  — the main AXCL host control interface (NPU access)
-#   /dev/ax_mmb_dev — the multimedia buffer interface (shared memory)
+# The axcl deb (axcl_host_aarch64_*.deb) ships its own
+# /etc/udev/rules.d/axcl_host.rules, but with an unsubstituted GROUP="<users>"
+# placeholder and MODE=0666 — a packaging bug. udev can't resolve a group named
+# "<users>", so the group assignment silently fails and the nodes end up
+# world-writable (root:root 0666). Confirmed on hardware in plan 03-05.
+# install-arlowe-udev-polkit.sh removes that broken rule so this file governs the
+# nodes. Rationale for 0660 (vs the deb's 0666) is in
+# docs/operations/phase-3-staging.md: it keeps the NPU reachable only by the
+# arlowe service + root, shrinking the local privilege-escalation surface on a
+# device that runs network-facing services.
 #
-# Required by:
-#   - arlowe-face.service (WhisPlay display driver uses NPU for face recognition)
-#   - arlowe-voice.service (uses NPU for wake-word and STT inference)
-#   - arlowe-llm.service (uses NPU for local LLM inference)
+# Covers all four nodes the deb exposes:
+#   /dev/axcl_host   — AXCL host control interface (NPU access)
+#   /dev/ax_mmb_dev  — multimedia buffer / shared NPU memory
+#   /dev/msg_userdev — AXCL message channel
+#   /dev/p2p         — AXCL peer-to-peer DMA channel
 #
-# Verified on real hardware: plan 03-05 / tests/phase-3/staging/.
-# DeviceAllow= in the unit files is necessary but not sufficient — the kernel
-# device-node permissions must also permit arlowe to open the node; this rule
-# closes that gap.
+# Required by qwen-api (LLM inference) and any arlowe service that uses the NPU.
 
-KERNEL=="axcl_host",  OWNER="root", GROUP="arlowe", MODE="0660"
-KERNEL=="ax_mmb_dev", OWNER="root", GROUP="arlowe", MODE="0660"
+KERNEL=="axcl_host",   OWNER="root", GROUP="arlowe", MODE="0660"
+KERNEL=="ax_mmb_dev",  OWNER="root", GROUP="arlowe", MODE="0660"
+KERNEL=="msg_userdev", OWNER="root", GROUP="arlowe", MODE="0660"
+KERNEL=="p2p",         OWNER="root", GROUP="arlowe", MODE="0660"

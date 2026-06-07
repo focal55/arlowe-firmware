@@ -75,4 +75,15 @@ grep -q 'axcl_host' /etc/udev/rules.d/90-arlowe-axera.rules \
 grep -q 'ax_mmb_dev' /etc/udev/rules.d/90-arlowe-axera.rules \
     || fail "90-arlowe-axera.rules does not cover ax_mmb_dev"
 
+# plan 03-05 found the axcl deb also exposes msg_userdev + p2p; cover all four.
+grep -q 'msg_userdev' /etc/udev/rules.d/90-arlowe-axera.rules \
+    || fail "90-arlowe-axera.rules does not cover msg_userdev"
+
+grep -q 'p2p' /etc/udev/rules.d/90-arlowe-axera.rules \
+    || fail "90-arlowe-axera.rules does not cover p2p"
+
+# all four nodes must be root:arlowe 0660 (not the deb's world-writable 0666)
+grep -qE 'GROUP="arlowe", *MODE="0660"' /etc/udev/rules.d/90-arlowe-axera.rules \
+    || fail "90-arlowe-axera.rules does not set GROUP=arlowe MODE=0660"
+
 echo "[04-udev-polkit-shape] PASS (file shape only; runtime application verified in plan 05)"
