@@ -24,17 +24,11 @@ test "${actual_home}" = "${ARLOWE_HOME}" || fail "HOME wrong: expected ${ARLOWE_
 actual_shell="$(getent passwd "${ARLOWE_USER}" | cut -d: -f7)"
 test "${actual_shell}" = "/usr/sbin/nologin" || fail "shell wrong: expected /usr/sbin/nologin, got ${actual_shell}"
 
-# founder identity must not exist — this assertion is about a specific banned identity,
-# not the runtime user, so it stays a literal check
-getent passwd focal55 >/dev/null 2>&1 && fail "founder user 'focal55' present in passwd" || true
-
-# required supplementary groups
+# required supplementary groups (dialout + video dropped per plan 03-05 — confirmed
+# unused on hardware; founder-absence moved to 06-image-sanitization.sh so this
+# script is reusable against a dev Pi via ARLOWE_USER override)
 id -nG "${ARLOWE_USER}" | grep -qw audio || fail "${ARLOWE_USER} missing audio group"
 id -nG "${ARLOWE_USER}" | grep -qw gpio  || fail "${ARLOWE_USER} missing gpio group"
 id -nG "${ARLOWE_USER}" | grep -qw spi   || fail "${ARLOWE_USER} missing spi group"
-
-# Speculative; plan 05 confirms on hardware. Remove if plan 05 finds unnecessary.
-id -nG "${ARLOWE_USER}" | grep -qw dialout || fail "${ARLOWE_USER} missing dialout group"
-id -nG "${ARLOWE_USER}" | grep -qw video   || fail "${ARLOWE_USER} missing video group"
 
 echo "SC1: PASS"
