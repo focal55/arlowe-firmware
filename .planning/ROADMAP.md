@@ -11,8 +11,8 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - Decimal phases (e.g., 2.1): Reserved for urgent insertions during execution
 
 - [x] **Phase 1: Runtime extraction** - Carve `whisplay/` and `arlowe-dashboard/` out of `iol-monorepo` into `runtime/`; vendor `ax-llm`; pin Axera kernel module (complete 2026-05-17, qualified — SC4 hardware loop deferred per plan 13)
-- [ ] **Phase 2: Sanitization gate** - CI grep gate fails the build on any banned literal; founder-only services blocked at image-build time; UI snapshot test enforces no-founder copy
-- [ ] **Phase 3: Service user and filesystem layout** - Dedicated `arlowe` system user; code at `/opt/arlowe/`; state at `/var/lib/arlowe/`; system-level systemd units with sandboxing
+- [x] **Phase 2: Sanitization gate** - CI grep gate fails the build on any banned literal; founder-only services blocked at image-build time; UI snapshot test enforces no-founder copy (complete 2026-05-27)
+- [x] **Phase 3: Service user and filesystem layout** - Dedicated `arlowe` system user; code at `/opt/arlowe/`; state at `/var/lib/arlowe/`; system-level systemd units with sandboxing (complete 2026-06-07, passed-with-notes — SC4 verified on real hardware via plan 03-05 staging harness; Phase-4 cleanups #73–#75 already merged: groups tightened to {audio,gpio,spi}, NPU nodes 0660 root:arlowe)
 - [ ] **Phase 4: Config overlay** - Schema-validated `defaults.yml` + `/etc/arlowe/config.yml` overlay; every personal literal flows through config
 - [ ] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check
 - [ ] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition
@@ -97,11 +97,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Provisioning scripts (install-arlowe-user + install-arlowe-fs) + Docker testbed + SC1/SC2 assertions + layout-reference doc (Wave 1, foundational; OTA-01 amendment noted)
-- [ ] 03-02-PLAN.md — Six systemd unit files + install-units.sh + SC3 assertions (systemd-analyze verify + security) (Wave 2, depends on 03-01)
-- [ ] 03-03-PLAN.md — Udev rules (Axera + GPIO/SPI defense-in-depth) + polkit rule (arlowe→systemctl arlowe-*) + axcl-deb diagnostic (Wave 2, depends on 03-01; parallel with 03-02)
-- [ ] 03-04-PLAN.md — CLI symlinks installer + boot-check ARLOWE_SYSTEMCTL_FLAGS default flip to system-level (Wave 2, depends on 03-01; parallel with 03-02, 03-03)
-- [ ] 03-05-PLAN.md — arlowe-1 staging-user harness: install/uninstall, SC4 sandbox write-deny on real hardware, speculative-group + gpiochip resolution (Wave 3; non-autonomous, depends on 03-01..04)
+- [x] 03-01-PLAN.md — Provisioning scripts (install-arlowe-user + install-arlowe-fs) + Docker testbed + SC1/SC2 assertions + layout-reference doc (Wave 1, foundational; OTA-01 amendment noted)
+- [x] 03-02-PLAN.md — Six systemd unit files + install-units.sh + SC3 assertions (systemd-analyze verify + security) (Wave 2, depends on 03-01)
+- [x] 03-03-PLAN.md — Udev rules (Axera + GPIO/SPI defense-in-depth) + polkit rule (arlowe→systemctl arlowe-*) + axcl-deb diagnostic (Wave 2, depends on 03-01; parallel with 03-02)
+- [x] 03-04-PLAN.md — CLI symlinks installer + boot-check ARLOWE_SYSTEMCTL_FLAGS default flip to system-level (Wave 2, depends on 03-01; parallel with 03-02, 03-03)
+- [x] 03-05-PLAN.md — arlowe-1 staging-user harness: install/uninstall, SC4 sandbox write-deny on real hardware, speculative-group + gpiochip resolution (Wave 3; non-autonomous, depends on 03-01..04)
 
 ### Phase 4: Config overlay
 
@@ -117,7 +117,13 @@ Plans:
   3. Absent `/etc/arlowe/config.yml` is a recognized state that signals "not yet paired" (consumed in Phase 8); no service crashes or loops in this state.
   4. The dashboard writes the overlay atomically (temp file + rename), and at least one knob change end-to-end (e.g., persona) restarts the affected service and takes effect on the next interaction.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — schema.yml + defaults.yml + shared Python loader/validator + tests + docs/04-scope.md (Wave 1, foundational)
+- [ ] 04-02-PLAN.md — ADR 0003 loosen-perms + /etc/arlowe 0770 + dashboard ReadWritePaths + install-arlowe-config.sh + install-shape assertion (Wave 2, package:security, depends on 04-01)
+- [ ] 04-03-PLAN.md — dashboard ajv validate-before-write + atomic write + knob->unit restart map/trigger + test (Wave 2, depends on 04-01; parallel with 04-02)
+- [ ] 04-04-PLAN.md — persona live slice: face consumes YAML overlay + ExecStartPre fail-fast validators + SC4 human-verify checkpoint (Wave 3; non-autonomous, depends on 04-01..03)
 
 ### Phase 5: Audio device auto-detection
 
@@ -263,8 +269,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Runtime extraction | 15/15 | Complete (qualified — SC4 hardware loop deferred to Phase 12; see plan 13 SUMMARY F1-F4) | 2026-05-17 |
 | 2. Sanitization gate | 4/4 | Complete | 2026-05-27 |
-| 3. Service user and filesystem layout | 0/5 | Planned | - |
-| 4. Config overlay | 0/TBD | Not started | - |
+| 3. Service user and filesystem layout | 5/5 | Complete (passed-with-notes; #73–#75 cleanups merged) | 2026-06-07 |
+| 4. Config overlay | 0/4 | ◆ Planning | - |
 | 5. Audio device auto-detection | 0/TBD | Not started | - |
 | 6. Image build with A/B partitions | 0/TBD | Not started | - |
 | 7. Device identity and PKI | 0/TBD | Not started | - |
