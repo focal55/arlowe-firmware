@@ -13,7 +13,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 1: Runtime extraction** - Carve `whisplay/` and `arlowe-dashboard/` out of `iol-monorepo` into `runtime/`; vendor `ax-llm`; pin Axera kernel module (complete 2026-05-17, qualified — SC4 hardware loop deferred per plan 13)
 - [x] **Phase 2: Sanitization gate** - CI grep gate fails the build on any banned literal; founder-only services blocked at image-build time; UI snapshot test enforces no-founder copy (complete 2026-05-27)
 - [x] **Phase 3: Service user and filesystem layout** - Dedicated `arlowe` system user; code at `/opt/arlowe/`; state at `/var/lib/arlowe/`; system-level systemd units with sandboxing (complete 2026-06-07, passed-with-notes — SC4 verified on real hardware via plan 03-05 staging harness; Phase-4 cleanups #73–#75 already merged: groups tightened to {audio,gpio,spi}, NPU nodes 0660 root:arlowe)
-- [ ] **Phase 4: Config overlay** - Schema-validated `defaults.yml` + `/etc/arlowe/config.yml` overlay; every personal literal flows through config
+- [x] **Phase 4: Config overlay** - Schema-validated `defaults.yml` + `/etc/arlowe/config.yml` overlay; every personal literal flows through config (complete 2026-06-07, passed-with-notes — 4 plans merged via PRs #84/#85/#86/#87; SC4 on-device persona-knob check deferred to Phase 6/12, arlowe-1 has no arlowe layout to run it)
 - [ ] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check
 - [ ] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls
@@ -270,8 +270,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Runtime extraction | 15/15 | Complete (qualified — SC4 hardware loop deferred to Phase 12; see plan 13 SUMMARY F1-F4) | 2026-05-17 |
 | 2. Sanitization gate | 4/4 | Complete | 2026-05-27 |
 | 3. Service user and filesystem layout | 5/5 | Complete (passed-with-notes; #73–#75 cleanups merged) | 2026-06-07 |
-| 4. Config overlay | 0/4 | ◆ Planning | - |
-| 5. Audio device auto-detection | 0/TBD | Not started | - |
+| 4. Config overlay | 4/4 | Complete (passed-with-notes; SC4 on-device check deferred to Phase 6/12) | 2026-06-07 |
+| 5. Audio device auto-detection | 0/TBD | ◆ Planning | - |
 | 6. Image build with A/B partitions | 0/TBD | Not started | - |
 | 7. Device identity and PKI | 0/TBD | Not started | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
