@@ -60,3 +60,24 @@ runtime/tts/manifest.yml
 # from the polkit rule. Both files never ship in the firmware image (tests/ is not a pi-gen stage).
 tests/phase-3/assertions/01-user-shape.sh
 tests/phase-3/assertions/04-udev-polkit-shape.sh
+# 05-cli-symlinks.sh: `grep -E 'focal55|/home/focal55|...' boot-check` is a negative
+# check verifying boot-check carries no banned literals — same rationale as 04.
+# (Shipped in plan 03-04 without this entry; gate was red on main until now.)
+tests/phase-3/assertions/05-cli-symlinks.sh
+
+# --- Phase 3 plan 05 staging harness allow-list ---
+# These are dev-host tooling and never ship in the firmware image (tests/ and
+# docs/operations are not pi-gen stages). Precedent: scripts/dev-pull-from-pi.sh
+# (arlowe-1) and docs/operations/phase-1-smoke-test.md.
+#
+# 06-sandbox-write-deny.sh MUST contain /home/focal55 — it is the SC4 negative
+# test proving the sandbox denies writes to the founder home; removing the literal
+# defeats the test.
+tests/phase-3/staging/06-sandbox-write-deny.sh
+# run-staging.sh defaults the SSH target to the dev host (arlowe-1).
+tests/phase-3/staging/run-staging.sh
+# README documents the dev-host ssh invocations and the daily-driver stop prereq.
+tests/phase-3/staging/README.md
+# phase-3-staging.md is the dev-unit ops record; it references the daily-driver
+# user (focal55) and dev host (arlowe-1) because hardware contention is a real prereq.
+docs/operations/phase-3-staging.md
