@@ -40,12 +40,10 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
-# Dashboard writes cache and logs only. /etc/arlowe/config.yml is intentionally
-# NOT in ReadWritePaths — the dashboard POST /api/config route goes through a
-# privileged helper.
-# FIXME(Phase 4): wire the privileged-helper write path (polkit or setuid helper)
-# so the dashboard can persist config to /etc/arlowe/config.yml.
-ReadWritePaths=/var/lib/arlowe/dashboard /var/lib/arlowe/logs/dashboard
+# ADR-0003: /etc/arlowe added to ReadWritePaths (scoped to that path only — not
+# a broader /etc). The dashboard POST /api/config route writes the overlay via
+# temp-file + rename directly. All other sandbox hardening is unchanged.
+ReadWritePaths=/var/lib/arlowe/dashboard /var/lib/arlowe/logs/dashboard /etc/arlowe
 
 [Install]
 WantedBy=multi-user.target

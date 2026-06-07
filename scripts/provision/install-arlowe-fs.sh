@@ -4,7 +4,8 @@
 # Purpose:
 #   Provisions /opt/arlowe/ (code root, root:arlowe 0750), /var/lib/arlowe/
 #   (owner state, arlowe:arlowe 0750), and /etc/arlowe/ (config dir, root:arlowe
-#   0755) per the Phase 3 layout contract (docs/operations/phase-3-layout.md).
+#   0770 group-writable per ADR-0003) per the Phase 3 layout contract
+#   (docs/operations/phase-3-layout.md).
 #
 # Idempotency contract:
 #   `install -d` is idempotent — it sets owner and mode on each invocation,
@@ -75,11 +76,13 @@ install -d -o arlowe -g arlowe -m 0750 /var/lib/arlowe/dashboard
 install -d -o arlowe -g arlowe -m 0750 /var/lib/arlowe/dashboard/cache
 
 # ---------------------------------------------------------------------------
-# /etc/arlowe/ — config overlay dir; root:arlowe 0755
-# config.yml intentionally NOT created — its absence is the Phase 8 pairing trigger
+# /etc/arlowe/ — config overlay dir; root:arlowe 0770 (ADR-0003)
+# Group-writable so the arlowe-user dashboard can write the config overlay
+# via a scoped ReadWritePaths entry. Write surface is bounded to this dir only.
+# config.yml intentionally NOT created — its absence is the CONFIG-03 pairing trigger
 # ---------------------------------------------------------------------------
 
-install -d -o root -g arlowe -m 0755 /etc/arlowe
+install -d -o root -g arlowe -m 0770 /etc/arlowe
 
 # Summary output — aids diagnosis in pi-gen log and Docker testbed output
 if command -v tree >/dev/null 2>&1; then
