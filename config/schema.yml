@@ -1,0 +1,211 @@
+# Arlowe firmware config schema — JSON Schema draft 2020-12 encoded in YAML.
+#
+# Merge semantics (implemented in runtime/lib/arlowe_config.py):
+#   - Top-level keys: SHALLOW merge (overlay key replaces default key entirely),
+#     EXCEPT for nested objects like persona.sentiment_mapping which are DEEP-merged
+#     so a partial overlay that sets only one sub-key preserves its siblings from
+#     defaults.
+#   - Absent overlay (/etc/arlowe/config.yml missing) returns defaults unchanged —
+#     this is the expected factory/pre-pairing state, not an error.
+#   - persona.sentiment_mapping sub-keys (positive/negative/neutral) are intentionally
+#     OPTIONAL (no inner required list, no additionalProperties:false). The loader
+#     merges defaults+overlay BEFORE validating, so the merged dict always carries
+#     all three sub-keys even when the overlay only sets one. This is the 04-04 SC4
+#     partial-overlay contract: an overlay that sets only persona.sentiment_mapping.positive
+#     must validate cleanly after merge.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: ArloweConfig
+description: Arlowe firmware runtime configuration schema. config/schema.yml is the canonical
+  source — docs/04-scope.md and the dashboard both consume this file. Do not duplicate
+  the knob inventory elsewhere.
+type: object
+additionalProperties: false
+
+required:
+  - device
+  - audio
+  - model
+  - persona
+  - ports
+  - logs
+  - support_mode
+  - ota
+
+properties:
+
+  device:
+    type: object
+    additionalProperties: false
+    description: Device identity knobs. hostname is resolved to a concrete name at pairing
+      (Phase 7/8); the default is a template literal, not a concrete hostname.
+    required:
+      - hostname
+    properties:
+      hostname:
+        type: string
+        default: "arlowe-${device_serial}"
+        description: >
+          Device hostname. The default is a template literal resolved at pairing
+          (Phase 7/8) by substituting the device serial number. Never set to a
+          concrete founder-era hostname.
+
+  audio:
+    type: object
+    additionalProperties: false
+    description: Audio device selection. Phase 5 owns auto-detection; Phase 4 defines the knobs.
+    required:
+      - capture_device
+      - playback_device
+    properties:
+      capture_device:
+        type: string
+        default: "auto"
+        description: ALSA capture device name, or "auto" for Phase 5 detection.
+      playback_device:
+        type: string
+        default: "auto"
+        description: ALSA playback device name, or "auto" for Phase 5 detection.
+
+  model:
+    type: object
+    additionalProperties: false
+    description: On-device model selection.
+    required:
+      - choice
+    properties:
+      choice:
+        type: string
+        enum:
+          - "qwen2.5-7b-int4-ax650"
+          - "qwen2.5-1.5b-int4-ax650"
+        default: "qwen2.5-7b-int4-ax650"
+        description: >
+          Which Qwen model directory to load from /opt/arlowe/models. The 7B model
+          is the default; the 1.5B is a lower-resource alternative.
+
+  persona:
+    type: object
+    additionalProperties: false
+    description: Persona and face-expression configuration consumed by arlowe-face.
+    required:
+      - sentiment_mapping
+    properties:
+      sentiment_mapping:
+        type: object
+        description: >
+          Maps sentiment categories to lists of face expressions consumed by
+          arlowe-face (sentiment_classifier.py). Sub-keys are intentionally
+          OPTIONAL — a partial overlay that sets only one sentiment preserves
+          the others via deep-merge in the loader. See merge semantics at the
+          top of this file and the 04-04 SC4 partial-overlay contract.
+        properties:
+          positive:
+            type: array
+            items:
+              type: string
+            description: Face expressions for positive sentiment.
+          negative:
+            type: array
+            items:
+              type: string
+            description: Face expressions for negative sentiment.
+          neutral:
+            type: array
+            items:
+              type: string
+            description: Face expressions for neutral sentiment.
+        default:
+          positive:
+            - "happy"
+            - "excited"
+          negative:
+            - "concerned"
+            - "sad"
+          neutral:
+            - "idle"
+            - "attentive"
+
+  ports:
+    type: object
+    additionalProperties: false
+    description: TCP port assignments for each service.
+    required:
+      - face
+      - stt
+      - dashboard
+    properties:
+      face:
+        type: integer
+        default: 8080
+        description: arlowe-face service TCP port.
+      stt:
+        type: integer
+        default: 8082
+        description: whisper-stt service TCP port.
+      dashboard:
+        type: integer
+        default: 3000
+        description: arlowe-dashboard service TCP port.
+
+  logs:
+    type: object
+    additionalProperties: false
+    description: Log retention policy. Phase 11 consumes these knobs for logrotate / purge-logs.
+    required:
+      - transcript_retention_days
+      - transcript_logging_enabled
+    properties:
+      transcript_retention_days:
+        type: integer
+        default: 7
+        description: Number of days voice transcript logs are retained before purge.
+      transcript_logging_enabled:
+        type: boolean
+        default: true
+        description: Whether voice transcripts are written to disk at all.
+
+  support_mode:
+    type: object
+    additionalProperties: false
+    description: >
+      Owner-consented remote support access. Defined here but not consumed until
+      Phase 10 (SUPP requirements). Default is off.
+    required:
+      - enabled
+      - window_hours
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Whether support mode is active.
+      window_hours:
+        type: integer
+        default: 24
+        description: >
+          Duration in hours of a support-mode session. Valid range 1–168.
+
+  ota:
+    type: object
+    additionalProperties: false
+    description: >
+      App-only OTA update configuration. Defined here but not consumed until
+      Phase 9 (OTA requirements).
+    required:
+      - channel
+      - channel_url
+    properties:
+      channel:
+        type: string
+        enum:
+          - "stable"
+          - "beta"
+          - "off"
+        default: "stable"
+        description: OTA update channel. "off" disables update polling entirely.
+      channel_url:
+        type: string
+        default: ""
+        description: >
+          Signed-manifest CDN base URL for the selected channel. Empty until
+          set at pairing (Phase 8/9).

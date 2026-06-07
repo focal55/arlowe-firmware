@@ -1,0 +1,47 @@
+# Arlowe firmware shipped defaults.
+#
+# This file is installed read-only at /opt/arlowe/config/defaults.yml.
+# The owner-mutable overlay lives at /etc/arlowe/config.yml (absent on factory image).
+# Every key here must satisfy config/schema.yml; the loader validates the merged result.
+#
+# Sanitize contract: this file contains zero founder literals.
+#   device.hostname is a template literal resolved at pairing, never a concrete hostname.
+
+device:
+  hostname: "arlowe-${device_serial}"
+
+audio:
+  capture_device: "auto"
+  playback_device: "auto"
+
+model:
+  choice: "qwen2.5-7b-int4-ax650"
+
+persona:
+  sentiment_mapping:
+    positive:
+      - "happy"
+      - "excited"
+    negative:
+      - "concerned"
+      - "sad"
+    neutral:
+      - "idle"
+      - "attentive"
+
+ports:
+  face: 8080
+  stt: 8082
+  dashboard: 3000
+
+logs:
+  transcript_retention_days: 7
+  transcript_logging_enabled: true
+
+support_mode:
+  enabled: false
+  window_hours: 24
+
+ota:
+  channel: "stable"
+  channel_url: ""
