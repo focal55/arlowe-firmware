@@ -58,8 +58,9 @@ check_path "${ARLOWE_HOME}/wake-word"         "${ARLOWE_USER}:${ARLOWE_GROUP} 75
 check_path "${ARLOWE_HOME}/dashboard/cache"   "${ARLOWE_USER}:${ARLOWE_GROUP} 750"
 
 # /etc/arlowe: directory exists but config.yml is ABSENT
+# Mode is 0770 (root:arlowe group-writable) per ADR-0003 (plan 04-02).
 # Absence of config.yml is the CONFIG-03 pairing trigger (Phase 8 creates it).
-check_path "${ARLOWE_ETC}" "root:${ARLOWE_GROUP} 755"
+check_path "${ARLOWE_ETC}" "root:${ARLOWE_GROUP} 770"
 test ! -f "${ARLOWE_ETC}/config.yml" \
   || fail "${ARLOWE_ETC}/config.yml must not exist in Phase 3 (its absence triggers pairing)"
 
