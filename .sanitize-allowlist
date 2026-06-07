@@ -54,12 +54,12 @@ runtime/wake-word/requirements.txt
 runtime/tts/manifest.yml
 
 # Phase 3 assertion scripts: contain founder identity literals in negative checks by design.
-# 01-user-shape.sh: `getent passwd focal55 && fail "..."` verifies the founder user was
-# not provisioned on the device.
+# 06-image-sanitization.sh: `getent passwd focal55 && fail` verifies the founder user is
+# absent from a shipped image (moved out of 01 in plan 03-05 so 01 is dev-Pi-reusable).
 # 04-udev-polkit-shape.sh: `grep -qE 'focal55|...'` verifies banned literals are absent
-# from the polkit rule. Both files never ship in the firmware image (tests/ is not a pi-gen stage).
-tests/phase-3/assertions/01-user-shape.sh
+# from the polkit rule. Neither file ships in the firmware image (tests/ is not a pi-gen stage).
 tests/phase-3/assertions/04-udev-polkit-shape.sh
+tests/phase-3/assertions/06-image-sanitization.sh
 # 05-cli-symlinks.sh: `grep -E 'focal55|/home/focal55|...' boot-check` is a negative
 # check verifying boot-check carries no banned literals — same rationale as 04.
 # (Shipped in plan 03-04 without this entry; gate was red on main until now.)

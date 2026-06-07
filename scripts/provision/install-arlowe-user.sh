@@ -48,9 +48,10 @@ fi
 #   audio   — ALSA /dev/snd/* for arlowe-voice + arlowe-wake-word (pyaudio)
 #   gpio    — /dev/gpiomem + /dev/gpiochip* for arlowe-face (WhisPlay SPI chip-select)
 #   spi     — /dev/spidev* for arlowe-face (WhisPlay LCD panel)
-#   dialout — possibly arlowe-voice (codec control via UART/I2C on some HATs); cheap to grant
-#   video   — /dev/fb0 framebuffer for arlowe-face; speculative (plan 05 confirms on hardware)
-for grp in audio gpio spi dialout video; do
+# dialout + video were dropped after plan 03-05 hardware verification: no /dev/fb0
+# (WhisPlay is SPI, not framebuffer) and the WM8960 codec is I2C/in-kernel, so the
+# voice service opens no serial device. See 03-05-SUMMARY.md.
+for grp in audio gpio spi; do
     if getent group "${grp}" >/dev/null 2>&1; then
         usermod -aG "${grp}" arlowe
     fi
