@@ -16,9 +16,10 @@ from typing import Tuple, Optional
 # the OpenAI-compat path doesn't exist on the running ax-llm build).
 QWEN_URL = "http://localhost:8000/api/chat"
 
-# Load order: /etc/arlowe/config.yml (post-pairing overlay, Phase 4),
-# falling back to <state>/whisplay-config.json for dev.
-# During Phase 1 we accept the fallback path; Phase 4 wires the overlay.
+# Load order (Phase 4): the merged+validated YAML overlay via the shared
+# arlowe_config loader (persona.sentiment_mapping), then a direct YAML read of
+# /etc/arlowe/config.yml, then the legacy <state>/whisplay-config.json dev file,
+# then DEFAULT_MAPPING. Absent overlay is a normal pre-pairing state (SC3).
 CONFIG_OVERLAY = Path(os.environ.get("ARLOWE_CONFIG_PATH", "/etc/arlowe/config.yml"))
 CONFIG_PATH = Path(os.environ.get("ARLOWE_STATE_DIR", "/var/lib/arlowe/state")) / "whisplay-config.json"
 
@@ -49,20 +50,63 @@ EXPRESSION_TO_STATE = {
 }
 
 
-def load_config() -> dict:
-    """Load configuration file with sentiment-to-expression mapping.
+def _mapping_via_shared_loader() -> Optional[dict]:
+    """Return persona.sentiment_mapping from the merged+validated config, or None.
 
-    Returns DEFAULT_MAPPING if neither config path exists or is unreadable.
-    This is the expected state during Phase 1 / pre-pairing.
+    Uses the shared arlowe_config loader (defaults + overlay, deep-merged and
+    schema-validated). Returns None when the loader is unavailable (dev env
+    without runtime/lib on PYTHONPATH) or the overlay fails validation — in
+    which case the caller falls back. The fail-fast SC2 guarantee is provided by
+    the units' ExecStartPre validator at startup, so at runtime we degrade to
+    defaults rather than crash the running face.
     """
-    for path in (CONFIG_OVERLAY, CONFIG_PATH):
-        if path.exists():
-            try:
-                with open(path) as f:
-                    config = json.load(f)
-                    return config.get("sentiment_mapping", DEFAULT_MAPPING)
-            except Exception as e:
-                print(f"  [sentiment] Config load error ({path}): {e}, using defaults", flush=True)
+    try:
+        from arlowe_config import load
+    except ImportError:
+        return None
+    try:
+        cfg = load()
+    except SystemExit:
+        print("  [sentiment] overlay failed schema validation, using defaults", flush=True)
+        return None
+    except Exception as e:
+        print(f"  [sentiment] shared loader error ({e}), using defaults", flush=True)
+        return None
+    return (cfg.get("persona") or {}).get("sentiment_mapping") or None
+
+
+def load_config() -> dict:
+    """Load the sentiment-to-expression mapping.
+
+    Primary: persona.sentiment_mapping from the shared loader (merged YAML
+    overlay). Fallbacks: a direct YAML read of the overlay, then the legacy JSON
+    state file, then DEFAULT_MAPPING. Absent overlay is a normal pre-pairing
+    state and never raises (SC3).
+    """
+    mapping = _mapping_via_shared_loader()
+    if mapping:
+        return mapping
+
+    # Fallback for dev/local without the installed lib+config on PYTHONPATH.
+    if CONFIG_OVERLAY.exists():
+        try:
+            import yaml
+            with open(CONFIG_OVERLAY) as f:
+                cfg = yaml.safe_load(f) or {}
+            mapping = (cfg.get("persona") or {}).get("sentiment_mapping")
+            if mapping:
+                # Shallow-merge over defaults so a partial overlay keeps siblings.
+                return {**DEFAULT_MAPPING, **mapping}
+        except Exception as e:
+            print(f"  [sentiment] overlay read error ({CONFIG_OVERLAY}): {e}, using defaults", flush=True)
+
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH) as f:
+                return json.load(f).get("sentiment_mapping", DEFAULT_MAPPING)
+        except Exception as e:
+            print(f"  [sentiment] legacy config read error ({CONFIG_PATH}): {e}, using defaults", flush=True)
+
     return DEFAULT_MAPPING
 
 

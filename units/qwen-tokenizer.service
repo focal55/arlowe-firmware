@@ -8,6 +8,11 @@ User=arlowe
 Group=arlowe
 WorkingDirectory=/opt/arlowe/runtime/llm
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/arlowe/runtime/lib
+# Fail-fast (SC2): refuse to start on an invalid config overlay (exit 78). This
+# gates the whole qwen chain — qwen-api Requires=qwen-tokenizer.service and has
+# no python venv of its own, so a bad overlay here blocks qwen-api too.
+ExecStartPre=/opt/arlowe/venvs/llm/bin/python -m arlowe_config_validate
 ExecStart=/opt/arlowe/venvs/llm/bin/python /opt/arlowe/runtime/llm/qwen2.5_tokenizer_uid.py
 Restart=on-failure
 RestartSec=5

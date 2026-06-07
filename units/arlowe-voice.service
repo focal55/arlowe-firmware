@@ -11,7 +11,7 @@ Group=arlowe
 SupplementaryGroups=audio dialout
 WorkingDirectory=/opt/arlowe/runtime
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/opt/arlowe/runtime
+Environment=PYTHONPATH=/opt/arlowe/runtime:/opt/arlowe/runtime/lib
 Environment=ARLOWE_PIPER_PATH=/opt/arlowe/runtime/tts/bin/piper
 Environment=ARLOWE_PIPER_MODEL=/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx
 Environment=ARLOWE_VERIFIER_MODEL=/var/lib/arlowe/wake-word/verifier.pkl
@@ -19,6 +19,8 @@ Environment=ARLOWE_FACE_URL=http://localhost:8080
 Environment=ARLOWE_STT_URL=http://localhost:8082/transcribe
 Environment=ARLOWE_LOGS_DIR=/var/lib/arlowe/logs
 Environment=ARLOWE_STATE_DIR=/var/lib/arlowe/state
+# Fail-fast (SC2): refuse to start on an invalid config overlay (exit 78).
+ExecStartPre=/opt/arlowe/venvs/voice/bin/python -m arlowe_config_validate
 ExecStart=/opt/arlowe/venvs/voice/bin/python -m voice.voice_client
 Restart=on-failure
 RestartSec=10
