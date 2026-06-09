@@ -135,11 +135,20 @@ Plans:
 
 **Success Criteria** (what must be TRUE):
   1. With a USB capture device plugged in, the runtime selects the first compatible 16 kHz S16_LE source automatically; with one unplugged and re-plugged, the next boot picks it up without manual config.
-  2. With no USB output present, audio output falls back to the 3.5mm jack; with USB output present, USB is preferred by default.
+  2. With no USB output present, audio output falls back to the 3.5mm jack; with USB output present, USB is preferred by default. *Hardware reframe (Phase 5 research §6): the Pi 5 has no onboard 3.5mm analog jack; the implemented fallback chain is USB out → Whisplay/WM8960 codec → HDMI. Selection matches the `wm8960` substring, not a fixed index. SC text preserved; see `docs/operations/phase-5-audio.md` (plan 05-07).*
   3. An owner override saved through the dashboard persists in `/etc/arlowe/config.yml`, survives reboot, and is honored over auto-detection.
   4. The boot-check verifies a capture and playback sentinel and surfaces failures on the dashboard health view (consumed in Phase 11) plus the systemd journal.
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — arlowe_audio.py: /proc/asound enumeration + card-id→plughw resolution + auto-pick (capture USB→wm8960; playback USB→wm8960→HDMI) + fixtures/tests (Wave 1, foundational)
+- [ ] 05-02-PLAN.md — Python consumer wiring: voice_client.py (arecord AND pyaudio wake-word surfaces) + tts_sync.py + auto_collect.py; split capture/playback (Wave 2, depends on 05-01)
+- [ ] 05-03-PLAN.md — bash CLI wiring: record/stt/speak resolve device via arlowe_audio CLI (Wave 2, depends on 05-01)
+- [ ] 05-04-PLAN.md — dashboard /api/audio/devices endpoint (fs read of /proc/asound) + /audio picker page + nav (Wave 2, depends on 05-01, package:security)
+- [ ] 05-05-PLAN.md — udev hotplug rule (SUBSYSTEM==sound → debounced arlowe-voice restart) + Docker shape test (Wave 2, depends on 05-01, package:security)
+- [ ] 05-06-PLAN.md — boot-check capture+playback sentinel via arlowe_audio --selfcheck + structured JSON status for Phase 11 (Wave 3, depends on 05-01)
+- [ ] 05-07-PLAN.md — hardware-verify runbook (SC1–SC4) + SC2 wm8960 reframe + ROADMAP footnote (Wave 4; non-autonomous, deferred per Phase 1/3/4 precedent, depends on 05-02..06)
 
 ### Phase 6: Image build with A/B partitions
 
@@ -271,7 +280,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Sanitization gate | 4/4 | Complete | 2026-05-27 |
 | 3. Service user and filesystem layout | 5/5 | Complete (passed-with-notes; #73–#75 cleanups merged) | 2026-06-07 |
 | 4. Config overlay | 4/4 | Complete (passed-with-notes; SC4 on-device check deferred to Phase 6/12) | 2026-06-07 |
-| 5. Audio device auto-detection | 0/TBD | ◆ Planning | - |
+| 5. Audio device auto-detection | 0/7 | Planned | - |
 | 6. Image build with A/B partitions | 0/TBD | Not started | - |
 | 7. Device identity and PKI | 0/TBD | Not started | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
