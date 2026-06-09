@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-04-30)
 
 **Core value:** A factory-fresh Pi 5 + AX accelerator + Whisplay can flash this image, boot, pair to an owner, and run wake -> STT -> LLM -> TTS -> face entirely on-device, with no founder identity present anywhere in the image.
-**Current focus:** Phase 4 (config overlay) COMPLETE (passed-with-notes) — all 4 plans merged (PRs #84/#85/#86/#87). Phase 5 (audio device auto-detection) is next — ready to plan (`/gsd:plan-phase 5`).
+**Current focus:** Phase 5 (audio device auto-detection) PLANNED — 7 plans in 4 waves (6 autonomous, 05-07 non-autonomous hardware-verify). Research + plan + verify done; checker PASSED. Next: `/issue-from-plan 5` → `/gsd:execute-phase 5`.
 
 ## Current Position
 
@@ -31,7 +31,7 @@ Progress: Phase 1 [██████████] 100% qualified; Phase 2 [█�
 | 2 | 4 | 4 | Complete |
 | 3 | 5 | 5 | Complete (passed-with-notes) |
 | 4 | 4 | 4 | Complete (passed-with-notes) |
-| 5 | TBD | 0 | Not started |
+| 5 | 7 | 0 | Planned (research+plan+verify done) |
 
 **Recent Trend (Phase 4):**
 - 04-01: schema.yml + defaults.yml + shared Python loader/validator (#84)
@@ -84,4 +84,4 @@ Workforce-infra debt tracked in Claude's memory store:
 Last session: 2026-06-07
 Stopped at: Resumed session — confirmed PR #87 MERGED + #83 CLOSED. Synced local main to origin/main (307976d); discarded 2 stale planning-only WIP commits (preserved on branch `backup-04-04-handoff`). Flipped ROADMAP Phase 4 → [x] and STATE → Phase 4 complete. Phase 5 ready to plan.
 Resume file: none (Phase 4 checkpoint consumed). Backlog: #78 (face-unit video/fb0 cleanup, type:bug), two stale locked Phase-1 worktrees in .claude/worktrees/ to sweep. Loop is OFF — run /workforce-tick manually.
-Next action: `/gsd:plan-phase 5` (audio device auto-detection).
+Next action: `/issue-from-plan 5` (seed GitHub issues) → `/gsd:execute-phase 5`. Phase 5 planned 2026-06-08: 7 plans, Wave 1 (05-01 lib) → Wave 2 parallel (05-02 python / 05-03 cli / 05-04 dashboard+security / 05-05 udev+security) → Wave 3 (05-06 boot-check sentinel) → Wave 4 (05-07 non-autonomous HW verify, SC1/SC2/SC4 deferred per Phase 1/3/4 precedent). SC2 reframed: Pi 5 has no 3.5mm jack → fallback is wm8960 HAT codec → HDMI.
