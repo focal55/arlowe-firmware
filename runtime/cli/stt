@@ -5,9 +5,12 @@
 DURATION=${1:-5}
 TMPFILE=$(mktemp --suffix=.wav)
 
+ARLOWE_LIB="${ARLOWE_LIB:-/opt/arlowe/runtime/lib}"
+CAPTURE_DEV="${ARLOWE_ALSA_DEVICE:-$(PYTHONPATH="$ARLOWE_LIB" python3 -m arlowe_audio --resolve-capture 2>/dev/null)}"
+CAPTURE_DEV="${CAPTURE_DEV:-plughw:2,0}"
+
 echo "Recording for ${DURATION}s..."
-# TODO(phase-5): plughw:2,0 hardcoded; replace with auto-detected device.
-arecord -D plughw:2,0 -f S16_LE -r 16000 -c 1 -d "$DURATION" "$TMPFILE" 2>/dev/null
+arecord -D "$CAPTURE_DEV" -f S16_LE -r 16000 -c 1 -d "$DURATION" "$TMPFILE" 2>/dev/null
 
 echo "Transcribing..."
 RESULT=$(curl -s -X POST http://localhost:8082/transcribe --data-binary @"$TMPFILE")
