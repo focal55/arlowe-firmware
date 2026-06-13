@@ -80,7 +80,7 @@ fi
 # Phase 11 dashboard health view; /tmp echo is for the human-readable report.
 # WARN (not FAIL) on audio degraded — functional-degraded over hard block.
 ARLOWE_LIB="${ARLOWE_LIB:-/opt/arlowe/runtime/lib}"
-if PYTHONPATH="$ARLOWE_LIB" python3 -m arlowe_audio --selfcheck >/tmp/arlowe-audio-selfcheck.json 2>&1; then
+if PYTHONPATH="$ARLOWE_LIB" python3 -m arlowe_audio --selfcheck >/tmp/arlowe-audio-selfcheck.json; then
     echo "OK  Audio capture + playback sentinel"
     ((PASS++))
 else
