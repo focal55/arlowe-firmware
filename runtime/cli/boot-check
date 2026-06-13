@@ -75,12 +75,16 @@ else
     ((FAIL++))
 fi
 
-# TODO(phase-5): plughw:2,0 hardcoded; replace with auto-detected device.
-if arecord -D plughw:2,0 -d 1 /dev/null 2>/dev/null; then
-    echo "OK  Microphone (WM8960)"
+# Audio capture+playback sentinel via auto-detected device (Phase 5, plan 05-06).
+# Writes structured JSON to /var/lib/arlowe/state/audio-selfcheck.json for
+# Phase 11 dashboard health view; /tmp echo is for the human-readable report.
+# WARN (not FAIL) on audio degraded — functional-degraded over hard block.
+ARLOWE_LIB="${ARLOWE_LIB:-/opt/arlowe/runtime/lib}"
+if PYTHONPATH="$ARLOWE_LIB" python3 -m arlowe_audio --selfcheck >/tmp/arlowe-audio-selfcheck.json 2>&1; then
+    echo "OK  Audio capture + playback sentinel"
     ((PASS++))
 else
-    echo "WARN Microphone may be in use"
+    echo "WARN Audio sentinel degraded (see journal: [arlowe-audio])"
 fi
 
 echo ""

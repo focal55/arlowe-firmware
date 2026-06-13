@@ -23,12 +23,27 @@ import argparse
 import glob
 import json
 import re
+import subprocess
 import sys
+import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 WM8960_MATCH = "wm8960"
 HDMI_MATCH = "vc4-hdmi"
 USB_USBID_FILENAME = "usbid"
+
+# Forgiving RMS floor: plughw resampling can produce quiet buffers; set low
+# enough to pass real (non-silent) recordings while rejecting all-zero buffers.
+_CAPTURE_RMS_FLOOR = 10.0
+
+# State directory where selfcheck writes its JSON status.
+_DEFAULT_STATE_DIR = "/var/lib/arlowe/state"
+
+# Retry defaults for the selfcheck sentinels.
+_DEFAULT_RETRIES = 3
+_RETRY_SLEEP_S = 1.0
 
 # Regex for /proc/asound/cards lines:
 #   " 0 [wm8960soundcard]: wm8960-soundcard - wm8960-soundcard"
@@ -254,6 +269,256 @@ def portaudio_index_for_card(
 
 
 # ---------------------------------------------------------------------------
+# Boot-check sentinels — capture RMS + playback tone, retry-then-report
+# ---------------------------------------------------------------------------
+
+def _default_capture_runner(device: str) -> bytes:
+    """Record ~1 s of audio from device, return raw S16_LE PCM bytes.
+
+    Runs arecord and returns the WAV/raw bytes; raises subprocess.CalledProcessError
+    on non-zero exit or OSError if the binary is missing.
+    """
+    result = subprocess.run(
+        [
+            "arecord",
+            "-D", device,
+            "-f", "S16_LE",
+            "-r", "16000",
+            "-c", "1",
+            "-d", "1",
+            "--quiet",
+        ],
+        capture_output=True,
+        check=True,
+        timeout=5,
+    )
+    return result.stdout
+
+
+def _default_playback_runner(device: str) -> None:
+    """Emit a short 440 Hz tone to device.
+
+    Uses sox + aplay pipeline; raises subprocess.CalledProcessError on failure.
+    Falls back to aplay with a generated WAV if sox is unavailable.
+    """
+    try:
+        sox = subprocess.run(
+            ["sox", "-n", "-t", "wav", "-", "synth", "0.3", "sine", "440"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+        subprocess.run(
+            ["aplay", "-D", device, "--quiet"],
+            input=sox.stdout,
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+    except FileNotFoundError:
+        # sox not available — generate a minimal WAV header with silence and
+        # play it; success = aplay exits 0 (locked decision: no acoustic check).
+        subprocess.run(
+            ["aplay", "-D", device, "-f", "S16_LE", "-r", "16000", "-c", "1", "--quiet"],
+            input=b"\x00" * 32000,
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+
+
+def _rms_from_pcm(raw_bytes: bytes) -> float:
+    """Compute RMS of raw S16_LE PCM bytes.
+
+    Skips any WAV header (looks for 'data' chunk) so arecord output works
+    whether it includes a header or not.  Returns 0.0 for empty input.
+    """
+    try:
+        import numpy as np  # noqa: PLC0415 — intentionally lazy; numpy is a voice dep
+    except ImportError:
+        # Fallback: pure-Python RMS without numpy (slower but correct).
+        import struct
+        if len(raw_bytes) < 2:
+            return 0.0
+        # Skip WAV header if present.
+        data = _strip_wav_header(raw_bytes)
+        n_samples = len(data) // 2
+        if n_samples == 0:
+            return 0.0
+        samples = struct.unpack(f"<{n_samples}h", data[:n_samples * 2])
+        mean_sq = sum(s * s for s in samples) / n_samples
+        return mean_sq ** 0.5
+
+    data = _strip_wav_header(raw_bytes)
+    if len(data) < 2:
+        return 0.0
+    samples = np.frombuffer(data, dtype=np.int16).astype(np.float64)
+    if len(samples) == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(samples ** 2)))
+
+
+def _strip_wav_header(raw_bytes: bytes) -> bytes:
+    """Strip a WAV header if present; return the raw PCM data portion."""
+    # WAV 'data' chunk marker: search for b'data' and skip 8 bytes (chunk id + size).
+    idx = raw_bytes.find(b"data")
+    if idx != -1 and idx + 8 <= len(raw_bytes):
+        return raw_bytes[idx + 8:]
+    return raw_bytes
+
+
+def _run_capture_sentinel(
+    device: str,
+    capture_runner,
+    retries: int,
+) -> dict:
+    """Run the capture RMS sentinel, retry up to retries times.
+
+    Returns a dict with keys: device, ok (bool), error (str or None).
+    Never raises.
+    """
+    last_error = None
+    for attempt in range(retries):
+        try:
+            raw = capture_runner(device)
+            rms = _rms_from_pcm(raw)
+            if rms >= _CAPTURE_RMS_FLOOR:
+                return {"device": device, "ok": True}
+            last_error = f"RMS {rms:.1f} below floor {_CAPTURE_RMS_FLOOR}"
+        except Exception as exc:
+            last_error = str(exc)
+        if attempt < retries - 1:
+            time.sleep(_RETRY_SLEEP_S)
+    return {"device": device, "ok": False, "error": last_error}
+
+
+def _run_playback_sentinel(
+    device: str,
+    playback_runner,
+    retries: int,
+) -> dict:
+    """Run the playback tone sentinel, retry up to retries times.
+
+    Success = playback_runner exits without exception (locked decision: no
+    acoustic loopback; exit-0 is sufficient proof).  Never raises.
+    """
+    last_error = None
+    for attempt in range(retries):
+        try:
+            playback_runner(device)
+            return {"device": device, "ok": True}
+        except Exception as exc:
+            last_error = str(exc)
+        if attempt < retries - 1:
+            time.sleep(_RETRY_SLEEP_S)
+    return {"device": device, "ok": False, "error": last_error}
+
+
+def selfcheck(
+    state_dir: str | None = _DEFAULT_STATE_DIR,
+    retries: int = _DEFAULT_RETRIES,
+    capture_runner=None,
+    playback_runner=None,
+    proc_root: str = "/proc/asound",
+) -> dict:
+    """Run the audio boot-check sentinel.
+
+    Resolves capture and playback devices, runs each sentinel independently
+    with up to `retries` attempts, persists a Phase-11-consumable JSON status
+    to state_dir, emits a greppable [arlowe-audio] journal line to stderr, and
+    returns the status dict.
+
+    Args:
+        state_dir: Directory where audio-selfcheck.json is written atomically.
+                   None or unwritable => skip file write (no crash).
+        retries:   Max attempts per sentinel before reporting failure.
+        capture_runner: Callable(device: str) -> bytes.  Defaults to the real
+                        arecord helper; inject a fake for unit tests.
+        playback_runner: Callable(device: str) -> None.  Defaults to the real
+                         sox+aplay helper; inject a fake for unit tests.
+        proc_root: /proc/asound root; injectable for tests.
+
+    Returns:
+        {
+          "check": "audio",
+          "capture": {"device": str|None, "ok": bool, "error": str},
+          "playback": {"device": str|None, "ok": bool, "error": str},
+          "ts": "<iso8601>"
+        }
+    """
+    if capture_runner is None:
+        capture_runner = _default_capture_runner
+    if playback_runner is None:
+        playback_runner = _default_playback_runner
+
+    cap_device = resolve_capture(proc_root=proc_root)
+    play_device = resolve_playback(proc_root=proc_root)
+
+    if cap_device is not None:
+        cap_result = _run_capture_sentinel(cap_device, capture_runner, retries)
+    else:
+        cap_result = {"device": None, "ok": False, "error": "no capture device found"}
+
+    if play_device is not None:
+        play_result = _run_playback_sentinel(play_device, playback_runner, retries)
+    else:
+        play_result = {"device": None, "ok": False, "error": "no playback device found"}
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    status = {
+        "check": "audio",
+        "capture": cap_result,
+        "playback": play_result,
+        "ts": ts,
+    }
+
+    _persist_status(status, state_dir)
+    _emit_journal_line(cap_result, play_result)
+
+    return status
+
+
+def _persist_status(status: dict, state_dir: str | None) -> None:
+    """Atomically write status JSON to state_dir/audio-selfcheck.json.
+
+    Skips silently if state_dir is None or the directory is unwritable.
+    """
+    if not state_dir:
+        return
+    try:
+        state_path = Path(state_dir)
+        state_path.mkdir(parents=True, exist_ok=True)
+        target = state_path / "audio-selfcheck.json"
+        payload = json.dumps(status, indent=2)
+        # Atomic write: write to a temp file in the same dir, then rename.
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=state_path,
+            prefix=".audio-selfcheck-",
+            suffix=".json.tmp",
+            delete=False,
+        ) as tf:
+            tf.write(payload)
+            tmp_path = Path(tf.name)
+        tmp_path.rename(target)
+    except Exception as exc:
+        print(f"[arlowe-audio] WARN could not write state: {exc}", file=sys.stderr)
+
+
+def _emit_journal_line(cap_result: dict, play_result: dict) -> None:
+    """Print a greppable [arlowe-audio] journal line to stderr."""
+    cap_status = "ok" if cap_result.get("ok") else "FAIL"
+    play_status = "ok" if play_result.get("ok") else "FAIL"
+    cap_device = cap_result.get("device") or "none"
+    play_device = play_result.get("device") or "none"
+    print(
+        f"[arlowe-audio] selfcheck capture={cap_status} device={cap_device}"
+        f" playback={play_status} device={play_device}",
+        file=sys.stderr,
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI surface — lazy config import so pure functions work without a config file
 # ---------------------------------------------------------------------------
 
@@ -278,11 +543,20 @@ def _cli_main() -> None:
         action="store_true",
         help="Print enumerated cards as JSON.",
     )
+    group.add_argument(
+        "--selfcheck",
+        action="store_true",
+        help=(
+            "Run capture+playback sentinels, write JSON status to "
+            "/var/lib/arlowe/state/audio-selfcheck.json, print JSON to stdout. "
+            "Exit 0 if both sentinels pass, exit 1 if either fails."
+        ),
+    )
     args = parser.parse_args()
 
     # Import config lazily so tests of pure functions don't require a config file.
     try:
-        from arlowe_config import load as _load_config
+        from arlowe_config import load as _load_config  # noqa: PLC0415
         cfg = _load_config()
         capture_override = cfg.get("audio", {}).get("capture_device", "auto")
         playback_override = cfg.get("audio", {}).get("playback_device", "auto")
@@ -303,6 +577,11 @@ def _cli_main() -> None:
         if result is None:
             sys.exit(1)
         print(result)
+    elif args.selfcheck:
+        status = selfcheck()
+        print(json.dumps(status, indent=2))
+        if not (status["capture"]["ok"] and status["playback"]["ok"]):
+            sys.exit(1)
 
 
 if __name__ == "__main__":
