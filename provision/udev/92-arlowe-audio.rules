@@ -1,0 +1,46 @@
+# Arlowe Phase 5: USB audio hotplug — debounced arlowe-voice restart.
+#
+# Purpose:
+#   When a USB audio device is plugged in or removed, restart arlowe-voice so
+#   the arlowe_audio resolver (05-01) re-enumerates and selects the best device
+#   on the running system, not only at next boot.
+#
+# Why controlC* anchor (debounce):
+#   A single USB audio plug event fires multiple kernel sound sub-events:
+#     - KERNEL=="controlC*"    — the ALSA control node (fires once per card)
+#     - KERNEL=="pcmC*D*c"     — PCM capture nodes  (one per channel mode)
+#     - KERNEL=="pcmC*D*p"     — PCM playback nodes (one per channel mode)
+#   Triggering on all sub-nodes would cause several rapid restarts for each
+#   physical plug/unplug. Anchoring on controlC* limits the restart to exactly
+#   one event per card add/remove. Hardware confirmation that controlC* is the
+#   correct anchor for this Pi's USB adapter is deferred to plan 05-07
+#   (requires `udevadm monitor --subsystem-match=sound` on real hardware).
+#
+# Why --no-block:
+#   udev rules run synchronously in the udev worker. Calling systemctl without
+#   --no-block causes udev to wait for the unit transaction to complete, which
+#   can deadlock because systemd may itself need to communicate with udev to
+#   settle devices as part of the restart. --no-block fires the restart request
+#   and returns immediately, keeping udev unblocked.
+#
+# v1 mechanism: full service restart.
+#   The actual device-selection logic lives in arlowe_audio (05-01); this rule
+#   is a thin trigger only. An in-process reconfigure (SIGHUP or D-Bus signal)
+#   is a future optimization — avoided here to keep the change small and reuse
+#   the Phase 4 restart pattern. Known trade-off: a restart mid-recording aborts
+#   an in-flight interaction (research Pitfall P5). Acceptable for v1; noted.
+#
+# systemctl path:
+#   Pi OS provides /bin/systemctl as a symlink to /usr/bin/systemctl. This rule
+#   uses /bin/systemctl. If the target image symlink is absent, the install/verify
+#   step in plan 05-07 should confirm the correct path.
+#
+# Install glob:
+#   scripts/provision/install-arlowe-udev-polkit.sh installs provision/udev/*.rules
+#   (line 42). The 92- prefix follows 90-/91- numbering and is picked up
+#   automatically with no script edit.
+#
+# Required by: arlowe-voice.service (hotplug re-detection, CONTEXT §decisions).
+
+SUBSYSTEM=="sound", KERNEL=="controlC[0-9]*", ACTION=="add",    RUN+="/bin/systemctl --no-block restart arlowe-voice.service"
+SUBSYSTEM=="sound", KERNEL=="controlC[0-9]*", ACTION=="remove", RUN+="/bin/systemctl --no-block restart arlowe-voice.service"
