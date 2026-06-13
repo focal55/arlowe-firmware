@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-04-30)
 
 **Core value:** A factory-fresh Pi 5 + AX accelerator + Whisplay can flash this image, boot, pair to an owner, and run wake -> STT -> LLM -> TTS -> face entirely on-device, with no founder identity present anywhere in the image.
-**Current focus:** Phase 5 (audio device auto-detection) PLANNED — 7 plans in 4 waves (6 autonomous, 05-07 non-autonomous hardware-verify). Research + plan + verify done; checker PASSED. Next: `/issue-from-plan 5` → `/gsd:execute-phase 5`.
+**Current focus:** Phase 5 (audio device auto-detection) COMPLETE (passed-with-notes). 7 plans merged (PRs #95/#96 for 05-01, #97-#101 for 05-02..06, #104 for 05-07). Phase 6 (image build with A/B partitions) is next — ready to plan (`/gsd:plan-phase 6`).
 
 ## Current Position
 
-Phase: 4 of 12 (Config overlay) — COMPLETE (passed-with-notes)
-Plan: 4 of 4 in Phase 4
-Status: Phase 4 closed 2026-06-07. 04-01 (#80/PR#84), 04-02 (#81/PR#85, package:security), 04-03 (#82/PR#86), 04-04 (#83/PR#87) all MERGED. SC4 on-device persona-knob verification deferred to Phase 6/12 — arlowe-1 has no arlowe layout/venvs to run it; procedure written in docs/operations/phase-4-persona-slice.md. Next: Phase 5 (audio auto-detection) — depends on Phase 4 (done) + Phase 3 (done).
-Last activity: 2026-06-07 -- PR #87 merged; Phase 4 marked complete (ROADMAP + STATE flipped). Local main synced to origin (307976d). Two stale Phase-1 worktrees + #78 still open.
+Phase: 5 of 12 (Audio device auto-detection) — COMPLETE (passed-with-notes)
+Plan: 7 of 7 in Phase 5
+Status: Phase 5 closed 2026-06-13. plughw:2,0 eliminated end-to-end: arlowe_audio enumeration+auto-pick+stable-card-id (05-01, #95 + #96 hardening), Python consumers (05-02 #98, incl. dual-pa.open wake-word fix), bash CLI (05-03 #97), dashboard picker+/api/audio/devices (05-04 #100, Opus-reviewed), udev hotplug (05-05 #99, Opus-reviewed), boot-check sentinel (05-06 #101), hardware runbook (05-07 #104). SC2 reframed (Pi 5 has no 3.5mm jack → wm8960 codec → HDMI); on-Pi SC1-SC4 run deferred to a hardware checkpoint per Phase 1/3/4 precedent (procedure: docs/operations/phase-5-audio.md). Next: Phase 6 (image build) — depends on Phase 1/3/4 (all done).
+Last activity: 2026-06-13 -- Phase 5 executed via /workforce-tick loop (5 impl PRs, 2 Opus security reviews, 2 fix-and-re-review cycles caught real bugs) + #104 runbook; all merged; ROADMAP/STATE flipped to complete. Survived a resume-state reconciliation, an accidental-merge recovery, and a worktree sweep.
 
-Progress: Phase 1 [██████████] 100% qualified; Phase 2 [██████████] 100%; Phase 3 [██████████] 100%; Phase 4 [██████████] 100% complete (passed-with-notes); Phase 5 [░░░░░░░░░░] not started
+Progress: Phase 1 [██████████] 100% qualified; Phase 2 [██████████] 100%; Phase 3 [██████████] 100%; Phase 4 [██████████] 100% (passed-with-notes); Phase 5 [██████████] 100% (passed-with-notes); Phase 6 [░░░░░░░░░░] not started
 
 ## Performance Metrics
 
@@ -31,7 +31,8 @@ Progress: Phase 1 [██████████] 100% qualified; Phase 2 [█�
 | 2 | 4 | 4 | Complete |
 | 3 | 5 | 5 | Complete (passed-with-notes) |
 | 4 | 4 | 4 | Complete (passed-with-notes) |
-| 5 | 7 | 0 | Planned (research+plan+verify done) |
+| 5 | 7 | 7 | Complete (passed-with-notes; on-Pi SC1-4 deferred) |
+| 6 | TBD | 0 | Not started |
 
 **Recent Trend (Phase 4):**
 - 04-01: schema.yml + defaults.yml + shared Python loader/validator (#84)
@@ -67,6 +68,11 @@ In `.planning/todos/pending/`:
 - F3-arlowe1-persistent-journald.md — workforce infra (dev-env)
 - F4-plan-13-rerun-post-phase-6.md — post-Phase-6 hybrid smoke-test re-run
 
+Phase 5 follow-up chores (GitHub backlog, p2):
+- #102 — dashboard CONFIG_DEFAULTS duplicates config/defaults.yml; single-source it
+- #103 — auto_collect.py docstring missing ARLOWE_PLAY_DEVICE
+- #94 SC1-SC4 on-Pi verification — DEFERRED to a hardware checkpoint (runbook: docs/operations/phase-5-audio.md)
+
 In `.planning/todos/done/`:
 - F5-adr-0001-why-option-2-internal-contradiction.md — closed by Plan 02-04 (ADR doc rewritten)
 
@@ -81,7 +87,7 @@ Workforce-infra debt tracked in Claude's memory store:
 
 ## Session Continuity
 
-Last session: 2026-06-07
-Stopped at: Resumed session — confirmed PR #87 MERGED + #83 CLOSED. Synced local main to origin/main (307976d); discarded 2 stale planning-only WIP commits (preserved on branch `backup-04-04-handoff`). Flipped ROADMAP Phase 4 → [x] and STATE → Phase 4 complete. Phase 5 ready to plan.
-Resume file: none (Phase 4 checkpoint consumed). Backlog: #78 (face-unit video/fb0 cleanup, type:bug), two stale locked Phase-1 worktrees in .claude/worktrees/ to sweep. Loop is OFF — run /workforce-tick manually.
-Next action: `/issue-from-plan 5` (seed GitHub issues) → `/gsd:execute-phase 5`. Phase 5 planned 2026-06-08: 7 plans, Wave 1 (05-01 lib) → Wave 2 parallel (05-02 python / 05-03 cli / 05-04 dashboard+security / 05-05 udev+security) → Wave 3 (05-06 boot-check sentinel) → Wave 4 (05-07 non-autonomous HW verify, SC1/SC2/SC4 deferred per Phase 1/3/4 precedent). SC2 reframed: Pi 5 has no 3.5mm jack → fallback is wm8960 HAT codec → HDMI.
+Last session: 2026-06-13
+Stopped at: Phase 5 COMPLETE — executed end-to-end via the `/workforce-tick` cron loop (5 impl PRs #97-#101, two `package:security` Opus reviews, two fix-and-re-review cycles that caught real bugs: a dead dashboard Save (422) and a journal-eating `2>&1`). #104 runbook merged. ROADMAP + STATE flipped to complete. Loop STOPPED (cron cancelled). Filed p2 chores #102/#103.
+Resume file: none. Backlog: #78 (face-unit video/fb0 cleanup, type:bug), #102/#103 (Phase 5 p2 chores), #94 on-Pi SC run deferred. Stale agent worktrees in `.claude/worktrees/` accumulated this session — sweep pending. Loop is OFF.
+Next action: `/gsd:plan-phase 6` (image build with A/B partitions). Depends on Phase 1 (runtime) + Phase 3 (fs layout) + Phase 4 (defaults.yml) — all done. No CONTEXT.md for Phase 6 yet → consider `/gsd:discuss-phase 6` first (pi-gen, A/B partitions, reproducibility are real unknowns).

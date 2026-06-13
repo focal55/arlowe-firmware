@@ -14,7 +14,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 2: Sanitization gate** - CI grep gate fails the build on any banned literal; founder-only services blocked at image-build time; UI snapshot test enforces no-founder copy (complete 2026-05-27)
 - [x] **Phase 3: Service user and filesystem layout** - Dedicated `arlowe` system user; code at `/opt/arlowe/`; state at `/var/lib/arlowe/`; system-level systemd units with sandboxing (complete 2026-06-07, passed-with-notes — SC4 verified on real hardware via plan 03-05 staging harness; Phase-4 cleanups #73–#75 already merged: groups tightened to {audio,gpio,spi}, NPU nodes 0660 root:arlowe)
 - [x] **Phase 4: Config overlay** - Schema-validated `defaults.yml` + `/etc/arlowe/config.yml` overlay; every personal literal flows through config (complete 2026-06-07, passed-with-notes — 4 plans merged via PRs #84/#85/#86/#87; SC4 on-device persona-knob check deferred to Phase 6/12, arlowe-1 has no arlowe layout to run it)
-- [ ] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check
+- [x] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check (complete 2026-06-13, passed-with-notes — 7 plans merged via PRs #95-#101/#104; SC2 reframed Pi-5-has-no-3.5mm → wm8960 codec; on-Pi SC1-SC4 run deferred to a hardware checkpoint per Phase 1/3/4 precedent, procedure in docs/operations/phase-5-audio.md)
 - [ ] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
@@ -142,13 +142,13 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — arlowe_audio.py: /proc/asound enumeration + card-id→plughw resolution + auto-pick (capture USB→wm8960; playback USB→wm8960→HDMI) + fixtures/tests (Wave 1, foundational)
-- [ ] 05-02-PLAN.md — Python consumer wiring: voice_client.py (arecord AND pyaudio wake-word surfaces) + tts_sync.py + auto_collect.py; split capture/playback (Wave 2, depends on 05-01)
-- [ ] 05-03-PLAN.md — bash CLI wiring: record/stt/speak resolve device via arlowe_audio CLI (Wave 2, depends on 05-01)
-- [ ] 05-04-PLAN.md — dashboard /api/audio/devices endpoint (fs read of /proc/asound) + /audio picker page + nav (Wave 2, depends on 05-01, package:security)
-- [ ] 05-05-PLAN.md — udev hotplug rule (SUBSYSTEM==sound → debounced arlowe-voice restart) + Docker shape test (Wave 2, depends on 05-01, package:security)
-- [ ] 05-06-PLAN.md — boot-check capture+playback sentinel via arlowe_audio --selfcheck + structured JSON status for Phase 11 (Wave 3, depends on 05-01)
-- [ ] 05-07-PLAN.md — hardware-verify runbook (SC1–SC4) + SC2 wm8960 reframe + ROADMAP footnote (Wave 4; non-autonomous, deferred per Phase 1/3/4 precedent, depends on 05-02..06)
+- [x] 05-01-PLAN.md — arlowe_audio.py: /proc/asound enumeration + card-id→plughw resolution + auto-pick (capture USB→wm8960; playback USB→wm8960→HDMI) + fixtures/tests (Wave 1, foundational)
+- [x] 05-02-PLAN.md — Python consumer wiring: voice_client.py (arecord AND pyaudio wake-word surfaces) + tts_sync.py + auto_collect.py; split capture/playback (Wave 2, depends on 05-01)
+- [x] 05-03-PLAN.md — bash CLI wiring: record/stt/speak resolve device via arlowe_audio CLI (Wave 2, depends on 05-01)
+- [x] 05-04-PLAN.md — dashboard /api/audio/devices endpoint (fs read of /proc/asound) + /audio picker page + nav (Wave 2, depends on 05-01, package:security)
+- [x] 05-05-PLAN.md — udev hotplug rule (SUBSYSTEM==sound → debounced arlowe-voice restart) + Docker shape test (Wave 2, depends on 05-01, package:security)
+- [x] 05-06-PLAN.md — boot-check capture+playback sentinel via arlowe_audio --selfcheck + structured JSON status for Phase 11 (Wave 3, depends on 05-01)
+- [x] 05-07-PLAN.md — hardware-verify runbook (SC1–SC4) + SC2 wm8960 reframe + ROADMAP footnote (Wave 4; non-autonomous, deferred per Phase 1/3/4 precedent, depends on 05-02..06)
 
 ### Phase 6: Image build with A/B partitions
 
@@ -280,7 +280,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Sanitization gate | 4/4 | Complete | 2026-05-27 |
 | 3. Service user and filesystem layout | 5/5 | Complete (passed-with-notes; #73–#75 cleanups merged) | 2026-06-07 |
 | 4. Config overlay | 4/4 | Complete (passed-with-notes; SC4 on-device check deferred to Phase 6/12) | 2026-06-07 |
-| 5. Audio device auto-detection | 0/7 | Planned | - |
+| 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
 | 6. Image build with A/B partitions | 0/TBD | Not started | - |
 | 7. Device identity and PKI | 0/TBD | Not started | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
