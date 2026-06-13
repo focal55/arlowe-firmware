@@ -7,11 +7,14 @@
 ## Phase Boundary
 
 Produce a flashable `.img` from this repo via a `pi-gen` pipeline, with the A/B
-partition layout provisioned from day one. Four partitions: `/boot` (shared FAT),
-system A (active), system B (empty standby in v1), and `/var/lib/arlowe`
-(owner-state, ext4, noatime). Ships a boot-time A/B selector defaulting to A,
-a `dev-deploy.sh` for fast iteration without reflashing, and builds that are
-reproducible-enough for CI on a 16 GB SD-card budget.
+partition layout provisioned from day one. **Five partitions** (revised
+2026-06-13): `/boot` (shared FAT), system A (active), system B (recovery stub),
+a **shared read-only `models` partition** mounted at `/opt/arlowe/models` in both
+slots, and `/var/lib/arlowe` (owner-state, ext4, noatime). Ships a boot-time A/B
+selector defaulting to A, a `dev-deploy.sh` for fast iteration without reflashing,
+and builds that are reproducible-enough for CI. The shared models partition is
+the grow-to-fill partition (maximizes model headroom); 16 GB is the viable
+minimum, 32 GB recommended for larger models.
 
 OS-OTA delivery (actually shipping new system slots) is **out of scope** — it
 defers to Phase 9 (app-only OTA) and v2+ for OS OTA. Phase 6 lays the A/B
@@ -55,19 +58,32 @@ groundwork; it does not exercise A/B for real updates.
   default back to A**, so a plain reboot self-recovers. No reflash tooling and
   no OTA in recovery — those are later phases.
 
-### Partition sizing + growth
-- **Models (LLM/Axera, Whisper, Piper) are baked into each rootfs** so every
-  slot is self-contained and OTA-swappable as a unit. Accepts doubled model
-  storage as the cost of slot independence.
-- **Owner-state (`/var/lib/arlowe`) grows to fill the card on first boot.** A/B
-  and `/boot` are fixed; owner-state consumes remaining space, so one image
-  serves 16/32/64 GB cards.
-- **Measure-then-set sizing:** the planner/researcher builds the rootfs, reads
-  its real size, and sets partition numbers from data — not guessed up front.
-  Budget documented at that point.
-- **32 GB floor escalation:** if measurement shows two model-laden rootfs slots
-  plus headroom don't fit 16 GB, declare 32 GB the real minimum and size slots
-  accordingly. Size this early in research.
+### Partition sizing + growth (REVISED 2026-06-13 — single shared model store)
+- **Models (LLM/Axera, Whisper, Piper) live ONCE on a shared read-only `models`
+  partition**, mounted at `/opt/arlowe/models` in both slots. This reverses the
+  earlier "baked into each rootfs" decision. Rationale: one copy maximizes space
+  for larger models, and it makes the 16 GB target achievable again. Accepted
+  tradeoff: a future OS slot (v2 OS-OTA) shares the same models — a new OS
+  needing different model formats can't swap them atomically. No v1 cost (Phase 9
+  app-OTA touches `runtime/` only, never models; model-OTA is v2).
+- **System A and B are still full rootfs per slot** (OS + runtime), just WITHOUT
+  the bulky models — slots shrink to ~2-3 GB, preserving slot independence for
+  everything except the shared model store.
+- **The `models` partition is the grow-to-fill partition** (was owner-state).
+  It consumes remaining card space on first boot, maximizing headroom for larger
+  models via future model-OTA. `/var/lib/arlowe` owner-state becomes a FIXED
+  modest partition (~2-4 GB; PART-05 needs ~1 GB) — it must NOT hold models
+  because factory reset (PAIR-07) wipes it and it is owner-writable.
+- **Models partition is read-only + root-owned in v1** (no model-OTA yet); a v2
+  model-OTA agent can remount rw.
+- **Measure-then-set sizing:** the planner builds the slot rootfs (now model-free),
+  reads its real size, and sets fixed partition numbers from data; the models
+  partition takes the remainder. Budget documented at that point.
+- **16 GB viable, 32 GB recommended:** with a single ~6 GB model set, fixed
+  overhead (~5.5 GB: boot + slot A + recovery B + owner-state) leaves ~9 GB for
+  models on a 16 GB card — fits. 32 GB gives ~25 GB model headroom. The earlier
+  "32 GB floor mandate" is downgraded to a recommendation; IMAGE-04's ≤16 GB
+  target is achievable again.
 
 ### Build environment + reproducibility
 - **Supported build host: arm64 Linux.** Primary = a GitHub arm64 CI runner;
