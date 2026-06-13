@@ -81,3 +81,7 @@ tests/phase-3/staging/README.md
 # phase-3-staging.md is the dev-unit ops record; it references the daily-driver
 # user (focal55) and dev host (arlowe-1) because hardware contention is a real prereq.
 docs/operations/phase-3-staging.md
+# phase-5-audio.md is the deferred hardware-verify runbook; it references arlowe-1
+# as the dev Pi that lacks the /opt/arlowe layout — the deferral context requires naming
+# the specific device. Never ships in the firmware image (docs/operations is not a pi-gen stage).
+docs/operations/phase-5-audio.md
