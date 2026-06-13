@@ -220,6 +220,82 @@ class TestPortaudioIndexForCard:
         # Whether pyaudio is importable or not, the result must be int or None.
         assert result is None or isinstance(result, int)
 
+    def test_resolves_index_by_card_id_match(self):
+        """Stub pa with two devices; the one whose name contains the card id is returned."""
+
+        class _StubPa:
+            _DEVICES = [
+                {"name": "Built-in Microphone", "maxInputChannels": 1},
+                {"name": "USB Audio Device: (hw:1,0)", "maxInputChannels": 2},
+                {"name": "HDMI Out", "maxInputChannels": 0},
+            ]
+
+            def get_device_count(self):
+                return len(self._DEVICES)
+
+            def get_device_info_by_index(self, i):
+                return self._DEVICES[i]
+
+        # "device" is a substring of "USB Audio Device: (hw:1,0)"
+        result = arlowe_audio.portaudio_index_for_card("Device", _StubPa())
+        assert result == 1
+
+    def test_resolves_index_via_plughw_and_proc_root(self):
+        """When given plughw:N,0, the helper resolves the card id from proc_root."""
+
+        class _StubPa:
+            _DEVICES = [
+                {"name": "Built-in Microphone", "maxInputChannels": 1},
+                {"name": "USB Audio Device: (hw:1,0)", "maxInputChannels": 2},
+            ]
+
+            def get_device_count(self):
+                return len(self._DEVICES)
+
+            def get_device_info_by_index(self, i):
+                return self._DEVICES[i]
+
+        # plughw:1,0 → card id is "Device" (from fixture card1/id)
+        result = arlowe_audio.portaudio_index_for_card(
+            "plughw:1,0", _StubPa(), proc_root=USB_PLUS_WM8960
+        )
+        assert result == 1
+
+    def test_returns_none_when_no_device_name_matches(self):
+        """Returns None if no PortAudio input device name contains the token."""
+
+        class _StubPa:
+            _DEVICES = [
+                {"name": "Completely Different Microphone", "maxInputChannels": 1},
+            ]
+
+            def get_device_count(self):
+                return len(self._DEVICES)
+
+            def get_device_info_by_index(self, i):
+                return self._DEVICES[i]
+
+        result = arlowe_audio.portaudio_index_for_card("Device", _StubPa())
+        assert result is None
+
+    def test_skips_output_only_devices(self):
+        """Devices with maxInputChannels == 0 must never be returned."""
+
+        class _StubPa:
+            _DEVICES = [
+                {"name": "USB Audio Device: output only", "maxInputChannels": 0},
+                {"name": "USB Audio Device: capture", "maxInputChannels": 1},
+            ]
+
+            def get_device_count(self):
+                return len(self._DEVICES)
+
+            def get_device_info_by_index(self, i):
+                return self._DEVICES[i]
+
+        result = arlowe_audio.portaudio_index_for_card("device", _StubPa())
+        assert result == 1
+
 
 class TestPlughwFormat:
     def test_resolve_capture_output_format(self):

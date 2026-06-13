@@ -22,7 +22,6 @@ This module is pure read + compute — no service restarts, no config writes.
 import argparse
 import glob
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -196,7 +195,11 @@ def resolve_playback(
     return None
 
 
-def portaudio_index_for_card(card_id_or_plughw: str, pa) -> int | None:
+def portaudio_index_for_card(
+    card_id_or_plughw: str,
+    pa=None,
+    proc_root: str = "/proc/asound",
+) -> int | None:
     """Find the PortAudio input device index for a given ALSA card.
 
     The wake-word loop uses pyaudio (PortAudio), which has a separate device
@@ -204,28 +207,36 @@ def portaudio_index_for_card(card_id_or_plughw: str, pa) -> int | None:
     by substring-matching the card's longname/id against PortAudio device names,
     so the wake-word mic follows the same auto-detected/overridden card.
 
-    pyaudio is imported lazily — this module imports cleanly in CI without it.
+    When pa is None the function imports pyaudio lazily and constructs a
+    PyAudio instance; callers may supply their own instance (real or stub)
+    in which case no import of pyaudio is attempted.  This keeps the module
+    importable in CI where pyaudio is not installed.
 
     Args:
         card_id_or_plughw: ALSA card-id token or plughw:N,0 string.
-        pa: A pyaudio.PyAudio() instance (caller owns open/terminate).
+        pa: A pyaudio.PyAudio()-compatible instance.  If None, pyaudio is
+            imported and instantiated here (caller is then responsible for
+            nothing; the instance is terminated before return).
+        proc_root: Root of the proc/asound tree; injectable for tests.
 
     Returns:
         PortAudio device index, or None if no name match (caller falls back
         to PortAudio default).
     """
-    try:
-        import pyaudio  # noqa: F401 — lazy import; not available in CI
-    except ImportError:
-        return None
+    if pa is None:
+        try:
+            import pyaudio  # noqa: PLC0415 — intentionally lazy
+            pa = pyaudio.PyAudio()
+        except ImportError:
+            return None
 
     # Normalise: strip plughw prefix to get a bare token for name matching.
     token = card_id_or_plughw
     if token.startswith("plughw:"):
-        # plughw:N,0 -> extract N and look up the card in /proc/asound
+        # plughw:N,0 -> extract N and look up the card id in proc_root
         m = re.match(r"plughw:(\d+)", token)
         if m:
-            card_dir = Path("/proc/asound") / f"card{m.group(1)}"
+            card_dir = Path(proc_root) / f"card{m.group(1)}"
             id_file = card_dir / "id"
             if id_file.exists():
                 token = id_file.read_text().strip()
