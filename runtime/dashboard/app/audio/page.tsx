@@ -3,15 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import AudioDevicePicker from './components/AudioDevicePicker';
 import { AudioDevice, AudioDevicesResponse } from '../api/audio/devices/route';
+import { buildSaveBody } from './save-body';
 
 interface ConfigResponse {
   paired: boolean;
-  config: {
-    audio?: {
-      capture_device?: string;
-      playback_device?: string;
-    };
-  } | null;
+  config: Record<string, unknown> | null;
 }
 
 export default function AudioPage() {
@@ -19,6 +15,7 @@ export default function AudioPage() {
   const [playbackDevices, setPlaybackDevices] = useState<AudioDevice[]>([]);
   const [selectedCapture, setSelectedCapture] = useState('auto');
   const [selectedPlayback, setSelectedPlayback] = useState('auto');
+  const [currentConfig, setCurrentConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,9 +42,11 @@ export default function AudioPage() {
         // Pre-select from existing config if available; default to "auto".
         if (configRes.ok) {
           const configData = (await configRes.json()) as ConfigResponse;
-          if (configData.config?.audio) {
-            setSelectedCapture(configData.config.audio.capture_device ?? 'auto');
-            setSelectedPlayback(configData.config.audio.playback_device ?? 'auto');
+          setCurrentConfig(configData.config);
+          const audio = configData.config?.audio as Record<string, string> | undefined;
+          if (audio) {
+            setSelectedCapture(audio.capture_device ?? 'auto');
+            setSelectedPlayback(audio.playback_device ?? 'auto');
           }
         }
       } catch (err: unknown) {
@@ -66,15 +65,24 @@ export default function AudioPage() {
     setSuccessMessage(null);
 
     try {
+      // GET + merge + POST: fetch the current overlay, deep-merge the audio
+      // selection into a full schema-valid body, then POST.  A partial PATCH
+      // is not supported by POST /api/config (AJV validates the raw body
+      // against the full schema), so we always send the complete object.
+      const configRes = await fetch('/api/config');
+      let latestConfig = currentConfig;
+      if (configRes.ok) {
+        const configData = (await configRes.json()) as ConfigResponse;
+        latestConfig = configData.config;
+        setCurrentConfig(latestConfig);
+      }
+
+      const body = buildSaveBody(latestConfig, selectedCapture, selectedPlayback);
+
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audio: {
-            capture_device: selectedCapture,
-            playback_device: selectedPlayback,
-          },
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -83,6 +91,8 @@ export default function AudioPage() {
         throw new Error(detail);
       }
 
+      // Update local config state to reflect the written overlay.
+      setCurrentConfig(body);
       setSuccessMessage('Saved — restarting voice service');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
