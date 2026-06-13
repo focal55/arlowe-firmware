@@ -8,6 +8,7 @@ const navItems = [
   { href: '/npu', label: 'NPU Lab', icon: '🧠' },
   { href: '/logs', label: 'Logs', icon: '📋' },
   { href: '/connectivity', label: 'Connect', icon: '📶' },
+  { href: '/audio', label: 'Audio', icon: '🔊' },
 ];
 
 export default function Navigation() {
