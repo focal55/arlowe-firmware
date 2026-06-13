@@ -88,7 +88,7 @@ class TTSWithSync:
     def __init__(self,
                  piper_path: Path,
                  piper_model: Path,
-                 play_device: str = "plughw:2,0",
+                 play_device: str | None = None,
                  face_api: str = "http://localhost:8080",
                  sync_rate: int = 30,
                  backend: TTSBackend = TTSBackend.PIPER):
@@ -98,13 +98,22 @@ class TTSWithSync:
         Args:
             piper_path: Path to Piper TTS executable
             piper_model: Path to Piper voice model
-            play_device: ALSA playback device
+            play_device: ALSA playback device; resolved via arlowe_audio if None
             face_api: URL of face control API
             sync_rate: Face update rate in Hz
             backend: TTS backend to use (PIPER or ELEVENLABS)
         """
         self.piper_path = piper_path
         self.piper_model = piper_model
+        if play_device is None:
+            try:
+                import arlowe_audio  # noqa: PLC0415 — lazy; avoids import-time config dep
+                import arlowe_config
+                _cfg = arlowe_config.load()
+                _play_override = _cfg.get("audio", {}).get("playback_device", "auto")
+                play_device = arlowe_audio.resolve_playback(_play_override) or "plughw:2,0"
+            except Exception:
+                play_device = "plughw:2,0"
         self.play_device = play_device
         self.face_api = face_api
         self.sync_rate = sync_rate

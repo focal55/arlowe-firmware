@@ -45,9 +45,26 @@ VERIFIER_MODEL = Path(os.environ.get(
     "ARLOWE_VERIFIER_MODEL",
     "/var/lib/arlowe/wake-word/verifier.pkl",
 ))
-# TODO(phase-5): Replace plughw:2,0 with config-driven audio device selection.
-RECORD_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE", "plughw:2,0")
-PLAY_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE", "plughw:2,0")
+
+# Audio device resolution: env override (manual escape hatch) > arlowe_audio resolver > literal fallback.
+# Capture and playback are resolved independently — they may be different physical cards.
+import arlowe_audio as _arlowe_audio  # noqa: E402 — module-level; placed here for clarity
+
+try:
+    from arlowe_config import load as _load_config
+    _cfg = _load_config()
+    _cap_override = _cfg.get("audio", {}).get("capture_device", "auto")
+    _play_override = _cfg.get("audio", {}).get("playback_device", "auto")
+except Exception:
+    _cap_override = "auto"
+    _play_override = "auto"
+
+_resolved_capture = _arlowe_audio.resolve_capture(_cap_override)
+if _resolved_capture is None:
+    print("[arlowe-audio] no capture device found; service running degraded", file=sys.stderr, flush=True)
+
+RECORD_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE") or _resolved_capture or "plughw:2,0"
+PLAY_DEVICE = os.environ.get("ARLOWE_PLAY_DEVICE") or _arlowe_audio.resolve_playback(_play_override) or "plughw:2,0"
 
 # Wake word detection thresholds
 BASE_THRESHOLD = 0.20
@@ -335,13 +352,24 @@ def main_loop():
     
     print("\n[3/4] Opening audio stream...", flush=True)
     pa = pyaudio.PyAudio()
-    device_index = 0
-    for i in range(pa.get_device_count()):
-        info = pa.get_device_info_by_index(i)
-        if info['maxInputChannels'] > 0:
-            device_index = i
-            print(f"  Device: {info['name']}", flush=True)
-            break
+    # PortAudio uses a separate device namespace from ALSA; map the resolved ALSA
+    # card to a PortAudio index by name-substring match so the wake-word mic and
+    # the arecord/STT capture path target the same physical card.
+    device_index = _arlowe_audio.portaudio_index_for_card(RECORD_DEVICE, pa)
+    if device_index is None:
+        print(
+            f"[arlowe-audio] pyaudio could not match ALSA card {RECORD_DEVICE}; "
+            "using PortAudio default",
+            file=sys.stderr, flush=True,
+        )
+        # Fallback: first PortAudio input-capable device (original behaviour).
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            if info['maxInputChannels'] > 0:
+                device_index = i
+                break
+    if device_index is not None:
+        print(f"  Device: {pa.get_device_info_by_index(device_index)['name']}", flush=True)
     
     stream = pa.open(
         format=pyaudio.paInt16,
