@@ -24,6 +24,10 @@ MODEL="${PIPER_VOICE:-/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx}"
 TMPFILE=$(mktemp /tmp/tts_XXXXXX.wav)
 FACE_URL="http://localhost:8080/state"
 
+ARLOWE_LIB="${ARLOWE_LIB:-/opt/arlowe/runtime/lib}"
+PLAY_DEV="${ARLOWE_PLAY_DEVICE:-$(PYTHONPATH="$ARLOWE_LIB" python3 -m arlowe_audio --resolve-playback 2>/dev/null)}"
+PLAY_DEV="${PLAY_DEV:-plughw:2,0}"
+
 # Notify face we're about to talk
 if [ "$FACE_SYNC" = true ]; then
     # Save current state (best effort)
@@ -36,9 +40,8 @@ fi
 # Generate speech
 echo "$TEXT" | $PIPER --model $MODEL --output_file $TMPFILE 2>/dev/null
 
-# TODO(phase-5): plughw:2,0 hardcoded; replace with auto-detected device.
 # Resample to 48kHz for WM8960 and play
-sox $TMPFILE -r 48000 -c 2 -t wav - 2>/dev/null | aplay -D plughw:2,0 -q 2>/dev/null
+sox $TMPFILE -r 48000 -c 2 -t wav - 2>/dev/null | aplay -D "$PLAY_DEV" -q 2>/dev/null
 
 # Restore face state
 if [ "$FACE_SYNC" = true ]; then
