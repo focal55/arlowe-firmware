@@ -168,11 +168,11 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Reconcile 16->32 GB sizing + PART-02 tryboot-wording (ADRs + REQUIREMENTS/ROADMAP amendments)
-- [ ] 06-02-PLAN.md — SHA-pinned model + WhisPlay manifest/fetch gate; Whisper model choice ADR
+- [ ] 06-01-PLAN.md — Reconcile shared-model 5-partition sizing (16 GB viable / 32 GB recommended) + PART-02 tryboot-wording (ADRs + REQUIREMENTS/ROADMAP amendments)
+- [ ] 06-02-PLAN.md — SHA-pinned model + WhisPlay manifest/fetch gate (one shared copy); Whisper model choice ADR
 - [ ] 06-03-PLAN.md — pi-gen stage-arlowe: chroot provisioning reuse + axcl + WhisPlay vendor + models + armed first-boot
-- [ ] 06-04-PLAN.md — build-image.sh + measure-then-set 4-partition A/B layout + owner-state grow + sanitize scan-dir gate
-- [ ] 06-05-PLAN.md — tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub
+- [ ] 06-04-PLAN.md — build-image.sh + measure-then-set 5-partition A/B + shared-models layout + models grow-to-fill + sanitize scan-dir gate
+- [ ] 06-05-PLAN.md — tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub + shared-models mount in both slots
 - [ ] 06-06-PLAN.md — arm64 image-build CI + PR shellcheck + flash-sd.sh + dev-deploy.sh + docs + hardware checkpoint
 
 ### Phase 7: Device identity and PKI
