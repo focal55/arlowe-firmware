@@ -18,7 +18,28 @@ from pathlib import Path
 
 _STATE_DIR = os.environ.get("ARLOWE_WAKE_WORD_STATE", "/var/lib/arlowe/wake-word")
 _SPEAK_BIN = os.environ.get("ARLOWE_SPEAK_BIN", "/usr/local/bin/speak")
-_ALSA_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE", "plughw:2,0")
+
+# Resolve capture and playback devices independently via arlowe_audio.
+# env override (manual escape hatch) > arlowe_audio resolver > literal fallback.
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+    import arlowe_audio as _arlowe_audio
+    try:
+        from arlowe_config import load as _load_config
+        _ac = _load_config().get("audio", {})
+        _cap_override = _ac.get("capture_device", "auto")
+        _play_override = _ac.get("playback_device", "auto")
+    except Exception:
+        _cap_override = "auto"
+        _play_override = "auto"
+    _resolved_cap = _arlowe_audio.resolve_capture(_cap_override)
+    _resolved_play = _arlowe_audio.resolve_playback(_play_override)
+except Exception:
+    _resolved_cap = None
+    _resolved_play = None
+
+_ALSA_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE") or _resolved_cap or "plughw:2,0"
+_PLAY_DEVICE = os.environ.get("ARLOWE_PLAY_DEVICE") or _resolved_play or "plughw:2,0"
 
 POSITIVE_DIR = Path(_STATE_DIR) / "positive"
 NEGATIVE_DIR = Path(_STATE_DIR) / "negative"
@@ -41,7 +62,7 @@ def record_sample(output_path, duration=2):
 def beep():
     """Short beep sound via speaker."""
     subprocess.run(
-        f"sox -n -r 48000 -c 2 /tmp/beep.wav synth 0.15 sine 800 vol 0.5 && aplay -D {_ALSA_DEVICE} -q /tmp/beep.wav",
+        f"sox -n -r 48000 -c 2 /tmp/beep.wav synth 0.15 sine 800 vol 0.5 && aplay -D {_PLAY_DEVICE} -q /tmp/beep.wav",
         shell=True, capture_output=True
     )
 
