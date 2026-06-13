@@ -165,7 +165,15 @@ Plans:
   4. `scripts/dev-deploy.sh` rsyncs `runtime/` to a connected Pi over SSH for fast iteration without re-flashing, and the recovery SD-card image procedure is documented in `docs/`.
   5. Two clean builds from the same commit produce images with the same hash for inputs pi-gen permits to be reproducible (documented exceptions allowed).
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Reconcile 16->32 GB sizing + PART-02 tryboot-wording (ADRs + REQUIREMENTS/ROADMAP amendments)
+- [ ] 06-02-PLAN.md — SHA-pinned model + WhisPlay manifest/fetch gate; Whisper model choice ADR
+- [ ] 06-03-PLAN.md — pi-gen stage-arlowe: chroot provisioning reuse + axcl + WhisPlay vendor + models + armed first-boot
+- [ ] 06-04-PLAN.md — build-image.sh + measure-then-set 4-partition A/B layout + owner-state grow + sanitize scan-dir gate
+- [ ] 06-05-PLAN.md — tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub
+- [ ] 06-06-PLAN.md — arm64 image-build CI + PR shellcheck + flash-sd.sh + dev-deploy.sh + docs + hardware checkpoint
 
 ### Phase 7: Device identity and PKI
 
