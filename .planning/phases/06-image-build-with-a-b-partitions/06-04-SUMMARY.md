@@ -2,7 +2,7 @@
 phase: 06-image-build-with-a-b-partitions
 plan: 04
 status: complete
-pr: pending
+pr: 114
 ---
 
 # Summary: build-image.sh + 5-partition A/B layout + shared models grow + sanitize gate

@@ -5,7 +5,7 @@ the first real image build (plan 06-06 on-hardware checkpoint).
 
 ---
 
-## Five-partition layout (five partitions)
+## Five-partition layout
 
 The arlowe image uses five GPT partitions. Partition order is fixed across all
 supported card sizes.
@@ -92,15 +92,17 @@ On first boot, `arlowe-grow-models.sh` runs as an `ExecStartPre=` step in
    it exists (idempotent — never grows more than once).
 2. Verifies the models partition (p5) is the last partition on the disk
    (safety check — aborts if not, to prevent corruption).
-3. Runs `growpart <disk> 5` to extend the GPT partition entry to the disk end.
-4. Runs `e2fsck -pf` then `resize2fs` on the partition device (unmounted) to
-   expand the ext4 filesystem.
-5. Writes the sentinel.
-
-The models partition is NOT mounted at this point — `arlowe-firstboot.service`
-runs `After=local-fs.target`, which ensures all fstab mounts are up before it
-starts, but the grow happens in `ExecStartPre=` before the models ro mount is
-active. After firstboot completes the partition is mounted read-only by fstab.
+3. **Unmounts `/opt/arlowe/models`** — `arlowe-firstboot.service` has
+   `After=local-fs.target`, and the models fstab entry (`ro,noatime`, pass=2,
+   no `noauto`) causes systemd-fstab-generator to mount p5 as part of
+   `local-fs.target` before `ExecStartPre=` fires. The grow script explicitly
+   unmounts the partition before resizing so that e2fsck and resize2fs operate
+   against an unmounted device (offline resize).
+4. Runs `growpart <disk> 5` to extend the GPT partition entry to the disk end.
+5. Runs `e2fsck -pf` (exit codes ≥ 4 abort the script to prevent resizing a
+   corrupt filesystem) then `resize2fs` on the now-unmounted partition device.
+6. **Remounts `/opt/arlowe/models`** so the runtime sees the grown partition.
+7. Writes the sentinel.
 
 **What is NOT grown:** system A (p2), system B (p3), and owner-state (p4) are
 never touched by the grow script. They are fixed-size partitions.

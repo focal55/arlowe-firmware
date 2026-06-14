@@ -27,7 +27,7 @@
 #     PARTUUID_B=<uuid>
 #     PARTUUID_OWNER=<uuid>
 #     PARTUUID_MODELS=<uuid>
-#   These are consumed by plan 06-05 (boot-config + recovery stub) and by
+#   These are consumed by the boot-config + recovery-stub extension hooks and by
 #   build-image.sh's sanitize loop-mount step.
 
 # Guard against direct execution.
@@ -41,7 +41,6 @@ fi
 # ---------------------------------------------------------------------------
 _PIMG_BOOT_MIB=512
 _PIMG_OWNER_STATE_GIB=3     # FIXED owner-state size in GiB (ADR-0004: ~2-4 GB)
-_PIMG_MODELS_SEED_HEADROOM=1.25  # 25% headroom on the initial models seed size
 
 # ---------------------------------------------------------------------------
 # build_partition_image
@@ -333,7 +332,7 @@ _pimg_write_fstab() {
     mnt_a="$(mktemp -d)"
     sudo mount "${loop_dev}p2" "${mnt_a}"
 
-    # Replace the placeholder token left by plan 06-03's chroot step.
+    # Replace the PARTUUID placeholder baked into the rootfs during chroot provisioning.
     local placeholder="ARLOWE-MODELS-PARTUUID-REPLACE-BY-06-04"
     if grep -q "${placeholder}" "${mnt_a}/etc/fstab" 2>/dev/null; then
         sudo sed -i "s|PARTUUID=${placeholder}|PARTUUID=${puuid_models}|g" "${mnt_a}/etc/fstab"

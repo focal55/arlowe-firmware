@@ -19,7 +19,7 @@
 #   CARD_SIZE_GB          Target card size in GB (default: 32; 16 is supported)
 #   OUTPUT_IMG            Output .img path (default: build/arlowe.img)
 #
-# Extension point for plan 06-05:
+# Extension hooks for boot config + recovery stub:
 #   If scripts/lib/boot-config.sh exists, it is sourced and its
 #   write_boot_config function is called after slot-A rsync, before sanitize.
 #   If scripts/lib/recovery-stub.sh exists, it is sourced and its
@@ -183,31 +183,31 @@ build_partition_image \
 ok "5-partition image assembled."
 
 # ---------------------------------------------------------------------------
-# Extension point for plan 06-05: boot config + recovery stub
+# Extension hooks: boot config + recovery stub (sourced when present)
 # ---------------------------------------------------------------------------
-log "=== Step 4b: 06-05 extension hooks (if present) ==="
+log "=== Step 4b: boot-config + recovery-stub extension hooks (if present) ==="
 
 BOOT_CONFIG_LIB="${SCRIPT_DIR}/lib/boot-config.sh"
 RECOVERY_STUB_LIB="${SCRIPT_DIR}/lib/recovery-stub.sh"
 
 if [[ -f "${BOOT_CONFIG_LIB}" ]]; then
-    log "Sourcing boot-config.sh (plan 06-05)"
+    log "Sourcing boot-config.sh"
     # shellcheck source=/dev/null
     source "${BOOT_CONFIG_LIB}"
     write_boot_config "${OUTPUT_PARTUUID_MAP_FILE}" "${OUTPUT_IMG}"
     ok "boot-config written."
 else
-    log "(scripts/lib/boot-config.sh absent — 06-05 not yet landed; skipping)"
+    log "(scripts/lib/boot-config.sh absent — skipping)"
 fi
 
 if [[ -f "${RECOVERY_STUB_LIB}" ]]; then
-    log "Sourcing recovery-stub.sh (plan 06-05)"
+    log "Sourcing recovery-stub.sh"
     # shellcheck source=/dev/null
     source "${RECOVERY_STUB_LIB}"
     write_recovery_stub "${OUTPUT_PARTUUID_MAP_FILE}" "${OUTPUT_IMG}"
     ok "recovery stub written."
 else
-    log "(scripts/lib/recovery-stub.sh absent — 06-05 not yet landed; skipping)"
+    log "(scripts/lib/recovery-stub.sh absent — skipping)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -266,9 +266,8 @@ trap - EXIT
 ok "Sanitize gate passed."
 
 # ---------------------------------------------------------------------------
-# Step 6 (placeholder): plan 06-05 inserts slot-B recovery write + tryboot
-# config between clone (step 4) and finalize. The extension hooks in step 4b
-# are where 06-05 wires in without restructuring this script.
+# Step 6 (placeholder): slot-B recovery write + tryboot config are wired in
+# via the extension hooks in step 4b, not as a separate numbered step.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------

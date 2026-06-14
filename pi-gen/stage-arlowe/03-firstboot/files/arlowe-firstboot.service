@@ -9,9 +9,9 @@ ConditionPathExists=!/var/lib/arlowe/.firstboot-done
 Type=oneshot
 RemainAfterExit=no
 # ExecStartPre: grow the shared MODELS partition (p5) to fill the SD card,
-# once, idempotently (plan 06-04). Runs BEFORE the models partition is
-# mounted read-only, so resize2fs operates against the unmounted partition
-# device. The sentinel /var/lib/arlowe/.models-grow-done prevents re-runs.
+# once, idempotently. The script unmounts /opt/arlowe/models (which
+# local-fs.target mounts before this unit starts), resizes offline, then
+# remounts. The sentinel /var/lib/arlowe/.models-grow-done prevents re-runs.
 ExecStartPre=/opt/arlowe/runtime/cli/arlowe-grow-models
 # boot-check --first-boot:
 #   (a) Confirms /etc/arlowe/config.yml is ABSENT (CONFIG-03 pairing trigger).

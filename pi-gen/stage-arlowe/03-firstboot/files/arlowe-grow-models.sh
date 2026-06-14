@@ -4,10 +4,10 @@
 # First-boot, run-once, idempotent grow of the shared MODELS partition (p5)
 # to consume all remaining space on the SD card.
 #
-# This script is wired as an ExecStartPre= stanza in arlowe-firstboot.service
-# (plan 06-04 adds it before the boot-check call). It runs BEFORE the models
-# partition is mounted read-only at /opt/arlowe/models, so resize2fs operates
-# directly against the partition device.
+# This script is wired as an ExecStartPre= stanza in arlowe-firstboot.service.
+# It runs after local-fs.target, which means the models partition IS already
+# mounted read-only at /opt/arlowe/models by the time this script fires.
+# The resize must therefore be done offline: unmount, resize, remount.
 #
 # Target: the MODELS partition only (p5 — the LAST partition, the grow-to-fill
 # partition per ADR-0004). A, B, and owner-state are FIXED and must NOT be grown.
@@ -17,12 +17,14 @@
 #   The sentinel lives on owner-state (/var/lib/arlowe), which is a separate
 #   fixed partition, so the models resize does not affect the sentinel's storage.
 #
-# Design note on resize order:
-#   1. growpart extends the partition entry to the disk end (updates the GPT).
-#   2. resize2fs expands the ext4 filesystem to fill the new partition size.
-#   The models partition is NOT mounted at this point — the mount happens AFTER
-#   firstboot.service completes (via fstab, which uses ro,noatime). Performing
-#   the resize against the unmounted device is both correct and the safest path.
+# Resize sequence:
+#   1. Unmount /opt/arlowe/models so the resize is done against an unmounted device.
+#   2. growpart extends the partition entry to the disk end (updates the GPT).
+#   3. e2fsck checks the filesystem (required before offline resize2fs).
+#   4. resize2fs expands the ext4 filesystem to fill the new partition size.
+#   5. Remount /opt/arlowe/models so the runtime sees the grown partition.
+# Performing the resize against the unmounted device is both correct and safe;
+# resize2fs on a mounted read-only partition is not guaranteed to succeed.
 set -euo pipefail
 
 SENTINEL="/var/lib/arlowe/.models-grow-done"
@@ -113,13 +115,48 @@ if ! growpart "${_disk_dev}" "${MODELS_PARTITION_NUM}"; then
 fi
 
 # ---------------------------------------------------------------------------
+# Unmount the models partition so the resize runs offline
+# ---------------------------------------------------------------------------
+# local-fs.target mounts the models partition (ro,noatime) before ExecStartPre=
+# fires, so we must unmount before resizing to keep e2fsck and resize2fs offline.
+MODELS_MOUNTPOINT="/opt/arlowe/models"
+if mountpoint -q "${MODELS_MOUNTPOINT}"; then
+    echo "[grow-models] unmounting ${MODELS_MOUNTPOINT} for offline resize..."
+    umount "${MODELS_MOUNTPOINT}"
+fi
+
+# ---------------------------------------------------------------------------
 # Expand the ext4 filesystem to fill the grown partition
 # ---------------------------------------------------------------------------
-echo "[grow-models] running resize2fs to expand models ext4 filesystem..."
-# e2fsck is required before resize2fs when resizing an unmounted filesystem.
-e2fsck -pf "${_models_part}" || true
+echo "[grow-models] running e2fsck + resize2fs to expand models ext4 filesystem..."
+# e2fsck is required before offline resize2fs.
+# Exit codes 0 (clean) and 1 (errors corrected) are safe to continue.
+# Exit codes >= 4 indicate uncorrectable errors — abort rather than resize a
+# corrupt filesystem.
+e2fsck -pf "${_models_part}" || {
+    _e2fsck_exit=$?
+    if [[ "${_e2fsck_exit}" -ge 4 ]]; then
+        echo "[grow-models] ERROR: e2fsck reported uncorrectable filesystem errors (exit ${_e2fsck_exit})" >&2
+        echo "[grow-models]   Not safe to resize. Manual fsck required." >&2
+        exit "${_e2fsck_exit}"
+    fi
+    # Exit codes 2 and 3 mean corrections were made that require a reboot;
+    # treat as fatal so the admin sees the journal entry.
+    if [[ "${_e2fsck_exit}" -ge 2 ]]; then
+        echo "[grow-models] WARNING: e2fsck made corrections requiring reboot (exit ${_e2fsck_exit})" >&2
+        echo "[grow-models]   Reboot and let firstboot re-run (sentinel not written)." >&2
+        exit "${_e2fsck_exit}"
+    fi
+}
 resize2fs "${_models_part}"
 echo "[grow-models] models partition filesystem expanded"
+
+# ---------------------------------------------------------------------------
+# Remount the models partition so the runtime sees the grown filesystem
+# ---------------------------------------------------------------------------
+echo "[grow-models] remounting ${MODELS_MOUNTPOINT} read-only..."
+mount "${MODELS_MOUNTPOINT}"
+echo "[grow-models] ${MODELS_MOUNTPOINT} remounted"
 
 # ---------------------------------------------------------------------------
 # Write sentinel to prevent re-running on subsequent boots
