@@ -113,7 +113,12 @@ if [[ "${OS}" == "Linux" ]]; then
     dev_name="${DEV##*/}"
     # For mmcblk0p1, the sysfs removable entry lives under mmcblk0.
     dev_base="${dev_name%%p[0-9]*}"   # strip mmcblk/nvme partition suffix (mmcblk0p1 -> mmcblk0)
-    dev_base="${dev_base%[0-9]*}"     # strip sata/usb partition suffix (sdb1 -> sdb); no-op for mmcblk0
+    # mmcblk/nvme names legitimately end in a digit (controller number); only strip
+    # trailing digits for sdX/loop-style names where the digit IS the partition number.
+    case "${dev_base}" in
+        mmcblk*|nvme*) : ;;
+        *) dev_base="${dev_base%%[0-9]*}" ;;
+    esac
     sysfs_removable="/sys/block/${dev_base}/removable"
     if [[ -f "${sysfs_removable}" ]]; then
         removable="$(cat "${sysfs_removable}")"
