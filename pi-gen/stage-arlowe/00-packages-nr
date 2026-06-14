@@ -1,0 +1,31 @@
+# Packages installed with --no-install-recommends in stage-arlowe.
+# Lite base (stage2) already provides systemd, apt, coreutils, openssh-server.
+# Only add what the arlowe runtime actually needs at start-up.
+
+# Python runtime (units use system python3 + per-service venvs under /opt/arlowe/venvs)
+python3
+python3-venv
+python3-pip
+
+# Audio (ALSA userspace for arlowe-voice and arlowe-face/WhisPlay audio output)
+alsa-utils
+
+# Networking (NetworkManager for wifi provisioning at pairing time, Phase 8)
+network-manager
+
+# Pi hardware GPIO + SPI access (WhisPlay display driver, WhisPlay audio HAT)
+python3-rpi.gpio
+python3-spidev
+
+# ripgrep — used by the Phase 6-04 sanitize check script (faster than grep for
+# scanning rootfs for nondeterminism markers such as build-host paths)
+ripgrep
+
+# dpkg tooling for axcl deb install (dpkg is present on Lite; listed explicitly
+# for documentation clarity — not an extra install if already present)
+dpkg
+
+# Node.js for the arlowe-dashboard service (Next.js runtime)
+# nodejs from Debian bookworm is v18+; dashboard/package.json targets >=18.
+nodejs
+npm

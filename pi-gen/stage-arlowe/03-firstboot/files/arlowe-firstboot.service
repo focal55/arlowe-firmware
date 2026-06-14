@@ -1,0 +1,30 @@
+[Unit]
+Description=Arlowe first-boot initialization
+After=local-fs.target systemd-remount-fs.service
+Before=multi-user.target
+# Guard: skip if the sentinel exists (already ran on a previous boot).
+ConditionPathExists=!/var/lib/arlowe/.firstboot-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+# boot-check --first-boot:
+#   (a) Confirms /etc/arlowe/config.yml is ABSENT (CONFIG-03 pairing trigger).
+#       Absence is the recognized "not yet paired" state from Phase 4.
+#   (b) Logs "ready to pair" to the journal.
+#   (c) Is the seam for plan 06-04's grow-to-fill resize hook on the models
+#       partition. Plan 06-04 prepends its resize ExecStartPre= stanza here.
+#
+# NOTE: The pairing daemon itself is Phase 8. This unit DOES NOT start a
+# pairing daemon. It only arms the device into a known, verified "ready to
+# pair" state and writes the sentinel so it does not repeat on subsequent boots.
+ExecStart=/opt/arlowe/runtime/cli/boot-check --first-boot
+ExecStartPost=/bin/touch /var/lib/arlowe/.firstboot-done
+StandardOutput=journal
+StandardError=journal
+# Fail the unit if boot-check exits non-zero, so journal makes the failure
+# visible. RemainAfterExit=no means the unit returns to inactive after success.
+SuccessExitStatus=0
+
+[Install]
+WantedBy=multi-user.target
