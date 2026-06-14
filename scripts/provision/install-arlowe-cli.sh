@@ -19,7 +19,7 @@
 # Must be run as root (or via sudo).
 set -euo pipefail
 
-CLIS=(face speak stt record boot-check purge-logs run-logrotate wake-train)
+CLIS=(face speak stt record boot-check purge-logs run-logrotate wake-train ab)
 TARGET_DIR=/opt/arlowe/runtime/cli
 LINK_DIR=/usr/local/sbin
 

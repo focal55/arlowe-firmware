@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# runtime/cli/arlowe-ab
+#
+# On-device A/B slot selector CLI (ADR-0005).
+# Installed as /usr/local/sbin/arlowe-ab via install-arlowe-cli.sh.
+#
+# The persistent A/B default is the root= in /boot/firmware/cmdline.txt.
+# This CLI is the sole controlled path for changing the persistent default.
+# Phase 9 OTA calls this CLI rather than writing cmdline.txt directly.
+#
+# Commands:
+#   arlowe-ab status      — print current persistent default slot + PARTUUID
+#   arlowe-ab set A|B     — rewrite cmdline.txt root= to target slot; no reboot
+#   arlowe-ab switch A|B  — set + reboot (triggers systemd reboot)
+#
+# NOTE: This CLI does NOT use "reboot 0 tryboot" or tryboot.txt.
+# The tryboot one-shot path is RESERVED for Phase 9 OTA trial-boot.
+# Persistent flips use cmdline.txt exclusively (per ADR-0005).
+#
+# Root is required — /boot/firmware must be remounted rw to write cmdline.txt.
+set -euo pipefail
+
+BOOT_MOUNT="${BOOT_MOUNT:-/boot/firmware}"
+CMDLINE_FILE="${BOOT_MOUNT}/cmdline.txt"
+
+# PARTUUID map written at build time and carried by each rootfs as a reference.
+# The map lets arlowe-ab resolve A/B symbolic names to the real PARTUUIDs.
+PARTUUID_MAP="${PARTUUID_MAP:-/etc/arlowe/ab-partuuid-map}"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+die() { printf 'arlowe-ab: %s\n' "$*" >&2; exit 1; }
+
+require_root() {
+    [[ "${EUID}" -eq 0 ]] || die "must be run as root"
+}
+
+mount_boot_rw() {
+    mount -o remount,rw "${BOOT_MOUNT}"
+}
+
+mount_boot_ro() {
+    mount -o remount,ro "${BOOT_MOUNT}" 2>/dev/null || true
+}
+
+# Read a PARTUUID from the on-device map file.
+lookup_partuuid() {
+    local slot="$1"
+    [[ -f "${PARTUUID_MAP}" ]] || die "PARTUUID map not found at ${PARTUUID_MAP}"
+    local key="PARTUUID_${slot}"
+    local val
+    val="$(grep "^${key}=" "${PARTUUID_MAP}" | cut -d= -f2)"
+    [[ -n "${val}" ]] || die "PARTUUID for slot ${slot} not found in ${PARTUUID_MAP}"
+    printf '%s' "${val}"
+}
+
+# Read the current root= PARTUUID from cmdline.txt.
+current_partuuid() {
+    [[ -f "${CMDLINE_FILE}" ]] || die "cmdline.txt not found at ${CMDLINE_FILE}"
+    local partuuid
+    partuuid="$(grep -oP '(?<=root=PARTUUID=)[^\s]+' "${CMDLINE_FILE}" || true)"
+    [[ -n "${partuuid}" ]] || die "no root=PARTUUID= found in ${CMDLINE_FILE}"
+    printf '%s' "${partuuid}"
+}
+
+# Resolve the current PARTUUID to slot A or B by comparing to the map.
+partuuid_to_slot() {
+    local partuuid="$1"
+    local puuid_a puuid_b
+    puuid_a="$(lookup_partuuid A)"
+    puuid_b="$(lookup_partuuid B)"
+    if [[ "${partuuid}" == "${puuid_a}" ]]; then
+        printf 'A'
+    elif [[ "${partuuid}" == "${puuid_b}" ]]; then
+        printf 'B'
+    else
+        printf 'unknown'
+    fi
+}
+
+validate_slot_arg() {
+    local slot="$1"
+    [[ "${slot}" == "A" || "${slot}" == "B" ]] \
+        || die "slot must be A or B, got: ${slot}"
+}
+
+# Atomically rewrite root=PARTUUID=<old> to root=PARTUUID=<new> in cmdline.txt.
+# Atomic: write to a temp file in the same FAT directory, then rename.
+# FAT does not support true atomic rename, but sync after write minimises the
+# partial-write window (per ADR-0005 "must sync before rebooting").
+rewrite_root_partuuid() {
+    local target_partuuid="$1"
+    local tmp="${CMDLINE_FILE}.tmp"
+
+    [[ -f "${CMDLINE_FILE}" ]] || die "cmdline.txt not found at ${CMDLINE_FILE}"
+
+    sed "s|root=PARTUUID=[^ ]*|root=PARTUUID=${target_partuuid}|" \
+        "${CMDLINE_FILE}" > "${tmp}"
+    mv "${tmp}" "${CMDLINE_FILE}"
+    sync
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_status() {
+    local partuuid slot
+    partuuid="$(current_partuuid)"
+    slot="$(partuuid_to_slot "${partuuid}")"
+    printf 'Persistent default: slot %s (root=PARTUUID=%s)\n' "${slot}" "${partuuid}"
+}
+
+cmd_set() {
+    local slot="$1"
+    validate_slot_arg "${slot}"
+    require_root
+
+    local target_partuuid
+    target_partuuid="$(lookup_partuuid "${slot}")"
+
+    mount_boot_rw
+    rewrite_root_partuuid "${target_partuuid}"
+    mount_boot_ro
+
+    printf 'Persistent default set to slot %s (root=PARTUUID=%s)\n' "${slot}" "${target_partuuid}"
+}
+
+cmd_switch() {
+    local slot="$1"
+    cmd_set "${slot}"
+    printf 'Rebooting into slot %s...\n' "${slot}"
+    systemctl reboot
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+usage() {
+    cat <<'EOF'
+Usage: arlowe-ab <command> [slot]
+
+Commands:
+  status        Print current persistent default slot and PARTUUID
+  set A|B       Rewrite cmdline.txt root= to target slot; no reboot
+  switch A|B    set + reboot
+
+The persistent A/B default is the root= in /boot/firmware/cmdline.txt.
+tryboot.txt / "reboot 0 tryboot" are reserved for Phase 9 OTA trial-boot.
+EOF
+}
+
+[[ $# -ge 1 ]] || { usage; exit 1; }
+
+cmd="$1"
+shift
+
+case "${cmd}" in
+    status)
+        cmd_status
+        ;;
+    set)
+        [[ $# -eq 1 ]] || { usage; exit 1; }
+        cmd_set "$1"
+        ;;
+    switch)
+        [[ $# -eq 1 ]] || { usage; exit 1; }
+        cmd_switch "$1"
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac
