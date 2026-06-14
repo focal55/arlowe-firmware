@@ -1,0 +1,72 @@
+# Model artifact pinning — shared models partition (Phase 6)
+#
+# Strategy C (user-supplies-file): url is null, files are never committed.
+# Each entry pins ONE copy of the artifact for the shared models partition
+# (mounted at /opt/arlowe/models in both A and B slots — see ADR-0004).
+#
+# SHA pins marked TODO_SHA256 are placeholders: the artifact is auth-gated or
+# requires a first-fetch before the exact CTranslate2/quantized hash is known.
+# A placeholder pin emits a WARNING from verify-third-party.sh (not a hard fail)
+# so structure can land before real fetch. Close TODOs in issue #106 comments
+# when on-hardware builds (06-06) capture the real hashes.
+#
+# Distribution rights:
+#   - qwen2.5-7b-int4-ax650: Axera-optimized int4 model; auth-gated, redistribution
+#     rights TBD. Obtain from Axera/arlowe provisioning kit.
+#   - faster-whisper small.en: Apache 2.0 (OpenAI Whisper weights via Systran
+#     CTranslate2 conversion). Freely redistributable.
+#   - piper en_US-lessac-medium: CC BY 4.0 (Piper voice model by rhasspy).
+#     Attribution required; commercial use permitted.
+
+models:
+  qwen_llm:
+    name: "qwen2.5-7b-int4-ax650"
+    description: "Qwen 2.5 7B int4 model optimized for Axera AX650 NPU"
+    repo: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
+    # Auth-gated Axera deployment variant — exact AX650 deployment hash must
+    # be re-verified at first fetch from the Axera provisioning kit.
+    sha256: "TODO_SHA256__capture_at_first_fetch_from_axera_provisioning_kit"
+    url: null
+    install_to: "/opt/arlowe/models/qwen2.5-7b-int4-ax650"
+    notes: >
+      Axera AX650 NPU-optimized int4 quantized model. Auth-gated; obtain from
+      Axera Semiconductor or the device provisioning kit. Place at one of the
+      paths checked by verify-third-party.sh. SHA pin is a TODO placeholder —
+      record the real hash in the PR closing issue #106 comment when first fetched.
+      See third_party/models/INSTALL.md.
+
+  whisper_stt:
+    name: "faster-whisper-small.en"
+    description: "faster-whisper small.en CTranslate2 model (ADR-0006)"
+    repo: "https://huggingface.co/Systran/faster-whisper-small.en"
+    # CTranslate2 converted model hash — captured at first fetch from HuggingFace.
+    # The hash covers the model directory archive (or the primary model.bin file
+    # depending on fetch method). Capture with: sha256sum model.bin
+    sha256: "TODO_SHA256__capture_at_first_fetch_from_huggingface_Systran_faster-whisper-small.en"
+    url: null
+    install_to: "/opt/arlowe/models/whisper/small.en"
+    notes: >
+      faster-whisper (CTranslate2) small.en model. Apache 2.0 license (see ADR-0006).
+      Fetch via: huggingface-cli download Systran/faster-whisper-small.en --local-dir <dest>
+      SHA pin is a TODO placeholder — record real hash in issue #106 comment at
+      first image build (06-06). See third_party/models/INSTALL.md.
+
+  piper_tts:
+    name: "piper-en_US-lessac-medium"
+    description: "Piper TTS voice model en_US-lessac-medium (ONNX)"
+    repo: "https://huggingface.co/rhasspy/piper-voices"
+    # Two files required: .onnx weights + .onnx.json config.
+    # sha256 covers the .onnx file (the larger file; config is tiny).
+    sha256: "TODO_SHA256__capture_at_first_fetch_from_huggingface_rhasspy_piper-voices"
+    url: null
+    install_to: "/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx"
+    additional_files:
+      - filename: "en_US-lessac-medium.onnx.json"
+        install_to: "/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx.json"
+        sha256: "TODO_SHA256__config_json"
+    notes: >
+      Piper TTS en_US lessac medium voice. CC BY 4.0 (attribution required).
+      Fetch via: huggingface-cli download rhasspy/piper-voices --include "en/en_US/lessac/medium/*" --local-dir <dest>
+      Both .onnx and .onnx.json are required (unit file: ARLOWE_PIPER_MODEL points at .onnx).
+      SHA pin is a TODO placeholder — record real hashes in issue #106 comment at
+      first image build (06-06). See third_party/models/INSTALL.md.
