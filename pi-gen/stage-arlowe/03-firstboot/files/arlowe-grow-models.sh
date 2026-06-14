@@ -103,15 +103,21 @@ fi
 # Grow the partition to the end of the disk
 # ---------------------------------------------------------------------------
 echo "[grow-models] running growpart to extend partition ${MODELS_PARTITION_NUM} to disk end..."
-if ! growpart "${_disk_dev}" "${MODELS_PARTITION_NUM}"; then
-    _gc=$?
-    if [[ "${_gc}" -eq 1 ]]; then
-        # growpart exits 1 when the partition is already at the disk end (no-op).
-        echo "[grow-models] growpart: partition already at disk end (no-op)"
-    else
-        echo "[grow-models] ERROR: growpart failed (exit ${_gc})" >&2
-        exit "${_gc}"
-    fi
+# Capture growpart's real exit code without letting set -e kill the script on
+# a non-zero result. Inside `if ! cmd; then`, $? is 0 (the negation test
+# succeeded), not the command's actual exit code — so we use || instead.
+# growpart semantics: 0 = partition extended, 1 = already at disk end (no-op),
+# >=2 = real failure (GPT not updated; abort before resize2fs runs on a stale entry).
+_gc=0
+growpart "${_disk_dev}" "${MODELS_PARTITION_NUM}" || _gc=$?
+if [[ "${_gc}" -eq 0 ]]; then
+    : # partition extended — continue to resize2fs
+elif [[ "${_gc}" -eq 1 ]]; then
+    # growpart exits 1 when the partition is already at the disk end (no-op).
+    echo "[grow-models] growpart: partition already at disk end (no-op)"
+else
+    echo "[grow-models] ERROR: growpart failed (exit ${_gc})" >&2
+    exit "${_gc}"
 fi
 
 # ---------------------------------------------------------------------------

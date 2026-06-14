@@ -65,15 +65,17 @@ loop-mount) and by plan 06-05's boot-config and recovery-stub extensions.
   subsequent boots.
 - Safety check: verifies p5 is the last partition (aborts if not, to prevent
   GPT corruption).
-- `growpart <disk> 5` → `e2fsck -pf` → `resize2fs` against the unmounted
-  partition device. The models partition is not yet ro-mounted at this point.
+- Unmounts `/opt/arlowe/models` (mounted ro by local-fs.target before
+  ExecStartPre= fires), then runs `growpart <disk> 5` → `e2fsck -pf` →
+  `resize2fs` against the unmounted partition device, then remounts ro.
 - A, B, and owner-state partitions are never touched.
 
 **`arlowe-firstboot.service` (updated):**
 - Added `ExecStartPre=/opt/arlowe/runtime/cli/arlowe-grow-models` stanza before
   the existing `ExecStart=/opt/arlowe/runtime/cli/boot-check --first-boot`.
-- The grow runs before the models partition is mounted ro (ordering is safe: the
-  partition is not in the fstab automount path until after firstboot completes).
+- local-fs.target mounts the models partition ro before ExecStartPre= fires;
+  the script unmounts it, resizes, then remounts it before the main service
+  body runs.
 
 **`pi-gen/stage-arlowe/03-firstboot/00-run-chroot.sh` (updated):**
 - Installs `arlowe-grow-models.sh` to `/opt/arlowe/runtime/cli/arlowe-grow-models`
