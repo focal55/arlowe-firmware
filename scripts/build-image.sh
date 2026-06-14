@@ -229,12 +229,6 @@ if ! command -v rg >/dev/null 2>&1; then
 fi
 
 SLOT_A_MOUNTPOINT="$(mktemp -d)"
-# Read slot-A PARTUUID from the map file to find the loop device.
-SLOT_A_PARTUUID=""
-if [[ -f "${OUTPUT_PARTUUID_MAP_FILE}" ]]; then
-    SLOT_A_PARTUUID="$(grep '^PARTUUID_A=' "${OUTPUT_PARTUUID_MAP_FILE}" | cut -d= -f2)"
-fi
-
 # Loop-mount the image and find the slot-A partition device.
 LOOP_DEV="$(sudo losetup -f --show -P "${OUTPUT_IMG}")"
 log "Mounted image as loop device: ${LOOP_DEV}"

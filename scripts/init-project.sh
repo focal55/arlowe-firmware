@@ -32,7 +32,6 @@ if [ -z "$REPO_FULL" ]; then
 fi
 
 OWNER="${REPO_FULL%%/*}"
-REPO="${REPO_FULL##*/}"
 
 echo "==> Bootstrapping project: $PROJECT_NAME"
 echo "    Repo: $REPO_FULL"

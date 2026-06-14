@@ -57,27 +57,36 @@ run_rsync() {
   shift 2
   echo ""
   echo "--- ${src} -> ${dst}"
+  # shellcheck disable=SC2086
   rsync ${RSYNC_FLAGS} "$@" "${REMOTE}:${src}" "${dst}"
 }
 
-# shellcheck disable=SC2086
+# Tilde paths are remote; SC2088 does not apply (expanded by the remote shell).
+# shellcheck disable=SC2088
 run_rsync "~/iol-monorepo/packages/whisplay/"     "${STASH_ROOT}/whisplay/"
+# shellcheck disable=SC2088
 run_rsync "~/iol-monorepo/packages/arlowe-dashboard/" "${STASH_ROOT}/arlowe-dashboard/"
+# shellcheck disable=SC2088
 run_rsync "~/bin/"                                "${STASH_ROOT}/bin/"
+# shellcheck disable=SC2088
 run_rsync "~/wake_word/"                          "${STASH_ROOT}/wake_word/" \
   --exclude='*.pkl' --exclude='positive/' --exclude='negative/'
+# shellcheck disable=SC2088
 run_rsync "~/.config/systemd/user/"              "${STASH_ROOT}/systemd-user/"
+# shellcheck disable=SC2088
 run_rsync "~/iol-monorepo/packages/whisplay/systemd/" "${STASH_ROOT}/systemd-whisplay/"
 
 # Single-file targets — rsync to a directory with trailing slash requires the parent to exist.
 echo ""
 echo "--- ~/models/Qwen2.5-7B-Instruct/run_api.sh -> ${STASH_ROOT}/llm/"
+# shellcheck disable=SC2086,SC2088
 rsync ${RSYNC_FLAGS} \
   "${REMOTE}:~/models/Qwen2.5-7B-Instruct/run_api.sh" \
   "${STASH_ROOT}/llm/"
 
 echo ""
 echo "--- ~/models/Qwen2.5-7B-Instruct/qwen2.5_tokenizer_uid.py -> ${STASH_ROOT}/llm/"
+# shellcheck disable=SC2086,SC2088
 rsync ${RSYNC_FLAGS} \
   "${REMOTE}:~/models/Qwen2.5-7B-Instruct/qwen2.5_tokenizer_uid.py" \
   "${STASH_ROOT}/llm/"

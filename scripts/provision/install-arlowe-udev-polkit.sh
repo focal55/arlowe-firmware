@@ -63,5 +63,6 @@ if command -v udevadm >/dev/null 2>&1; then
     udevadm trigger 2>/dev/null || true
 fi
 
+# shellcheck disable=SC2012
 installed_count=$(ls /etc/udev/rules.d/9?-arlowe-*.rules /etc/polkit-1/rules.d/5?-arlowe-*.rules 2>/dev/null | wc -l)
 echo "[install-udev-polkit] installed ${installed_count} rules"

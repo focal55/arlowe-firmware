@@ -156,7 +156,8 @@ run_units_gate() {
     for unit in "${units[@]+${units[@]}}"; do
       local base
       base="$(basename "$unit")"
-      # Unquoted RHS triggers bash glob matching — the 3 prefixes are bash globs.
+      # Unquoted RHS is intentional: $prefix is a bash glob pattern (e.g. "iol-*").
+      # shellcheck disable=SC2053
       if [[ "$base" == $prefix ]]; then
         printf '::error file=%s,line=1,title=Banned systemd unit::banned systemd unit name %s (matches pattern %s); founder-only service must not ship in firmware\n' \
           "$unit" "$base" "$prefix"

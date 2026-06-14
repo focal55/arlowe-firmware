@@ -59,6 +59,9 @@ write_boot_config() {
     local loop_dev mnt_boot mnt_a
     loop_dev="$(sudo losetup -f --show -P "${output_img}")"
 
+    # SC2329: function is invoked indirectly via trap (not a direct call site)
+    # SC2317: commands inside a trap-registered function appear unreachable to shellcheck
+    # shellcheck disable=SC2329,SC2317
     _bconf_cleanup() {
         sudo umount "${mnt_boot}" 2>/dev/null || true
         sudo umount "${mnt_a}" 2>/dev/null || true

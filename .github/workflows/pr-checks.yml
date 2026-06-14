@@ -68,6 +68,25 @@ jobs:
             echo "::warning::PR exceeds 400 net lines ($NET). Consider splitting before review."
           fi
 
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: Run shellcheck
+        run: |
+          shellcheck \
+            scripts/*.sh \
+            scripts/provision/*.sh \
+            scripts/sanitize/*.sh \
+            scripts/lib/*.sh \
+            pi-gen/stage-arlowe/**/*.sh \
+            units/install-units.sh \
+            runtime/cli/arlowe-ab \
+            runtime/recovery/*.sh
+
   linked-issue:
     name: Linked issue
     runs-on: ubuntu-latest

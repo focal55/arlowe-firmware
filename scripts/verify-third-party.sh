@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2059
 set -euo pipefail
 
 # Hash-check gate for Phase 6 image build.
@@ -206,7 +207,7 @@ for key in m.get('models', {}):
     # Derive the relative subpath from install_to by stripping the image prefix.
     # install_to: /opt/arlowe/models/whisper/small.en  →  subpath: whisper/small.en
     if [[ "${model_install}" == "${MODELS_IMAGE_PREFIX}"/* ]]; then
-      install_subpath="${model_install#${MODELS_IMAGE_PREFIX}/}"
+      install_subpath="${model_install#"${MODELS_IMAGE_PREFIX}"/}"
     else
       # install_to does not start with the expected prefix — fall back to model name.
       install_subpath="${model_name}"
