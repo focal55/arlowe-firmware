@@ -1,0 +1,55 @@
+# pi-gen configuration for the arlowe image.
+#
+# Build environment: arm64 Linux only (GitHub arm64 CI runner or arlowe-1 Pi 5).
+# The Mac is not a supported builder — pi-gen requires loop devices and privileged
+# mounts that Docker Desktop on macOS cannot provide.
+#
+# pi-gen arm64 branch: https://github.com/RPi-Distro/pi-gen/tree/arm64
+#
+# Iterative builds: set SKIP_IMAGES=1 on the command line to skip the final
+# image packing step and only produce the rootfs. This is much faster for
+# developing stage scripts.
+#   sudo SKIP_IMAGES=1 ./build.sh
+#
+# Full image build (for release): omit SKIP_IMAGES. The build action / release
+# CI handles this; do not run with docker for arm64 targets.
+
+IMG_NAME="arlowe"
+RELEASE="bookworm"
+
+# Hostname for the factory image. Not a founder hostname — "arlowe" is the
+# canonical device identity. First-boot pairing (Phase 8) may overwrite this.
+TARGET_HOSTNAME="arlowe"
+
+# Enable SSH on first boot so the device is reachable before pairing.
+ENABLE_SSH=1
+
+# Build only through our custom stage — stop before desktop stages.
+# stage0: bootstrap, stage1: base Debian, stage2: Lite (no desktop).
+# stage-arlowe: our customization layer (Phase 6).
+STAGE_LIST="stage0 stage1 stage2 stage-arlowe"
+
+# Do not build the optional NOOBS or image exports from stage-arlowe — plan
+# 06-04 assembles the 5-partition A/B layout from the rootfs directly.
+# SKIP_IMAGES is set per-run; EXPORT_NOOBS and EXPORT_IMAGE are unset here to
+# suppress the default export behavior of stage2 exports propagating further.
+
+# Locale / keyboard defaults. Override at build time if targeting a different
+# locale. These match the Pi OS Lite arm64 installer defaults.
+LOCALE_DEFAULT="en_US.UTF-8"
+KEYBOARD_KEYMAP="us"
+KEYBOARD_LAYOUT="English (US)"
+
+# Timezone — UTC for a device appliance; owner pairing (Phase 8) sets local tz.
+TIMEZONE_DEFAULT="UTC"
+
+# First user: use the pi-gen default (pi / raspberry) for the base stages;
+# stage-arlowe's 00-run-chroot.sh installs the arlowe system user separately
+# and sets up the production layout. The default pi user is NOT the arlowe
+# runtime account.
+FIRST_USER_NAME="pi"
+FIRST_USER_PASS="raspberry"
+
+# Disable pi-gen's built-in password-setting on first boot — our first-boot
+# hook handles service initialization; the pi user is a build artifact.
+DISABLE_FIRST_BOOT_USER_RENAME=0

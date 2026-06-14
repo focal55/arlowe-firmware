@@ -1,0 +1,3 @@
+# Intentionally empty: suppress NOOBS export for stage-arlowe.
+# plan 06-04 (partition-image.sh) post-processes the rootfs into the
+# 5-partition A/B layout — we do not emit a NOOBS image here.

@@ -28,14 +28,22 @@ Valid state names: `idle`, `thinking`, `listening`, `talking`, `sleeping`, `happ
 ## WhisPlay driver dependency
 
 `face.py` imports `WhisPlayBoard` from the WhisPlay vendor SDK. The face service
-will not render to the display without this driver installed system-wide.
+will not render to the display without this driver installed.
 
 See `third_party/whisplay-driver/PROVENANCE.md` for driver source, license, and
 installation instructions. The driver is a vendor-supplied Python module that ships
-with the WhisPlay display hardware -- it is not available via pip.
+with the WhisPlay display hardware — it is not available via pip.
 
-On a dev Pi today the driver typically lives at `~/Library/Whisplay/Driver/WhisPlay.py`
-(system-wide install). Image-build (Phase 11) will bake it into `/opt/arlowe/`.
+**Production images (Phase 6+):** the driver is vendored to
+`/opt/arlowe/third_party/whisplay-driver/WhisPlay.py` during the pi-gen build
+(`pi-gen/stage-arlowe/01-runtime/00-run-chroot.sh`). `face.py`'s default
+`ARLOWE_WHISPLAY_DRIVER_PATH` resolves to `/opt/arlowe/third_party/whisplay-driver`
+so no environment override is needed on a production image.
+
+**Dev environments (non-image Pi):** set `ARLOWE_WHISPLAY_DRIVER_PATH` to point at
+the system-wide install location (typically `~/Library/Whisplay/Driver/`) or any
+directory containing `WhisPlay.py`. The env var is the extension seam for dev; the
+vendored default is the seam for image builds.
 
 ## Sentiment classifier behaviour
 
