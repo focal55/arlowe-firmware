@@ -83,19 +83,19 @@
 ### Image build pipeline (`IMAGE`)
 
 - [ ] **IMAGE-01**: pi-gen pipeline produces a flashable `.img` file from repo contents + pinned dependencies
-- [ ] **IMAGE-02**: Image stages: base (Pi OS), hardware deps (`axcl_host.deb`, ALSA, NetworkManager, Python), runtime (`/opt/arlowe/runtime/`), models (`/opt/arlowe/models/`), first-boot (pairing daemon armed)
-- [ ] **IMAGE-03**: Image build is reproducible — same inputs produce the same image hash (where pi-gen permits)
-- [ ] **IMAGE-04**: Image size verified ≤ 16 GB target; flash time documented
+- [ ] **IMAGE-02**: Image stages: base (Pi OS), hardware deps (`axcl_host.deb`, ALSA, NetworkManager, Python), runtime (`/opt/arlowe/runtime/`), models (single shared read-only `models` partition mounted at `/opt/arlowe/models` in both slots — see ADR-0004), first-boot (first-boot hook armed — ready-to-pair state; the pairing daemon itself is Phase 8)
+- [ ] **IMAGE-03**: Image build is reproducible — build inputs are pinned (Debian snapshot, debs, submodule, SOURCE_DATE_EPOCH); image-hash equality is NOT gated (ext4 nondeterminism); documented exception list (see ADR / docs/operations/phase-6 repro notes)
+- [ ] **IMAGE-04**: Image size verified ≤ 16 GB viable (single shared model set + fixed overhead fits a 16 GB card; 32 GB recommended for larger-model headroom — see ADR-0004); flash time documented
 - [ ] **IMAGE-05**: `scripts/build-image.sh` runs the full pipeline; `scripts/flash-sd.sh` writes to a connected SD card
 - [ ] **IMAGE-06**: `scripts/dev-deploy.sh` rsyncs `runtime/` to a connected Pi for fast iteration without re-flashing
 
 ### A/B partition layout (`PART`)
 
-- [ ] **PART-01**: Image provisions four partitions: `/boot`, system A (active root), system B (standby root), `/var/lib/arlowe` (owner state)
-- [ ] **PART-02**: Boot-time A/B selector reads a flag (U-Boot env or `/boot/active.txt`) and selects the active root
-- [ ] **PART-03**: First boot lands on system A; system B is empty/standby in v1
+- [ ] **PART-01**: Image provisions FIVE partitions: `/boot`, system A (active root, model-free), system B (recovery rootfs, model-free), a shared read-only `models` partition (mounted at `/opt/arlowe/models` in both slots — see ADR-0004), and `/var/lib/arlowe` (owner state)
+- [ ] **PART-02**: Boot-time A/B selector is the Pi firmware tryboot mechanism (shared /boot, tryboot_a_b=1); the persistent A/B default is the boot root= (cmdline), flipped by arlowe-ab; no U-Boot, no active.txt (see ADR-0005)
+- [ ] **PART-03**: First boot lands on system A; system B holds a minimal recovery rootfs in v1 (boots to recovery, resets default to A); a full standby slot from Phase 9
 - [ ] **PART-04**: `/var/lib/arlowe` partition is shared across A/B, ext4, mounted with appropriate options (noatime, etc.)
-- [ ] **PART-05**: Partition sizes documented: system A and B equal-sized (image + 25% headroom); owner state sized for ~1 GB conversation cache + logs + paired data
+- [ ] **PART-05**: Partition sizes documented (ADR-0004): system A and B equal-sized + model-free (model-free slot rootfs + 25% headroom); the shared `models` partition grows-to-fill the card on first boot; `/var/lib/arlowe` owner-state is a FIXED partition sized for ~1 GB conversation cache + logs + paired data (~2-4 GB). Models do NOT live on owner-state.
 - [ ] **PART-06**: Bricked-system fallback — recovery SD card image documented as v1 fallback (since OS OTA delivery defers to v2+)
 
 ### App-only OTA (`OTA`)
