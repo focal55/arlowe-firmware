@@ -66,7 +66,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --target)
-            [[ $# -ge 2 ]] || { echo "flash-sd: --target requires a value" >&2; exit 1; }
+            [[ $# -ge 2 ]] || { echo "dev-deploy: --target requires a value" >&2; exit 1; }
             REMOTE="$2"; shift 2 ;;
         --units)
             [[ $# -ge 2 ]] || { echo "dev-deploy: --units requires a value" >&2; exit 1; }
@@ -113,7 +113,7 @@ echo "--- Syncing runtime/ to ${SSH_TARGET}:${RUNTIME_DST}"
 
 # shellcheck disable=SC2086
 rsync -avz --delete ${DRY} \
-    -e "ssh -o StrictHostKeyChecking=no" \
+    -e "ssh -o StrictHostKeyChecking=accept-new" \
     "${RUNTIME_SRC}" \
     "${SSH_TARGET}:${RUNTIME_DST}"
 
@@ -132,7 +132,7 @@ else
         printf 'Restarting %s...\n' "${unit}"
         # Treat a missing unit as a warning, not a fatal error — not all units
         # may be active on a partial dev image.
-        if ! ssh -o StrictHostKeyChecking=no "${SSH_TARGET}" \
+        if ! ssh -o StrictHostKeyChecking=accept-new "${SSH_TARGET}" \
                 "sudo systemctl restart ${unit}" 2>/dev/null; then
             printf '[WARN] %s: restart failed or unit not found — skipping\n' "${unit}" >&2
         else

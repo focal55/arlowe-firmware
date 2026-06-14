@@ -112,8 +112,8 @@ if [[ "${OS}" == "Linux" ]]; then
     # Extract the base device name (strip /dev/ prefix).
     dev_name="${DEV##*/}"
     # For mmcblk0p1, the sysfs removable entry lives under mmcblk0.
-    dev_base="${dev_name%%p[0-9]*}"
-    dev_base="${dev_base%%[0-9]}"
+    dev_base="${dev_name%%p[0-9]*}"   # strip mmcblk/nvme partition suffix (mmcblk0p1 -> mmcblk0)
+    dev_base="${dev_base%[0-9]*}"     # strip sata/usb partition suffix (sdb1 -> sdb); no-op for mmcblk0
     sysfs_removable="/sys/block/${dev_base}/removable"
     if [[ -f "${sysfs_removable}" ]]; then
         removable="$(cat "${sysfs_removable}")"
