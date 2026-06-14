@@ -1,6 +1,6 @@
 # pi-gen configuration for the arlowe image.
 #
-# Build environment: arm64 Linux only (GitHub arm64 CI runner or arlowe-1 Pi 5).
+# Build environment: arm64 Linux only (GitHub arm64 CI runner or a Raspberry Pi 5).
 # The Mac is not a supported builder — pi-gen requires loop devices and privileged
 # mounts that Docker Desktop on macOS cannot provide.
 #

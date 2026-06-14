@@ -1,6 +1,5 @@
 [Unit]
 Description=Arlowe first-boot initialization
-Documentation=https://github.com/focal55/arlowe-firmware
 After=local-fs.target systemd-remount-fs.service
 Before=multi-user.target
 # Guard: skip if the sentinel exists (already ran on a previous boot).

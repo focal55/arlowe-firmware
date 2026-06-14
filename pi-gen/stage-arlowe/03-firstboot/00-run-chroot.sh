@@ -44,7 +44,6 @@ if [[ -z "${SERVICE_SRC}" ]]; then
     cat > "${SERVICE_SRC}" <<'UNIT'
 [Unit]
 Description=Arlowe first-boot initialization
-Documentation=https://github.com/focal55/arlowe-firmware
 After=local-fs.target systemd-remount-fs.service
 Before=multi-user.target
 ConditionPathExists=!/var/lib/arlowe/.firstboot-done
