@@ -19,10 +19,13 @@ Set `ARLOWE_MODELS_DIR` to override the default search root:
 export ARLOWE_MODELS_DIR=/path/to/your/model/cache
 ```
 
-The verify script checks paths in this order for each artifact:
-1. `$ARLOWE_MODELS_DIR/<name>/`
-2. `third_party/models/<name>/`
-3. `/var/cache/arlowe-build/models/<name>/`
+The verify script checks paths in this order for each artifact.
+The search path is derived from the manifest's `install_to` field by stripping
+the `/opt/arlowe/models/` image prefix (so `install_to` and the staging path agree):
+
+1. `$ARLOWE_MODELS_DIR/<install_to-subpath>`
+2. `third_party/models/<install_to-subpath>`
+3. `/var/cache/arlowe-build/models/<install_to-subpath>`
 
 ---
 
@@ -38,9 +41,10 @@ The verify script checks paths in this order for each artifact:
    AX8850 evaluation board / M.2 module.
 2. The Axera-optimized AX650 deployment variant is distinct from the base
    HuggingFace Qwen2.5-7B weights. Do not substitute the base weights.
-3. Confirm the SHA-256 of the model directory archive matches the pin in
-   `manifest.yml` before proceeding. The pin is currently a TODO placeholder —
-   capture and record the real hash at first fetch.
+3. Confirm the directory digest matches the pin in `manifest.yml` before
+   proceeding. The gate computes: `find -type f | sort | xargs sha256sum | sha256sum`.
+   The pin is currently a TODO placeholder — capture and record the real digest at
+   first fetch (the gate prints it when the pin is a placeholder).
 
 **Where to place it:**
 
@@ -83,19 +87,21 @@ git clone https://huggingface.co/Systran/faster-whisper-small.en \
     /var/cache/arlowe-build/models/whisper/small.en
 ```
 
-After download, capture the SHA for the manifest:
+After download, capture the directory digest for the manifest.
+The gate uses a deterministic directory digest for directory artifacts
+(`find -type f | sort | xargs sha256sum | sha256sum`):
 
 ```bash
-sha256sum /var/cache/arlowe-build/models/whisper/small.en/model.bin
+find /var/cache/arlowe-build/models/whisper/small.en -type f \
+  | LC_ALL=C sort | xargs sha256sum | sha256sum | awk '{print $1}'
 ```
 
-**Where to place it:**
+**Where to place it** (`install_to` subpath: `whisper/small.en`):
 
 ```bash
-# The verify script looks for model.bin inside the directory:
-/var/cache/arlowe-build/models/whisper/small.en/model.bin
+/var/cache/arlowe-build/models/whisper/small.en/   (directory with model files)
 # or
-third_party/models/whisper/small.en/model.bin
+third_party/models/whisper/small.en/               (repo-relative, not committed)
 ```
 
 ---
@@ -154,13 +160,19 @@ scripts/verify-third-party.sh
 Expected output when SHA pins are still placeholders (TODO) and artifacts are present:
 
 ```
-[WARN]  qwen2.5-7b-int4-ax650     sha256 pin is a TODO placeholder — file present, hash: <actual>
-[WARN]  faster-whisper-small.en   sha256 pin is a TODO placeholder — file present, hash: <actual>
-[WARN]  en_US-lessac-medium.onnx  sha256 pin is a TODO placeholder — file present, hash: <actual>
+[WARN]  qwen2.5-7b-int4-ax650          sha256 pin is TODO placeholder
+         actual dir digest: <hash>
+         Record this in third_party/models/manifest.yml to close the TODO.
+[WARN]  faster-whisper-small.en        sha256 pin is TODO placeholder
+         actual dir digest: <hash>
+         Record this in third_party/models/manifest.yml to close the TODO.
+[WARN]  piper-en_US-lessac-medium      sha256 pin is TODO placeholder
+         actual hash: <hash>
+         Record this in third_party/models/manifest.yml to close the TODO.
 ```
 
-Record the printed hashes in the `third_party/models/manifest.yml` TODO fields and
-open a follow-up on issue #106 to close the pins.
+Record the printed digests/hashes in `third_party/models/manifest.yml` to close the TODOs.
+Open a follow-up on issue #106 when all pins are captured.
 
 Expected output when artifacts are missing:
 

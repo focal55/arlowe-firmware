@@ -8,7 +8,7 @@
 
 ## Context
 
-The `whisper-stt.service` uses [faster-whisper](https://github.com/guillaumekleinhans/faster-whisper)
+The `whisper-stt.service` uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
 to run on-device speech-to-text. The model must be pinned to a single concrete
 choice before the Phase 6 image build can populate the shared models partition.
 
@@ -73,4 +73,4 @@ to `small.en`) is the mechanism for per-device overrides without reflashing.
 - Shared models partition decision: `docs/architecture/0004-shared-models-partition.md` (ADR-0004)
 - Model manifest: `third_party/models/manifest.yml`
 - STT server: `runtime/stt/stt_server.py`
-- HuggingFace faster-whisper models: `guillaumekleinhans/faster-whisper-*` or `Systran/faster-whisper-small.en`
+- HuggingFace faster-whisper models: `Systran/faster-whisper-small.en` (canonical SYSTRAN org)

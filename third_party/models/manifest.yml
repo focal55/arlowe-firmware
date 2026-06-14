@@ -30,7 +30,7 @@ models:
     install_to: "/opt/arlowe/models/qwen2.5-7b-int4-ax650"
     notes: >
       Axera AX650 NPU-optimized int4 quantized model. Auth-gated; obtain from
-      Axera Semiconductor or the arlowe-1 provisioning kit. Place at one of the
+      Axera Semiconductor or the device provisioning kit. Place at one of the
       paths checked by verify-third-party.sh. SHA pin is a TODO placeholder —
       record the real hash in the PR closing issue #106 comment when first fetched.
       See third_party/models/INSTALL.md.

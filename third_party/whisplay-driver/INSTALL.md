@@ -44,16 +44,11 @@ Repo:   https://github.com/PiSugar/Whisplay
 Commit: (pin at first fetch — run: git -C <clone-dir> rev-parse HEAD)
 ```
 
-On arlowe-1 (Phase 1 dev unit), the driver was cloned at:
+Clone with `--depth 1` and record the HEAD commit SHA:
 
 ```bash
-git clone https://github.com/PiSugar/Whisplay.git --depth 1
-```
-
-The exact commit SHA used on arlowe-1 is available via:
-
-```bash
-ssh arlowe-1 'git -C ~/Library/Whisplay rev-parse HEAD'
+git clone https://github.com/PiSugar/Whisplay.git --depth 1 /tmp/whisplay-src
+git -C /tmp/whisplay-src rev-parse HEAD
 ```
 
 Record the commit SHA in this file when the Phase 6 image build (06-06) pins it.
@@ -122,13 +117,13 @@ Expected output when files are missing:
 
 ---
 
-## On arlowe-1.local (Phase 1 dev unit)
+## Dev unit (Phase 1)
 
-The driver is already present at `~/Library/Whisplay/Driver/WhisPlay.py`.
-For dev use, set:
+If the driver was previously cloned on the dev Pi (e.g. at `~/Library/Whisplay/Driver/`),
+point `ARLOWE_WHISPLAY_SRC` at that directory:
 
 ```bash
-export ARLOWE_WHISPLAY_SRC=/home/focal55/Library/Whisplay/Driver
+export ARLOWE_WHISPLAY_SRC=/home/<user>/Library/Whisplay/Driver
 ```
 
 The Phase 6 image build (06-03) copies it from the verified location into the
