@@ -152,18 +152,18 @@ Plans:
 
 ### Phase 6: Image build with A/B partitions
 
-**Goal**: Produce a flashable `.img` from this repo via pi-gen, with the A/B partition layout provisioned from day one (even though OS OTA delivery defers to v2+). Make the build reproducible enough for CI and small enough to fit on a 16 GB SD card.
+**Goal**: Produce a flashable `.img` from this repo via pi-gen, with the A/B partition layout provisioned from day one (even though OS OTA delivery defers to v2+). Make the build reproducible enough for CI; a single shared model partition keeps a 16 GB SD card viable (32 GB recommended for larger-model headroom — see ADR-0004).
 
 **Depends on**: Phase 1 (runtime to package), Phase 3 (filesystem layout to provision), Phase 4 (defaults.yml to ship)
 
 **Requirements**: IMAGE-01, IMAGE-02, IMAGE-03, IMAGE-04, IMAGE-05, IMAGE-06, PART-01, PART-02, PART-03, PART-04, PART-05, PART-06
 
 **Success Criteria** (what must be TRUE):
-  1. `scripts/build-image.sh` produces a `.img` file from a clean checkout that, when flashed via `scripts/flash-sd.sh` to a 16 GB+ SD card, boots a Pi 5 to a "ready to pair" state (config overlay absent, pairing daemon armed).
-  2. The flashed card has four partitions: `/boot`, system A (active), system B (empty/standby in v1), and `/var/lib/arlowe` (owner state, ext4, noatime); partition sizes are documented and within the 16 GB budget.
-  3. The boot-time A/B selector reads its flag (U-Boot env or `/boot/active.txt`) and lands on system A by default; flipping the flag manually and rebooting selects system B (which boots to a recovery prompt in v1, since B is empty).
+  1. `scripts/build-image.sh` produces a `.img` file from a clean checkout that, when flashed via `scripts/flash-sd.sh` to a 16 GB+ SD card (32 GB recommended), boots a Pi 5 to a "ready to pair" state (config overlay absent, first-boot hook armed — ready-to-pair state; the pairing daemon itself is Phase 8).
+  2. The flashed card has FIVE partitions: `/boot`, system A (active, model-free), system B (recovery rootfs, model-free), a shared read-only `models` partition (mounted at `/opt/arlowe/models` in both slots), and `/var/lib/arlowe` (owner state, ext4, noatime, FIXED size); the `models` partition grows-to-fill on first boot; partition sizes are documented (16 GB viable, 32 GB recommended — see ADR-0004).
+  3. The boot-time A/B selector is the Pi tryboot root= selector (arlowe-ab flips the persistent default by rewriting root=) and lands on system A by default; flipping manually and rebooting selects system B, which boots a minimal recovery rootfs that surfaces recovery on Whisplay + serial and resets the default to A.
   4. `scripts/dev-deploy.sh` rsyncs `runtime/` to a connected Pi over SSH for fast iteration without re-flashing, and the recovery SD-card image procedure is documented in `docs/`.
-  5. Two clean builds from the same commit produce images with the same hash for inputs pi-gen permits to be reproducible (documented exceptions allowed).
+  5. Two clean builds from the same commit produce images with the same hash for inputs pi-gen permits to be reproducible (documented exceptions allowed; input reproducibility only; no image-hash gate — ext4 nondeterminism documented as an exception).
 
 **Plans**: 6 plans
 
