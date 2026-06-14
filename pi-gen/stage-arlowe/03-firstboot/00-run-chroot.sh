@@ -71,3 +71,32 @@ ln -sf "/etc/systemd/system/${SERVICE_NAME}" \
     "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}"
 
 echo "[03-firstboot] ${SERVICE_NAME} installed and enabled"
+
+# ---------------------------------------------------------------------------
+# Install arlowe-grow-models.sh to the CLI path the service references.
+# The service calls /opt/arlowe/runtime/cli/arlowe-grow-models, which is
+# created here as a copy of the grow script (not a symlink — the grow script
+# must be self-contained and not depend on the repo tree at runtime).
+# ---------------------------------------------------------------------------
+GROW_SCRIPT_NAME="arlowe-grow-models"
+GROW_CANDIDATES=(
+    "/files/arlowe-grow-models.sh"
+    "/tmp/arlowe-build/repo/pi-gen/stage-arlowe/03-firstboot/files/arlowe-grow-models.sh"
+)
+
+GROW_SRC=""
+for cand in "${GROW_CANDIDATES[@]}"; do
+    if [[ -f "${cand}" ]]; then
+        GROW_SRC="${cand}"
+        break
+    fi
+done
+
+if [[ -n "${GROW_SRC}" ]]; then
+    install -m 0755 -o root -g root "${GROW_SRC}" \
+        "/opt/arlowe/runtime/cli/${GROW_SCRIPT_NAME}"
+    echo "[03-firstboot] ${GROW_SCRIPT_NAME} installed to /opt/arlowe/runtime/cli/"
+else
+    echo "[03-firstboot] WARNING: arlowe-grow-models.sh not found — grow script not installed" >&2
+    echo "[03-firstboot]   The firstboot service ExecStartPre= will fail without it." >&2
+fi
