@@ -59,6 +59,7 @@ write_boot_config() {
     local loop_dev mnt_boot mnt_a
     loop_dev="$(sudo losetup -f --show -P "${output_img}")"
 
+    # shellcheck disable=SC2329
     _bconf_cleanup() {
         sudo umount "${mnt_boot}" 2>/dev/null || true
         sudo umount "${mnt_a}" 2>/dev/null || true

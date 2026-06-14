@@ -1,0 +1,135 @@
+name: Build image
+
+# Arm64 image build — triggered on version tags and manual dispatch ONLY.
+# PRs do NOT trigger this job (full builds are slow and large).
+# PR-level feedback comes from the shellcheck job in pr-checks.yml.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      card_size_gb:
+        description: 'Target SD card size in GB (16 or 32)'
+        required: false
+        default: '32'
+
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build arm64 image
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Free up runner disk before building.
+      # The default ubuntu runner leaves ~20 GB free; the 32 GB qcow2 image
+      # target requires more headroom. Remove large optional packages first.
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      # Restore the models cache if available from a prior run on the same tag.
+      # The cache key includes the manifest hash so a manifest change busts the
+      # cache and forces a fresh download.
+      - name: Restore models cache
+        id: models-cache
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/arlowe-build/models
+          key: arlowe-models-${{ hashFiles('third_party/models/manifest.yml') }}
+          restore-keys: arlowe-models-
+
+      - name: Restore axcl deb cache
+        id: axcl-cache
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/arlowe-build/axcl
+          key: arlowe-axcl-${{ hashFiles('third_party/axcl/manifest.yml') }}
+
+      # Install required host packages for the build.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            parted binfmt-support qemu-user-static \
+            quilt coreutils quilt \
+            dosfstools libcap2-bin \
+            rsync ripgrep python3-yaml \
+            e2fsprogs cloud-guest-utils \
+            kpartx zerofree
+
+      # Locate AXCL deb from cache or secret path.
+      # If neither is present, verify-third-party.sh will fail fast with a clear message.
+      - name: Stage axcl deb
+        env:
+          AXCL_DEB_URL: ${{ secrets.AXCL_DEB_URL }}
+        run: |
+          sudo mkdir -p /var/cache/arlowe-build/axcl
+          if [ -f /var/cache/arlowe-build/axcl/axcl_host_aarch64_V3.10.2.deb ]; then
+            echo "AXCL_DEB=/var/cache/arlowe-build/axcl/axcl_host_aarch64_V3.10.2.deb" >> "$GITHUB_ENV"
+            echo "axcl deb: restored from cache"
+          elif [ -n "${AXCL_DEB_URL:-}" ]; then
+            sudo curl -fsSL "${AXCL_DEB_URL}" \
+              -o /var/cache/arlowe-build/axcl/axcl_host_aarch64_V3.10.2.deb
+            echo "AXCL_DEB=/var/cache/arlowe-build/axcl/axcl_host_aarch64_V3.10.2.deb" >> "$GITHUB_ENV"
+            echo "axcl deb: downloaded from AXCL_DEB_URL"
+          else
+            echo "::warning::AXCL_DEB_URL secret not set and no cache hit. verify-third-party will fail."
+          fi
+
+      # Use usimd/pi-gen-action to drive the pi-gen arm64 build.
+      # SKIP_IMAGES=1 so pi-gen only produces the rootfs work tree; our own
+      # build-image.sh handles the 5-partition image assembly below.
+      - name: Run pi-gen (rootfs only)
+        uses: usimd/pi-gen-action@v1
+        with:
+          pi-gen-version: arm64
+          image-name: arlowe
+          release: bookworm
+          stage-list: stage0 stage1 stage2 ./pi-gen/stage-arlowe
+          extra-host-dependencies: >
+            parted e2fsprogs cloud-guest-utils rsync ripgrep python3-yaml
+          verbose-output: true
+          enable-noobs: false
+          use-qcow2: true
+          extra-pi-gen-config: |
+            SKIP_IMAGES=1
+            TARGET_HOSTNAME=arlowe
+            ENABLE_SSH=1
+        env:
+          AXCL_DEB: ${{ env.AXCL_DEB }}
+          ARLOWE_MODELS_DIR: /var/cache/arlowe-build/models
+
+      # Assemble the final 5-partition image.
+      # NOTE: If the qcow2 / pi-gen-action build path does not expose the rootfs
+      # work directory in the expected location, fall back to running build-image.sh
+      # directly. See docs/operations/phase-6-build-flash-deploy.md §Fallback.
+      - name: Assemble 5-partition image
+        env:
+          CARD_SIZE_GB: ${{ inputs.card_size_gb || '32' }}
+          AXCL_DEB: ${{ env.AXCL_DEB }}
+          ARLOWE_MODELS_DIR: /var/cache/arlowe-build/models
+        run: |
+          sudo --preserve-env=CARD_SIZE_GB,AXCL_DEB,ARLOWE_MODELS_DIR \
+            bash scripts/build-image.sh
+
+      - name: Show final image
+        run: |
+          ls -lh build/arlowe.img || true
+          df -h
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arlowe-image-${{ github.ref_name }}
+          path: build/arlowe.img
+          retention-days: 14
+          if-no-files-found: error

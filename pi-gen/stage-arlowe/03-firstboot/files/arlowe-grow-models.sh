@@ -46,6 +46,7 @@ echo "[grow-models] first-boot: growing models partition to fill the card"
 # Determine the root device from the kernel command line (root= parameter).
 # On a Raspberry Pi 5, the root device is typically /dev/mmcblk0pN or /dev/nvme0n1pN.
 _root_dev=""
+# shellcheck disable=SC2013
 for _part in $(grep -oP 'root=\S+' /proc/cmdline 2>/dev/null | sed 's/root=//'); do
     if [[ "${_part}" == /dev/* ]]; then
         _root_dev="${_part}"

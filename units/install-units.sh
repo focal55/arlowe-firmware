@@ -29,5 +29,6 @@ if [[ "${CHANGED}" == "1" ]]; then
     fi
 fi
 
+# shellcheck disable=SC2012
 count=$(ls "$UNIT_SRC_DIR"/*.service 2>/dev/null | wc -l)
 echo "[install-units] ${count} units present in ${TARGET}"
