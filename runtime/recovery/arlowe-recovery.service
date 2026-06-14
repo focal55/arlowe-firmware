@@ -1,0 +1,21 @@
+[Unit]
+Description=Arlowe slot-B recovery action
+Documentation=https://github.com/focal55/arlowe-firmware/blob/main/docs/operations/phase-6-ab-recovery.md
+# Only meaningful when slot B is the active root. Runs once at boot, then
+# resets the persistent default to slot A and reboots into slot A.
+After=local-fs.target network.target
+# The models partition is nofail in slot B; recovery must not depend on it.
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+# Recovery is a one-shot, non-repeating sequence.
+RemainAfterExit=no
+ExecStart=/opt/arlowe/runtime/recovery/arlowe-recovery.sh
+# Allow generous time: face draw + state print + 15s delay + reboot.
+TimeoutStartSec=120
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
