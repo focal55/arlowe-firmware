@@ -28,7 +28,9 @@
 #   - Clean in-chroot nondeterminism for reproducible builds.
 set -euo pipefail
 
-REPO_ROOT="/tmp/arlowe-build/repo"
+# Staged by host-side 00-run.sh. NOT under /tmp — pi-gen tmpfs-mounts the
+# chroot /tmp, which would mask the staged tree.
+REPO_ROOT="/root/arlowe-build/repo"
 PROVISION="${REPO_ROOT}/scripts/provision"
 
 # Guard: staged repo tree must be present.
@@ -108,7 +110,7 @@ fi
 # ---------------------------------------------------------------------------
 # Install the axcl deb.
 # The deb path inside the chroot was written by the host-side 00-run.sh into
-# /tmp/arlowe-build/repo/.axcl-deb-path. Fall back to scanning third_party/axcl/.
+# /root/arlowe-build/repo/.axcl-deb-path. Fall back to scanning third_party/axcl/.
 # ---------------------------------------------------------------------------
 AXCL_DEB_PATH_FILE="${REPO_ROOT}/.axcl-deb-path"
 if [[ -f "${AXCL_DEB_PATH_FILE}" ]]; then
@@ -119,7 +121,74 @@ fi
 
 if [[ -n "${AXCL_DEB}" ]] && [[ -f "${AXCL_DEB}" ]]; then
     echo "[00-run-chroot] installing axcl deb: ${AXCL_DEB}"
-    dpkg -i "${AXCL_DEB}"
+    # The axcl deb's maintainer scripts (a) modprobe/-r the Axera PCIe modules and
+    # (b) COMPILE the driver against /lib/modules/$(uname -r)/build. In the build
+    # chroot both misbehave: modprobe can't load modules, and $(uname -r) returns
+    # the BUILD HOST kernel (not the image's), so the driver build targets a kernel
+    # whose headers aren't present. We fix both for the duration of the install:
+    #   - neuter modprobe → /bin/true (modules load at runtime on the real Pi via
+    #     the deb-shipped /etc/modules-load.d/axcl_pcie.conf)
+    #   - override `uname -r` to the image's Pi-5 (2712) kernel so the driver builds
+    #     against the headers the image actually ships (present, with gcc/make).
+    # NOTE: this builds+installs the driver correctly for the shipped kernel, but AX
+    # NPU RUNTIME (module load + inference) is still validated later on real hardware
+    # — deferred from the image build. A kernel update on-device would need a driver
+    # rebuild (DKMS is the robust long-term answer; out of scope here).
+    IMG_KVER="$(ls /lib/modules 2>/dev/null | grep -- '-rpi-2712$' | sort -V | tail -1)"
+    dpkg-divert --local --rename --add /usr/sbin/modprobe >/dev/null 2>&1 || true
+    ln -sf /bin/true /usr/sbin/modprobe
+    _uname_overridden=0
+    if [[ -n "${IMG_KVER}" ]]; then
+        dpkg-divert --local --divert /usr/bin/uname.real --rename --add /usr/bin/uname >/dev/null 2>&1 || true
+        cat > /usr/bin/uname <<EOF
+#!/bin/sh
+[ "\$1" = "-r" ] && { echo "${IMG_KVER}"; exit 0; }
+exec /usr/bin/uname.real "\$@"
+EOF
+        chmod +x /usr/bin/uname
+        # depmod calls the uname() SYSCALL (not the command), so the PATH shim
+        # above doesn't reach it — wrap depmod to always target the image kernel.
+        dpkg-divert --local --divert /usr/sbin/depmod.real --rename --add /usr/sbin/depmod >/dev/null 2>&1 || true
+        cat > /usr/sbin/depmod <<EOF
+#!/bin/sh
+exec /usr/sbin/depmod.real -a "${IMG_KVER}"
+EOF
+        chmod +x /usr/sbin/depmod
+        _uname_overridden=1
+        echo "[00-run-chroot] axcl driver build targeting image kernel ${IMG_KVER}"
+    else
+        echo "[00-run-chroot] WARNING: could not determine image (2712) kernel; axcl driver build may fail" >&2
+    fi
+    _axcl_rc=0
+    dpkg -i "${AXCL_DEB}" || _axcl_rc=$?
+    if [[ "${_uname_overridden}" -eq 1 ]]; then
+        rm -f /usr/bin/uname
+        dpkg-divert --local --divert /usr/bin/uname.real --rename --remove /usr/bin/uname >/dev/null 2>&1 || true
+        rm -f /usr/sbin/depmod
+        dpkg-divert --local --divert /usr/sbin/depmod.real --rename --remove /usr/sbin/depmod >/dev/null 2>&1 || true
+    fi
+    rm -f /usr/sbin/modprobe
+    dpkg-divert --local --rename --remove /usr/sbin/modprobe >/dev/null 2>&1 || true
+    if [[ "${_axcl_rc}" -ne 0 ]]; then
+        # The axcl postinst runs under `set -e`; after the driver builds it tries
+        # runtime steps (cp .ko, depmod, then modprobe the modules) that can't fully
+        # complete in a chroot, so it exits non-zero. That's expected. As long as the
+        # driver .ko actually built, guarantee the image is correct ourselves:
+        # install the built modules for the image kernel + depmod. They load at boot
+        # via /etc/modules-load.d/axcl_pcie.conf. NPU runtime is validated on hardware
+        # (deferred). NOTE: this leaves axclhost in a half-configured dpkg state — a
+        # documented checkpoint caveat; proper install (DKMS/first-boot) is deferred.
+        _ko_src=/usr/src/axcl/out/axcl_linux_arm64/ko
+        if [[ -n "${IMG_KVER}" ]] && ls "${_ko_src}"/ax*.ko >/dev/null 2>&1; then
+            install -d "/lib/modules/${IMG_KVER}/extra"
+            cp -f "${_ko_src}"/ax*.ko "/lib/modules/${IMG_KVER}/extra/"
+            depmod -a "${IMG_KVER}" || true
+            echo "[00-run-chroot] WARNING: axcl postinst exited ${_axcl_rc} on in-chroot runtime-load steps; driver .ko built + installed for ${IMG_KVER}. NPU runtime deferred to hardware." >&2
+        else
+            echo "[00-run-chroot] ERROR: axcl driver .ko not found — real failure (rc=${_axcl_rc})" >&2
+            exit "${_axcl_rc}"
+        fi
+    fi
     # 7. Run the axcl udev extraction diagnostic to confirm no rule conflict.
     echo "[00-run-chroot] step 7: extract-axcl-udev-from-deb.sh (diagnostic)"
     bash "${PROVISION}/extract-axcl-udev-from-deb.sh" "${AXCL_DEB}" || true
@@ -221,5 +290,8 @@ ln -sf /etc/machine-id /var/lib/dbus/machine-id
 
 # SSH host keys — regenerated on first boot by ssh-keygen (openssh-server FirstBoot)
 rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+
+# Staged build tree — must not ship in the image.
+rm -rf /root/arlowe-build
 
 echo "[00-run-chroot] provisioning complete"

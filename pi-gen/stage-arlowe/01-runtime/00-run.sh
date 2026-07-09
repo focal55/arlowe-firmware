@@ -1,7 +1,11 @@
 #!/bin/bash
 # Host-side step: stage the arlowe repo subdirs that chroot provisioning needs
-# into the rootfs at /tmp/arlowe-build/repo so 00-run-chroot.sh can resolve
+# into the rootfs at /root/arlowe-build/repo so 00-run-chroot.sh can resolve
 # REPO_ROOT and invoke the existing install scripts.
+#
+# NOTE: must NOT be under /tmp — pi-gen's on_chroot mounts a fresh tmpfs over
+# the rootfs /tmp before every *-run-chroot.sh, which would mask anything the
+# host stages there. /root is never mounted over.
 #
 # This script runs on the BUILD HOST (not inside the chroot). pi-gen's
 # run_stage calls host-side 00-run.sh scripts with ROOTFS_DIR pointing at the
@@ -38,7 +42,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
-CHROOT_REPO="/tmp/arlowe-build/repo"
+CHROOT_REPO="/root/arlowe-build/repo"
 STAGING="${ROOTFS_DIR}${CHROOT_REPO}"
 
 echo "[01-runtime] staging repo tree into chroot at ${CHROOT_REPO}"
