@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-04-30)
 
 **Core value:** A factory-fresh Pi 5 + AX accelerator + Whisplay can flash this image, boot, pair to an owner, and run wake -> STT -> LLM -> TTS -> face entirely on-device, with no founder identity present anywhere in the image.
-**Current focus:** Phase 5 (audio device auto-detection) COMPLETE (passed-with-notes). 7 plans merged (PRs #95/#96 for 05-01, #97-#101 for 05-02..06, #104 for 05-07). Phase 6 (image build with A/B partitions) is next — ready to plan (`/gsd:plan-phase 6`).
+**Current focus:** Phase 6 hardware checkpoint IN PROGRESS (paused mid-setup 2026-06-19, resuming in a few days). Decision: run the deferred on-Pi flash+boot checkpoint NOW, before starting Phase 7, while owner is physically at the hardware — Phase 6 is the first flashable artifact and Phase 7 (device identity/PKI) is the first phase whose deliverables physically live on the Phase 6 substrate (`/var/lib/arlowe/identity/`, CPU-serial device-id), so the substrate must be validated before building PKI on it. This is also the FIRST-EVER build of the image (no CI image build has ever run). Build host: arlowe-1 (native pi-gen). After the checkpoint: Phase 7 — ADR pending (managed-PKI service selection; owner leaning AWS IoT); recommend `/gsd:discuss-phase 7` before planning.
 
 ## Current Position
 
-Phase: 5 of 12 (Audio device auto-detection) — COMPLETE (passed-with-notes)
-Plan: 7 of 7 in Phase 5
-Status: Phase 5 closed 2026-06-13. plughw:2,0 eliminated end-to-end: arlowe_audio enumeration+auto-pick+stable-card-id (05-01, #95 + #96 hardening), Python consumers (05-02 #98, incl. dual-pa.open wake-word fix), bash CLI (05-03 #97), dashboard picker+/api/audio/devices (05-04 #100, Opus-reviewed), udev hotplug (05-05 #99, Opus-reviewed), boot-check sentinel (05-06 #101), hardware runbook (05-07 #104). SC2 reframed (Pi 5 has no 3.5mm jack → wm8960 codec → HDMI); on-Pi SC1-SC4 run deferred to a hardware checkpoint per Phase 1/3/4 precedent (procedure: docs/operations/phase-5-audio.md). Next: Phase 6 (image build) — depends on Phase 1/3/4 (all done).
-Last activity: 2026-06-13 -- Phase 5 executed via /workforce-tick loop (5 impl PRs, 2 Opus security reviews, 2 fix-and-re-review cycles caught real bugs) + #104 runbook; all merged; ROADMAP/STATE flipped to complete. Survived a resume-state reconciliation, an accidental-merge recovery, and a worktree sweep.
+Phase: 6 of 12 (Image build with A/B partitions) — COMPLETE in code; HARDWARE CHECKPOINT IN PROGRESS (paused 2026-06-19)
+Plan: 6 of 6 in Phase 6
+Status: Phase 6 closed 2026-06-14. Flashable 5-partition A/B image pipeline: 06-01 reconciled shared-model sizing (16 GB viable / 32 GB recommended) + wrote ADR-0004 (partition sizing), ADR-0005 (tryboot root= A/B selector), ADR-0006 (Whisper model selection); 06-02 SHA-pinned model + WhisPlay manifest/verify gate (#112); 06-03 pi-gen stage-arlowe chroot provisioning, model-free rootfs (#113); 06-04 build-image.sh measure-then-set 5-partition A/B + models grow-to-fill (#114); 06-05 tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub (#115); 06-06 arm64 image-build CI + shellcheck gate + flash-sd.sh + dev-deploy.sh + runbook (#116). On-Pi flash+boot (SC1-SC5) deferred to a hardware checkpoint per Phase 1/3/4/5 precedent (runbook: docs/operations/phase-6-build-flash-deploy.md). Next: Phase 7 (device identity and PKI) — depends on Phase 6 (done) + Phase 4 (done); ADR pending for managed-PKI service selection.
+Last activity: 2026-07-08 -- RESUMED the Phase 6 hardware checkpoint. Card decided: 64 GB card -> CARD_SIZE_GB=32 (blocker cleared). WhisPlay gate needed WhisPlay.py + Apache LICENSE co-located; staged ~/whisplay-staging/{WhisPlay.py (proven dev-unit copy),LICENSE (from fresh PiSugar/Whisplay clone)} on arlowe-1 -> verify-third-party GREEN (only expected model-TODO + WM8960 WARNs). FIRST-EVER BUILD: launch #1 (21:28) FAILED at pi-gen stage0/00-configure-apt with NO_PUBKEY on deb.debian.org repos -- ROOT CAUSE: unpinned pi-gen master targets trixie, its debian.sources uses Signed-By=.../debian-archive-keyring.PGP but bookworm ships .GPG -> apt can't verify. FIX (local patch on arlowe-1 pi-gen tree, sed .pgp->.gpg in stage0/00-configure-apt/files/debian.sources) + filed todo F6 (pin pi-gen). Relaunch #2 (22:06) FAILED at stage2/01-sys-tweaks/00-packages: "Unable to locate package rpi-swap/rpi-loop-utils/rpi-usb-gadget" -- SAME root cause: trixie-only packages in trixie-master pi-gen. STOPPED symptom-patching. FIX (2026-07-09 01:20): re-pinned pi-gen to tag 2026-06-18-raspios-bookworm-arm64 (d7a31c6) -- clones upstream at that ref, restores arlowe overlay (config + stage-arlowe) from git. Confirmed bookworm pi-gen has NO signed-by keyring bug (plain sources.list) and NO rpi-* trixie pkgs. Build #3 (01:20) SUCCEEDED through all upstream pi-gen (stage0/1/2) -- bookworm pin fully worked -- then FAILED entering arlowe's OWN stage-arlowe/01-runtime/00-run-chroot.sh ("Unable to chroot"). ROOT CAUSE: stage-arlowe is arlowe's never-executed Phase-6 code and has multiple latent bugs (no build ever reached it before). Found + FIXED IN REPO (Mac, rsynced to arlowe-1): (1) missing stage-arlowe/prerun.sh -> rootfs never populated [blocker]; (2) 01-runtime/00-run.sh stages third_party/whisplay-driver from REPO which lacks WhisPlay.py/LICENSE (they were only in ARLOWE_WHISPLAY_SRC=~/whisplay-staging) -> driver missing from image; worked around by also copying WhisPlay.py+LICENSE into repo third_party/whisplay-driver/; (3) 03-firstboot/files/ (service + arlowe-grow-models.sh) never staged into chroot -- pi-gen does NOT auto-copy files/ -- grow-models had no fallback -> SC2 grow-to-fill would silently not install; fixed 03-firstboot/00-run.sh to stage files/ into chroot /files/. Also: WhisPlay.py is NOT gitignored despite INSTALL.md claim (commit-hygiene gap). MATERIAL: Phase 6 "6/6 complete in code" was NEVER end-to-end validated -- its final image stage never ran. Builds #4/#5 surfaced TWO MORE structural stage-arlowe bugs: (4) all host *-run.sh scripts committed non-exec (100644) -> pi-gen skips host scripts lacking +x (-x test) while running chroot scripts (-f) -> host staging never ran [fixed: chmod +x all + prerun, in repo]; (5) 01-runtime/00-run.sh stages repo to /tmp/arlowe-build/repo but pi-gen on_chroot mounts tmpfs OVER /tmp before every chroot step -> repo masked -> "staged repo not found" [UNFIXED - needs staging path moved off /tmp]. **CHECKPOINT PAUSED ~02:00 EDT 2026-07-09 at build #5.** FIVE structural bugs found, ALL in stage-arlowe plumbing, NONE yet the actual provisioning logic (repo never reached chroot). Stopped autonomous 2am hot-patching per commitment. RECOMMEND: reopen Phase 6, give stage-arlowe a real DEV/QA pass (build green in dev loop, commit each fix), then re-attempt checkpoint. All findings + fix specs in todo F7. Build inputs (models cache, whisplay-staging, axcl, bookworm-pinned pi-gen, CARD_SIZE_GB=32) all still staged on arlowe-1 for resume. No image produced yet. NOTE this pin is LOCAL on arlowe-1 only -- repo build-image.sh still unpinned (F6 still open for the repo fix). NOTE watcher-bug: first watcher used bare pgrep -f "build-image.sh" which self-matched its own cmdline -> falsely reported RUNNING for 3h while build had died in 90s; corrected watcher uses regex "build-image[.]sh". Log ~/arlowe-build.log, CARD_SIZE_GB=32. Remaining checklist steps 5-7 (flash spare card via USB reader on arlowe-1 + physical serial SC run + record) need owner hands. Card currently in Mac (/dev/disk2); USB SD reader attached to arlowe-1 for the flash step. NOTE: WhisPlay provenance gap logged to F2 (dev copy 344 lines DIFFERS from upstream HEAD 30df9903 662 lines; resolve before any distributable image). NOTE: arlowe-1 already at branch HEAD bf5a20e (STATE's old "stale at 9206c63" was wrong) -- no rsync needed. See Session Continuity for resume checklist + the main-branch discrepancy below.
 
-Progress: Phase 1 [██████████] 100% qualified; Phase 2 [██████████] 100%; Phase 3 [██████████] 100%; Phase 4 [██████████] 100% (passed-with-notes); Phase 5 [██████████] 100% (passed-with-notes); Phase 6 [░░░░░░░░░░] not started
+Progress: Phase 1 [██████████] 100% qualified; Phase 2 [██████████] 100%; Phase 3 [██████████] 100%; Phase 4 [██████████] 100% (passed-with-notes); Phase 5 [██████████] 100% (passed-with-notes); Phase 6 [██████████] 100% (execution-complete pending hardware checkpoint); Phase 7 [░░░░░░░░░░] not started
 
 ## Performance Metrics
 
@@ -32,13 +32,16 @@ Progress: Phase 1 [██████████] 100% qualified; Phase 2 [█�
 | 3 | 5 | 5 | Complete (passed-with-notes) |
 | 4 | 4 | 4 | Complete (passed-with-notes) |
 | 5 | 7 | 7 | Complete (passed-with-notes; on-Pi SC1-4 deferred) |
-| 6 | TBD | 0 | Not started |
+| 6 | 6 | 6 | Complete (execution-complete; on-Pi SC1-5 deferred to hardware checkpoint) |
+| 7 | TBD | 0 | Not started |
 
-**Recent Trend (Phase 4):**
-- 04-01: schema.yml + defaults.yml + shared Python loader/validator (#84)
-- 04-02: ADR-0003 loosen-perms + /etc/arlowe install + phase-4 docker harness (#85, package:security)
-- 04-03: ajv validate-before-write + atomic write + knob→restart (#86)
-- 04-04: persona live slice + ExecStartPre fail-fast validators (#87) — closes Phase 4
+**Recent Trend (Phase 6):**
+- 06-01: ADR-0004 (partition sizing) + ADR-0005 (tryboot root= A/B selector) + ADR-0006 (Whisper model) + sizing reconciliation
+- 06-02: SHA-pinned model + WhisPlay manifest/verify gate (#112)
+- 06-03: pi-gen stage-arlowe chroot provisioning, model-free rootfs (#113)
+- 06-04: build-image.sh measure-then-set 5-partition A/B + models grow-to-fill (#114)
+- 06-05: tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub (#115)
+- 06-06: arm64 CI + shellcheck gate + flash-sd.sh + dev-deploy.sh + runbook (#116) — closes Phase 6
 
 ## Accumulated Context
 
@@ -64,9 +67,10 @@ Recent decisions affecting current work:
 
 In `.planning/todos/pending/`:
 - F1-port-8080-env-override.md — Phase 5-adjacent (face_service.py hardcoded port)
-- F2-vendor-whisplay-driver.md — Phase 6 (image build)
+- F2-vendor-whisplay-driver.md — Phase 6 (image build) — CONFIRMED STILL OPEN: it is the active build blocker for the hardware checkpoint (verify-third-party hard-FAILs without WhisPlay.py). Was wrongly assumed satisfied by 06-03.
 - F3-arlowe1-persistent-journald.md — workforce infra (dev-env)
 - F4-plan-13-rerun-post-phase-6.md — post-Phase-6 hybrid smoke-test re-run
+- F6-pin-pigen-version.md — NEW 2026-07-08. pi-gen unpinned (master=trixie), forced a manual keyring patch to build bookworm; pin it for reproducibility
 
 Phase 5 follow-up chores (GitHub backlog, p2):
 - #102 — dashboard CONFIG_DEFAULTS duplicates config/defaults.yml; single-source it
@@ -82,12 +86,44 @@ Workforce-infra debt tracked in Claude's memory store:
 
 ### Blockers/Concerns
 
-- ADR pending (Phase 7): specific managed-PKI service selection.
+- **[RESOLVED 2026-07-08] Phase 6 checkpoint build blocker (WhisPlay):** verify gate needs WhisPlay.py + Apache LICENSE co-located; staged `~/whisplay-staging/` on arlowe-1, verify green. Provenance gap (dev copy != upstream HEAD) tracked in F2, non-blocking for checkpoint.
+- **[RESOLVED 2026-07-08] SD-card size:** owner has a 64 GB card → `CARD_SIZE_GB=32` (default kept; same-nominal-card bug doesn't bite with headroom).
+- **[NEW 2026-07-08] main-branch discrepancy:** STATE/ROADMAP claim Phase 6 "merged via PRs #112–#116," but `git log main..HEAD` shows the ENTIRE Phase 6 image pipeline (build-image.sh, flash-sd.sh, partition-image.sh, 3094 insertions) lives only on branch `feat/110-arm64-ci-flash` — `flash-sd.sh` does NOT exist on `main`. Bookkeeping to reconcile post-checkpoint (merge the branch or correct the "merged" claims). Does not block the checkpoint (arlowe-1 has the branch code).
+- **Latent bug (file after checkpoint):** `CARD_SIZE_GB` is labeled "GB" but computed as `* 1024^3` (GiB) in `scripts/lib/partition-image.sh:136`, and the `.img` is `truncate`'d to the full card size with p5 ending at 100%. So a same-nominal card always fails (a real 32 GB card is ~29.8 GiB < a 32 GiB image → flash overruns + corrupts the models partition). Fix: interpret as decimal GB, or size the image to partitions-only and grow on first boot.
+- arlowe-1 has no working GitHub auth (SSH publickey denied; gh token expired) — private-repo work must rsync from the Mac. Durable infra debt.
+- ADR pending (Phase 7): specific managed-PKI service selection (owner leaning AWS IoT).
 - ADR pending (Phase 8): pairing channel mechanism (Wi-Fi captive portal vs. BLE).
 
 ## Session Continuity
 
-Last session: 2026-06-13
-Stopped at: Phase 5 COMPLETE — executed end-to-end via the `/workforce-tick` cron loop (5 impl PRs #97-#101, two `package:security` Opus reviews, two fix-and-re-review cycles that caught real bugs: a dead dashboard Save (422) and a journal-eating `2>&1`). #104 runbook merged. ROADMAP + STATE flipped to complete. Loop STOPPED (cron cancelled). Filed p2 chores #102/#103.
-Resume file: none. Backlog: #78 (face-unit video/fb0 cleanup, type:bug), #102/#103 (Phase 5 p2 chores), #94 on-Pi SC run deferred. Stale agent worktrees in `.claude/worktrees/` accumulated this session — sweep pending. Loop is OFF.
-Next action: `/gsd:plan-phase 6` (image build with A/B partitions). Depends on Phase 1 (runtime) + Phase 3 (fs layout) + Phase 4 (defaults.yml) — all done. No CONTEXT.md for Phase 6 yet → consider `/gsd:discuss-phase 6` first (pi-gen, A/B partitions, reproducibility are real unknowns).
+Last session: 2026-06-19 (Phase 6 hardware checkpoint — first-ever image build — set up and PAUSED mid-flight; owner resuming in a few days)
+
+### Why this checkpoint, now (decision rationale)
+Run the deferred on-Pi flash+boot checkpoint BEFORE starting Phase 7, while the owner is physically at the Pi. Phase 6 is the first phase that produces a flashable artifact (earlier on-Pi SC deferrals from Phases 1/4/5 were forced — there was no image and arlowe-1 has no real arlowe layout). Phase 7 is the first phase whose deliverables physically depend on the Phase 6 substrate (cert/key written to the `/var/lib/arlowe` owner-state partition; device-id derived from real CPU serial), and PKI work is outward-facing + hard to unwind. So validate the substrate before building PKI on it. This checkpoint also absorbs the deferred Phase 4 SC4 + Phase 5 SC1-4 (#94) runs.
+
+### Scope of THIS run (spare card, NO peripherals attached)
+Validates: SC1 boot-to-ready-to-pair, SC2 five-partition layout + models grow-to-fill, SC3 A/B tryboot flip + slot-B recovery over SERIAL + default-reset (Whisplay-display half deferred), SC4 dev-deploy + recovery-doc. Costs nothing for the Phase-7 goal. STILL DEFERRED (need peripherals; irrelevant to Phase 7): Phase 5 audio SC1-4 (no USB audio), Whisplay-display half of SC3, Phase 4 persona visual, AX/LLM path.
+
+### State on arlowe-1 (build host — all PERSISTS across the pause)
+- Repo: `~/projects/arlowe-firmware` (rsynced from Mac; on branch feat/110 but content == origin/main @ 9206c63). arlowe-1 has NO working GitHub auth (SSH publickey denied, gh token expired) — that's why we rsync from the Mac instead of cloning.
+- Upstream pi-gen (arm64) cloned + overlaid into `pi-gen/` (build.sh + stage0-5 present, repo's config + stage-arlowe preserved). pi-gen native build path (`cd pi-gen && sudo ./build.sh`); Docker NOT used (arlowe-1 is arm64). sudo is passwordless on arlowe-1.
+- apt build deps installed (quilt parted debootstrap zerofree dosfstools e2fsprogs libarchive-tools cloud-guest-utils ripgrep python3-yaml qemu-user-static binfmt-support etc.).
+- Models cache staged REAL files at `~/arlowe-models-cache` (6.2G): `qwen2.5-7b-int4-ax650/` (from ~/models/Qwen2.5-7B-Instruct/qwen2.5-7b-ctx-int4-ax650), `piper-voices/{onnx,json}`, `whisper/small.en/` (faster-whisper-small.en fetched from HF Systran/faster-whisper-small.en, model.bin 462M). 02-models uses `rsync -a` so they MUST be real files, not symlinks.
+- AXCL deb at `~/axcl/axcl_host_aarch64_V3.10.2.deb` (sha matches manifest).
+- WhisPlay driver present at `~/Library/Whisplay/Driver/WhisPlay.py` (NOT yet staged into the repo — see blocker below).
+
+### verify-third-party.sh result (captured 2026-06-19)
+PASS: axcl deb sha ✓, ax-llm @ df75c34c ✓. WARN (TODO_SHA256 placeholders — record in third_party/models/manifest.yml for issue #106): qwen2.5-7b-int4-ax650 `5aee91b3fc83994a59a197195690b7256922007cb897d2ecfbcc1665e4f37f17`, faster-whisper-small.en `92c48d42979891ca9a9498df22ff436ab58d45328543f6d19307d03e88d9491f`, piper-en_US-lessac-medium `5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f`. WARN (non-blocking): WM8960 HAT redistribution rights unresolved. **HARD FAIL: WhisPlay.py not found** — gates the build.
+
+### RESUME CHECKLIST (do these in order)
+1. DECIDE SD card size, then set CARD_SIZE_GB to match (build NOT yet launched, so free to change): 64 GB+ card → keep CARD_SIZE_GB=32; only a 32 GB card → CARD_SIZE_GB=16. A nominal 32 GB card does NOT fit a CARD_SIZE_GB=32 build (see latent bug in Blockers). 16 GB card unusable.
+2. STAGE WhisPlay driver (clears the verify FAIL): `cp ~/Library/Whisplay/Driver/WhisPlay.py ~/projects/arlowe-firmware/third_party/whisplay-driver/` OR run build with `ARLOWE_WHISPLAY_SRC=~/Library/Whisplay/Driver`. NOTE: third_party/whisplay-driver/INSTALL.md pins a specific PiSugar/Whisplay commit — verify the local copy matches it, else clone PiSugar/Whisplay at the pinned commit for provenance.
+3. RE-RUN verify green: `cd ~/projects/arlowe-firmware && AXCL_DEB=~/axcl/axcl_host_aarch64_V3.10.2.deb ARLOWE_MODELS_DIR=~/arlowe-models-cache ARLOWE_WHISPLAY_SRC=~/Library/Whisplay/Driver bash scripts/verify-third-party.sh` (WhisPlay FAIL should clear; TODO/WM8960 WARNs are expected/non-blocking).
+4. BUILD (first-ever; expect snags), detached + logged on arlowe-1: `cd ~/projects/arlowe-firmware && AXCL_DEB=~/axcl/axcl_host_aarch64_V3.10.2.deb ARLOWE_MODELS_DIR=~/arlowe-models-cache ARLOWE_WHISPLAY_SRC=~/Library/Whisplay/Driver CARD_SIZE_GB=<32|16> bash scripts/build-image.sh`. Output: build/arlowe.img + partition table. ~45-90 min+.
+5. FLASH spare card: `scripts/flash-sd.sh build/arlowe.img /dev/<device> ` — confirm the device node by eye first (guard refuses non-removable disks; SD cards are mmcblk, guard preserves the controller digit). Record measured flash time.
+6. PHYSICAL SC run: need a USB-TTL SERIAL console (GPIO UART, 115200) — it's the only window into slot-B recovery with no Whisplay. Power down arlowe-1, swap in spare card, boot → SC1/SC2. arlowe-1's own boot card stays safe (we flash the SPARE). SC3: arlowe-ab flip + reboot → slot B recovery on serial → confirm default reset to A. Restore arlowe-1's original card when done.
+7. RECORD: fill phase-6-build-flash-deploy.md (flash time, partition sizes, SC results), close #106 TODO SHAs with the digests above, flip STATE/ROADMAP Phase 6 to fully complete, file the CARD_SIZE_GB bug, note remaining peripheral-deferred SCs.
+
+After the checkpoint: `/gsd:discuss-phase 7` (device identity and PKI) — managed-PKI ADR is a real decision (owner leaning AWS IoT), discuss before planning.
+
+Other backlog (unchanged, loop OFF): #78 (face-unit video/fb0, type:bug), #102 (dashboard CONFIG_DEFAULTS single-source), #103 (auto_collect.py docstring). F4 plan-13 hybrid smoke re-run is post-Phase-6.

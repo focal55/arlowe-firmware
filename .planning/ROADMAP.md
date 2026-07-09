@@ -15,7 +15,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 3: Service user and filesystem layout** - Dedicated `arlowe` system user; code at `/opt/arlowe/`; state at `/var/lib/arlowe/`; system-level systemd units with sandboxing (complete 2026-06-07, passed-with-notes — SC4 verified on real hardware via plan 03-05 staging harness; Phase-4 cleanups #73–#75 already merged: groups tightened to {audio,gpio,spi}, NPU nodes 0660 root:arlowe)
 - [x] **Phase 4: Config overlay** - Schema-validated `defaults.yml` + `/etc/arlowe/config.yml` overlay; every personal literal flows through config (complete 2026-06-07, passed-with-notes — 4 plans merged via PRs #84/#85/#86/#87; SC4 on-device persona-knob check deferred to Phase 6/12, arlowe-1 has no arlowe layout to run it)
 - [x] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check (complete 2026-06-13, passed-with-notes — 7 plans merged via PRs #95-#101/#104; SC2 reframed Pi-5-has-no-3.5mm → wm8960 codec; on-Pi SC1-SC4 run deferred to a hardware checkpoint per Phase 1/3/4 precedent, procedure in docs/operations/phase-5-audio.md)
-- [ ] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition
+- [x] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition (complete in code 2026-06-14, 6 plans merged via PRs #112/#113/#114/#115/#116. HARDWARE CHECKPOINT IN PROGRESS — started 2026-06-19 on arlowe-1 (first-ever build), paused mid-setup pending SD-card-size decision + WhisPlay-driver staging; see STATE.md Session Continuity for the resume checklist. Runbook docs/operations/phase-6-build-flash-deploy.md)
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
@@ -168,12 +168,12 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Reconcile shared-model 5-partition sizing (16 GB viable / 32 GB recommended) + PART-02 tryboot-wording (ADRs + REQUIREMENTS/ROADMAP amendments)
-- [ ] 06-02-PLAN.md — SHA-pinned model + WhisPlay manifest/fetch gate (one shared copy); Whisper model choice ADR
-- [ ] 06-03-PLAN.md — pi-gen stage-arlowe: chroot provisioning reuse + axcl + WhisPlay vendor + models + armed first-boot
-- [ ] 06-04-PLAN.md — build-image.sh + measure-then-set 5-partition A/B + shared-models layout + models grow-to-fill + sanitize scan-dir gate
-- [ ] 06-05-PLAN.md — tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub + shared-models mount in both slots
-- [ ] 06-06-PLAN.md — arm64 image-build CI + PR shellcheck + flash-sd.sh + dev-deploy.sh + docs + hardware checkpoint
+- [x] 06-01-PLAN.md — Reconcile shared-model 5-partition sizing (16 GB viable / 32 GB recommended) + PART-02 tryboot-wording (ADRs 0004/0005/0006 + REQUIREMENTS/ROADMAP amendments)
+- [x] 06-02-PLAN.md — SHA-pinned model + WhisPlay manifest/fetch gate (one shared copy); Whisper model choice ADR (#112)
+- [x] 06-03-PLAN.md — pi-gen stage-arlowe: chroot provisioning reuse + axcl + WhisPlay vendor + models + armed first-boot (#113)
+- [x] 06-04-PLAN.md — build-image.sh + measure-then-set 5-partition A/B + shared-models layout + models grow-to-fill + sanitize scan-dir gate (#114)
+- [x] 06-05-PLAN.md — tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub + shared-models mount in both slots (#115)
+- [x] 06-06-PLAN.md — arm64 image-build CI + PR shellcheck + flash-sd.sh + dev-deploy.sh + docs + hardware checkpoint (#116; complete-pending-hardware-checkpoint)
 
 ### Phase 7: Device identity and PKI
 
@@ -289,7 +289,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Service user and filesystem layout | 5/5 | Complete (passed-with-notes; #73–#75 cleanups merged) | 2026-06-07 |
 | 4. Config overlay | 4/4 | Complete (passed-with-notes; SC4 on-device check deferred to Phase 6/12) | 2026-06-07 |
 | 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
-| 6. Image build with A/B partitions | 0/TBD | Not started | - |
+| 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
 | 7. Device identity and PKI | 0/TBD | Not started | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |

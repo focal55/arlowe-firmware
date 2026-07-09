@@ -45,6 +45,14 @@ runtime/wake-word/*.pkl
 # Local dev stash from scripts/dev-pull-from-pi.sh — never commit live Pi mirrors.
 .dev-stash/
 
+# === Vendored third-party artifacts (fetch-at-build; NEVER commit) ===
+# Obtained at build time per each dir's INSTALL.md; keep only the docs/manifests.
+third_party/whisplay-driver/WhisPlay.py
+third_party/whisplay-driver/LICENSE
+third_party/whisplay-driver/install_wm8960_drive.sh
+third_party/whisplay-driver/WM8960-Audio-HAT*
+third_party/axcl/*.deb
+
 # Standard Python / Next.js noise that will accumulate in runtime/ subtrees.
 __pycache__/
 *.py[cod]

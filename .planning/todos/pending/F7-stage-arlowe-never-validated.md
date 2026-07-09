@@ -1,0 +1,43 @@
+# F7 — stage-arlowe was never validated; commit fixes + revisit Phase 6 completion
+
+**Origin:** 2026-07-09, Phase 6 hardware checkpoint. The first-ever image build to get past upstream pi-gen (after the bookworm re-pin, [[F6]]) revealed that **`pi-gen/stage-arlowe/` — arlowe's own Phase-6 image provisioning — had never executed end-to-end** and carried multiple latent bugs. Phase 6 was marked "6/6 plans complete in code," but its final and most important stage never ran.
+
+## Bugs found (all fixed in the repo on the Mac, rsynced to arlowe-1 for the checkpoint build; NOT yet committed)
+
+1. **Missing `stage-arlowe/prerun.sh`** — every upstream pi-gen stage has a `prerun.sh` that runs `copy_previous` to populate its rootfs from the prior stage. stage-arlowe had none → `stage-arlowe/rootfs` never created → `00-run-chroot.sh` failed with "Unable to chroot". Fix: added `prerun.sh` (standard `if [ ! -d "${ROOTFS_DIR}" ]; then copy_previous; fi`).
+
+2. **WhisPlay driver never reached the image** — `01-runtime/00-run.sh` rsyncs `third_party/whisplay-driver/` from the *repo*, which only ships `INSTALL.md`/`PROVENANCE.md`. The actual `WhisPlay.py`+`LICENSE` live wherever `ARLOWE_WHISPLAY_SRC` points (`~/whisplay-staging`), which the staging script ignores → chroot vendoring warns-and-skips → **no driver in the image**. Checkpoint workaround: copied `WhisPlay.py`+`LICENSE` into the repo `third_party/whisplay-driver/`. Proper fix: make `01-runtime/00-run.sh` honor `ARLOWE_WHISPLAY_SRC` (fall back to the repo dir) so the env-var path that `verify-third-party.sh` uses is the same one the image staging uses.
+
+3. **`03-firstboot/files/` never staged into the chroot** — pi-gen does NOT auto-copy a sub-stage's `files/` into the rootfs. `00-run-chroot.sh` looked for the firstboot service + `arlowe-grow-models.sh` at `/files/…`; the service had an inline fallback but the grow script did not → **SC2 "models grow-to-fill on first boot" would silently not install.** Fix: rewrote `03-firstboot/00-run.sh` (was a no-op placeholder) to stage `files/` into the chroot `/files/`.
+
+4. **Host `*-run.sh` scripts lack the execute bit (SYSTEMATIC — the smoking gun).** pi-gen runs a host script only `if [ -x ${i}-run.sh ]`, but runs the chroot script `if [ -f ${i}-run-chroot.sh ]`. Every `stage-arlowe` host script is committed `100644` (non-exec: `00-run.sh`, `01-runtime/00-run.sh`, `02-models/00-run.sh`, `03-firstboot/00-run.sh`, and the new `prerun.sh`). So pi-gen **silently skipped all host-side staging** while running the chroot steps → `01-runtime/00-run-chroot.sh` failed ("staged repo not found at /tmp/arlowe-build/repo"), and `02-models` (host-side) would have staged no models. This alone proves the stage never ran. Fix: `chmod +x` all `stage-arlowe` host `*-run.sh` + `prerun.sh` and **commit the mode change** (git tracks the exec bit; a plain content commit won't fix it).
+
+5. **Repo staged into `/tmp`, which pi-gen masks with tmpfs (design flaw, UNFIXED).** `01-runtime/00-run.sh` stages the repo tree to `${ROOTFS_DIR}/tmp/arlowe-build/repo`; but pi-gen's `on_chroot` (scripts/common:100-101) unconditionally does `mount -t tmpfs tmpfs "${ROOTFS_DIR}/tmp"` before running any `*-run-chroot.sh`. So the chroot sees an empty `/tmp` → `00-run-chroot.sh` fails "staged repo not found." Same for the `.axcl-deb-path` marker and 03-firstboot's `/tmp/...` fallback candidate. **Fix (not yet applied):** stage the repo to a path pi-gen does NOT mount over (e.g. `/var/lib/arlowe-build/repo` or `/root/arlowe-build/repo`); update `01-runtime/00-run.sh` (STAGING/CHROOT_REPO), `01-runtime/00-run-chroot.sh` (REPO_ROOT + marker), and `03-firstboot/00-run-chroot.sh` candidates; add cleanup of that path at the end of chroot provisioning (else it ships in the image). This is arlowe provisioning plumbing — belongs in a proper DEV/QA fix, not a 2am hot-patch.
+
+6. **axcl deb maintainer scripts modprobe in the build chroot (fixed).** The `axcl_host_aarch64_V3.10.2.deb` preinst/postinst `modprobe`/`modprobe -r` the Axera PCIe modules (`ax_pcie_p2p_rc`, `ax_pcie_mmb`, ...), which can't load in a chroot → preinst returns 1 → `dpkg -i` fails. The deb ships `/etc/modules-load.d/axcl_pcie.conf`, so runtime loading on a real Pi is independent of these calls. Fix: `dpkg-divert` + symlink `/usr/sbin/modprobe → /bin/true` around the `dpkg -i`, then restore. **Caveat: this guarantees a clean install, NOT a working NPU** — AX module load + inference is still deferred to on-hardware validation (matches the checkpoint's stated AX/LLM deferral). The axcl `.ko` modules' compatibility with the shipped Pi-OS kernel is unverified.
+
+7-9. **axcl vendor deb is chroot-hostile (fixed via env overrides + tolerate).** The `axcl_host_aarch64_V3.10.2.deb` postinst (`set -e`) COMPILES the Axera driver at install time and does runtime module ops — all assuming it runs on live target hardware. In the build chroot this fails in a cascade, fixed in `01-runtime/00-run-chroot.sh` around the `dpkg -i`:
+   - #7: postinst builds against `/lib/modules/$(uname -r)/build`, but `uname -r` = BUILD HOST kernel (6.12.47), not the image's (6.12.93, whose headers + gcc/make ARE in the chroot). Fix: divert `/usr/bin/uname` to a shim returning the image's `-rpi-2712` kernel → driver builds correctly ("Install driver success!!").
+   - #8: `depmod -a` uses the `uname()` SYSCALL (not the command), so the PATH shim misses it → `depmod: could not open /lib/modules/6.12.47...`. Fix: divert `/usr/sbin/depmod` to a wrapper that always `depmod -a ${IMG_KVER}`.
+   - #9: after a successful build, the postinst's runtime-load tail (cp .ko / modprobe the modules) still exits non-zero (254) in-chroot. Fix: neuter `modprobe`→`/bin/true`; and when the postinst exits non-zero BUT the driver `.ko` built, install the built modules to `/lib/modules/${IMG_KVER}/extra` + `depmod` ourselves and TOLERATE the failure (modules load at boot via `/etc/modules-load.d/axcl_pcie.conf`).
+   - **Caveats (documented):** leaves `axclhost` in a half-configured dpkg state; NPU runtime unvalidated (deferred to on-hardware); driver built for the shipped kernel only (kernel update → needs rebuild; DKMS is the robust answer). All deferred/acceptable for the checkpoint. **Consider whether the proper long-term answer is deferring the whole axcl driver build to a first-boot/DKMS hook instead of building in-chroot** — revisit during AX integration.
+
+## PROGRESS LOG (2026-07-09 morning — driving to green per owner request)
+
+Iterating fast via pi-gen `SKIP` on stage0/1/2 (reuse validated rootfs) + wipe stage-arlowe each cycle (~2 min/iter). **FINAL build before the checkpoint MUST remove the SKIP files and do one clean full run.** Fixes 1-6 now applied. As of fix #6, provisioning reached: install-arlowe-user/fs/config/units(6)/cli(9 symlinks)/udev-polkit(4 rules) all PASS, /opt/arlowe/runtime populated, axcl deb install (with modprobe neutered) in progress. Expect possible further bugs in: WhisPlay vendor, WM8960, fstab, then build-image.sh partition-image.sh (plan 06-04, also never run end-to-end).
+
+## ORIGINAL STOP POINT (2026-07-09 ~02:00, now superseded — owner approved driving to green)
+
+Five structural bugs found, ALL in stage-arlowe plumbing — **none is the actual provisioning logic yet** (the repo has never even reached the chroot). `install-arlowe-*.sh` running in a clean image chroot, `dpkg -i` on the axcl deb, WM8960, and the models/partition steps are ALL still unexercised. Base rate of further bugs is high. Recommendation: **reopen Phase 6** and give stage-arlowe a real DEV/QA pass (build it green in a dev loop, commit every fix, then re-attempt the hardware checkpoint) rather than continue blind hot-patching that risks a build-passes-but-SC-fails image.
+
+## Side gap
+
+`third_party/whisplay-driver/WhisPlay.py` is **not** gitignored despite `INSTALL.md` claiming ".gitignore covers it". Add a `.gitignore` rule so the vendored driver can't be accidentally committed (the `third_party/` strategy is fetch-at-build, never commit the binary/driver). Related: [[F2]].
+
+## Actions
+
+- Commit the three fixes (`prerun.sh`, `01-runtime/00-run.sh` ARLOWE_WHISPLAY_SRC handling, `03-firstboot/00-run.sh`) + the `.gitignore` rule.
+- Do NOT re-mark Phase 6 "passed" until a clean build produces a bootable image AND the checkpoint SCs run green.
+- Expect this list to grow — stage-arlowe's chroot provisioning (`install-arlowe-*.sh` in a real chroot, axcl `dpkg -i`, WM8960) is running for the first time; further bugs may surface during the checkpoint build.
+- Consider a proper DEV/QA pass on stage-arlowe rather than ad-hoc checkpoint patches. Related: [[F6]].
+</content>
