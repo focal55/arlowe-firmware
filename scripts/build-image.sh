@@ -124,8 +124,11 @@ ok "Models staging tree at: ${ARLOWE_MODELS_STAGE}"
 # ---------------------------------------------------------------------------
 log "=== Step 3: measure rootfs + models ==="
 
-ROOTFS_BYTES="$(du -sb "${PIGEN_ROOTFS}" | awk '{print $1}')"
-MODELS_BYTES="$(du -sb "${ARLOWE_MODELS_STAGE}" | awk '{print $1}')"
+# sudo: the pi-gen rootfs has root-owned 0700 dirs (identity/, /root, ssl/private,
+# ...) that a non-root du can't read — it would both error out (pipefail) and
+# undercount the rootfs, yielding a too-small slot. Measure as root for accuracy.
+ROOTFS_BYTES="$(sudo du -sb "${PIGEN_ROOTFS}" | awk '{print $1}')"
+MODELS_BYTES="$(sudo du -sb "${ARLOWE_MODELS_STAGE}" | awk '{print $1}')"
 
 log "Measured model-free rootfs: $(( ROOTFS_BYTES / 1024 / 1024 )) MiB (${ROOTFS_BYTES} bytes)"
 log "Measured models tree:       $(( MODELS_BYTES / 1024 / 1024 )) MiB (${MODELS_BYTES} bytes)"
