@@ -323,14 +323,24 @@ _pimg_write_fstab() {
 
     # Read the PARTUUIDs from blkid directly (map file may not exist yet when
     # this is called; we re-read fresh to keep ordering independent).
-    local puuid_boot puuid_owner puuid_models
+    local puuid_boot puuid_a puuid_owner puuid_models
     puuid_boot="$(sudo blkid -s PARTUUID -o value "${loop_dev}p1")"
+    puuid_a="$(sudo blkid -s PARTUUID -o value "${loop_dev}p2")"
     puuid_owner="$(sudo blkid -s PARTUUID -o value "${loop_dev}p4")"
     puuid_models="$(sudo blkid -s PARTUUID -o value "${loop_dev}p5")"
 
     local mnt_a
     mnt_a="$(mktemp -d)"
     sudo mount "${loop_dev}p2" "${mnt_a}"
+
+    # Substitute pi-gen's fstab template placeholders. pi-gen leaves literal
+    # BOOTDEV/ROOTDEV tokens that its own export-image stage normally rewrites;
+    # we SKIP_IMAGES and partition ourselves, so they'd stay literal and the
+    # bogus BOOTDEV/ROOTDEV mounts fail → boot drops to emergency mode. Rewrite
+    # ROOTDEV → this slot's root (p2), BOOTDEV → boot (p1). The append guards
+    # below then see the boot entry already present and don't duplicate it.
+    sudo sed -i "s|^ROOTDEV\b|PARTUUID=${puuid_a}|; s|^BOOTDEV\b|PARTUUID=${puuid_boot}|" \
+        "${mnt_a}/etc/fstab"
 
     # Replace the PARTUUID placeholder baked into the rootfs during chroot provisioning.
     local placeholder="ARLOWE-MODELS-PARTUUID-REPLACE-BY-06-04"
