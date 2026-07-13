@@ -29,3 +29,10 @@ dpkg
 # nodejs from Debian bookworm is v18+; dashboard/package.json targets >=18.
 nodejs
 npm
+
+# First-boot models grow-to-fill (arlowe-grow-models). growpart lives in
+# cloud-guest-utils; growpart relocates the GPT backup header on a GPT disk via
+# sgdisk (gdisk). Without these the first-boot service dies with
+# "growpart: command not found" (exit 127) and the models partition never grows.
+cloud-guest-utils
+gdisk
