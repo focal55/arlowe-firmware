@@ -288,4 +288,16 @@ log ""
 log "Partition table:"
 sudo parted -s "${OUTPUT_IMG}" print
 
+# Generate a block map so flash-sd.sh's bmaptool path writes only used blocks.
+# The image is sized to the full card but mostly empty (models grow-to-fill on
+# first boot), so a plain dd writes the whole card; bmaptool skips the unused
+# space and cuts a flash from ~50-77 min to ~10 min on a slow card.
+if command -v bmaptool >/dev/null 2>&1; then
+    log "Generating block map for fast flashing..."
+    bmaptool create -o "${OUTPUT_IMG}.bmap" "${OUTPUT_IMG}"
+    ok "Block map written: ${OUTPUT_IMG}.bmap"
+else
+    warn "bmaptool not installed; skipping .bmap (flash-sd.sh will fall back to a full dd). Install bmap-tools to enable fast flashing."
+fi
+
 ok "Build complete: ${OUTPUT_IMG}"
