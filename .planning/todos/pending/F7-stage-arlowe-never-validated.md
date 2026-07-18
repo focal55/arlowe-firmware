@@ -34,7 +34,7 @@
 
 15. **system_a (root) is 97% full on-hardware, fixed in source** (`/dev/root` 2.0 G, 1.9 G used, 55 M free). The measured-slot + 25% headroom produced a 2 GB slot that the rootfs nearly fills — no margin for apt/updates/tmp. A percentage-only headroom collapses to near-nothing on a small (~1.6 GiB) rootfs. **Fix applied:** `build-image.sh` now treats ADR-0004's `_ADR_SLOT_REF_MIB` (3072 MiB) as a FLOOR, not just a starting point — measured wins only when larger. A ~1.6 GiB rootfs now gets a 3 GiB slot (~1 GB+ real headroom). Further lever if still tight: `mkfs.ext4 -m 1` on the system slots to reclaim the default 5% root-reserved blocks. Not yet re-validated on hardware.
 
-**Not yet re-validated end-to-end:** the built image needs a clean rebuild with the fstab (3d7b3bc) + growpart (0a6015c) + owner_state-seed + slot-floor fixes to prove a from-scratch bootable image with a correct Phase-7 substrate. All five on-hardware findings (11-15) are now fixed in source; SC3 (A/B recovery) untested.
+**Not yet re-validated end-to-end:** the built image needs a clean rebuild with the fstab (3d7b3bc) + growpart (0a6015c) + owner_state-seed (2352231) + slot-floor (5eb8239) fixes to prove a from-scratch bootable image with a correct Phase-7 substrate. Findings 11, 13, 14, 15 are fixed in source; **#12 (locked-root recovery console) remains an open design decision** (ties to F8 — root-locked is otherwise correct); SC3 (A/B recovery) untested.
 
 ## FLASH-TIME FINDING (2026-07-09, checkpoint flash)
 
