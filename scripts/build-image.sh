@@ -133,17 +133,27 @@ MODELS_BYTES="$(sudo du -sb "${ARLOWE_MODELS_STAGE}" | awk '{print $1}')"
 log "Measured model-free rootfs: $(( ROOTFS_BYTES / 1024 / 1024 )) MiB (${ROOTFS_BYTES} bytes)"
 log "Measured models tree:       $(( MODELS_BYTES / 1024 / 1024 )) MiB (${MODELS_BYTES} bytes)"
 
-# Apply 25% headroom to the rootfs measurement for the slot size.
+# Slot size = rootfs measurement + 25% headroom, but never below the ADR-0004
+# reference floor. A percentage-only headroom collapses to near-nothing on a
+# small rootfs: the Phase-6 checkpoint measured ~1.6 GiB, so +25% gave a 2 GiB
+# slot that booted 97% full (55 MiB free) with no room for apt/updates/tmp.
+# ADR-0004's reference is therefore a FLOOR — measured wins only when larger.
 # Round up to the nearest 64 MiB boundary for partition alignment.
 _ALIGN_BYTES=$(( 64 * 1024 * 1024 ))
-_SLOT_RAW=$(( ROOTFS_BYTES + ROOTFS_BYTES / 4 ))
-SLOT_BYTES=$(( (_SLOT_RAW + _ALIGN_BYTES - 1) / _ALIGN_BYTES * _ALIGN_BYTES ))
 
-log "Slot size (rootfs + 25% headroom, 64 MiB aligned): $(( SLOT_BYTES / 1024 / 1024 )) MiB"
-
-# ADR-0004 reference values (starting points; measured values win).
+# ADR-0004 reference values (floors; measured values win only when larger).
 _ADR_SLOT_REF_MIB=3072
 _ADR_MODELS_REF_MIB=6144
+
+_SLOT_RAW=$(( ROOTFS_BYTES + ROOTFS_BYTES / 4 ))
+_SLOT_FLOOR_BYTES=$(( _ADR_SLOT_REF_MIB * 1024 * 1024 ))
+if (( _SLOT_RAW < _SLOT_FLOOR_BYTES )); then
+    log "Measured slot (rootfs + 25% = $(( _SLOT_RAW / 1024 / 1024 )) MiB) is under the ADR-0004 ${_ADR_SLOT_REF_MIB} MiB floor; using the floor."
+    _SLOT_RAW="${_SLOT_FLOOR_BYTES}"
+fi
+SLOT_BYTES=$(( (_SLOT_RAW + _ALIGN_BYTES - 1) / _ALIGN_BYTES * _ALIGN_BYTES ))
+
+log "Slot size (rootfs + 25% headroom, ADR-0004 ${_ADR_SLOT_REF_MIB} MiB floor, 64 MiB aligned): $(( SLOT_BYTES / 1024 / 1024 )) MiB"
 
 if (( SLOT_BYTES / 1024 / 1024 > _ADR_SLOT_REF_MIB * 2 )); then
     warn "Measured slot size materially exceeds ADR-0004 ~${_ADR_SLOT_REF_MIB} MiB reference — proceeding with measured value."
