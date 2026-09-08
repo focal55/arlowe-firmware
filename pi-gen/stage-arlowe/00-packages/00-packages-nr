@@ -1,4 +1,8 @@
 # Packages installed with --no-install-recommends in stage-arlowe.
+#
+# This file MUST live inside a sub-stage directory. pi-gen's run_stage()
+# iterates only directories under the stage root and reads NN-packages-nr
+# from within each one; a copy at the stage root is silently ignored.
 # Lite base (stage2) already provides systemd, apt, coreutils, openssh-server.
 # Only add what the arlowe runtime actually needs at start-up.
 

@@ -41,8 +41,8 @@ A full from-scratch build (all prior fixes in source) was loop-mount-validated O
 - **SC1 PASS (from-scratch):** boots clean to a login shell (kernel 6.12.93+rpt-rpi-2712), `/etc/arlowe/config.yml` ABSENT = ready-to-pair, NO emergency mode. The fstab fix (#11) holds on a from-scratch image, not just the hand-patched card. system state = degraded (expected — NPU/display peripherals deferred).
 - **SC2 layout PASS:** 5 partitions, correct 3G slots (floor #15 confirmed on-hardware: system_a/b = 3G).
 
-16. **`arlowe-firstboot` unit FAILED on-hardware -> models NOT grown (SC2 grow still broken).** `systemctl` shows `arlowe-firstboot active=failed`; models still 22.5G on a 58.2G card. `arlowe-grow-models` runs as `ExecStartPre=`, so its failure fails the whole unit (boot-check + `.firstboot-done` sentinel never run). Failure is EARLY: models is still mounted at runtime, so it died BEFORE the L132 unmount — i.e. at the `sudo parted -s "${_disk_dev}" print` last-partition safety check (L95) or `growpart` (L113). Likely cause to check first: on a card whose GPT backup header sits at the 32-GiB image end (not the 58G card end), `parted -s print` emits a "fix the GPT?" warning; in script mode it may exit non-zero or the awk may misparse `_last_part_num` -> L96 abort. Or `sudo` misbehaves in the systemd (root) context. **Need the journal to confirm.** growpart/gdisk ARE installed now (#13), so this is a NEW failure mode, not the old "growpart: command not found".
-17. **owner_state `/var/lib/arlowe` is EMPTY at runtime — `identity/` MISSING — Phase 7 STILL blocked.** Despite the build-time seed (`2352231`) that was VERIFIED present on the image's p4 (identity/ at 995:992/0700) before flashing, the running system shows no identity/ at /var/lib/arlowe. Unexplained — the seed was on the image and flashed. Candidate causes to rule out with `findmnt /var/lib/arlowe` + `ls -la /var/lib/arlowe`: (a) owner_state mounted-but-empty = seed didn't reach the card's p4 (bmap/flash interaction — note the first flash aborted at p2 and a bmap regen happened; the second flash reported clean); (b) owner_state failed to mount and /var/lib/arlowe = system_a's (also missing identity? shouldn't be); (c) something at runtime formats/wipes owner_state (grep for mkfs on owner_state in firstboot/recovery — grow-models does NOT touch p4). This is the #14 gap re-appearing at the runtime layer even though the build-time seed is correct.
+16. **[ROOT-CAUSED 2026-09-08 — see #18; the L95 `parted` hypothesis below was WRONG]** **`arlowe-firstboot` unit FAILED on-hardware -> models NOT grown (SC2 grow still broken).** `systemctl` shows `arlowe-firstboot active=failed`; models still 22.5G on a 58.2G card. `arlowe-grow-models` runs as `ExecStartPre=`, so its failure fails the whole unit (boot-check + `.firstboot-done` sentinel never run). Failure is EARLY: models is still mounted at runtime, so it died BEFORE the L132 unmount — i.e. at the `sudo parted -s "${_disk_dev}" print` last-partition safety check (L95) or `growpart` (L113). Likely cause to check first: on a card whose GPT backup header sits at the 32-GiB image end (not the 58G card end), `parted -s print` emits a "fix the GPT?" warning; in script mode it may exit non-zero or the awk may misparse `_last_part_num` -> L96 abort. Or `sudo` misbehaves in the systemd (root) context. **Need the journal to confirm.** growpart/gdisk ARE installed now (#13), so this is a NEW failure mode, not the old "growpart: command not found".
+17. **[CLOSED 2026-09-08 — NOT A BUG, see #19; this finding was a permissions misread and it wrongly blocked Phase 7 for seven weeks]** **owner_state `/var/lib/arlowe` is EMPTY at runtime — `identity/` MISSING — Phase 7 STILL blocked.** Despite the build-time seed (`2352231`) that was VERIFIED present on the image's p4 (identity/ at 995:992/0700) before flashing, the running system shows no identity/ at /var/lib/arlowe. Unexplained — the seed was on the image and flashed. Candidate causes to rule out with `findmnt /var/lib/arlowe` + `ls -la /var/lib/arlowe`: (a) owner_state mounted-but-empty = seed didn't reach the card's p4 (bmap/flash interaction — note the first flash aborted at p2 and a bmap regen happened; the second flash reported clean); (b) owner_state failed to mount and /var/lib/arlowe = system_a's (also missing identity? shouldn't be); (c) something at runtime formats/wipes owner_state (grep for mkfs on owner_state in firstboot/recovery — grow-models does NOT touch p4). This is the #14 gap re-appearing at the runtime layer even though the build-time seed is correct.
 
 **Flash lesson:** generating the .bmap during the build then rw loop-mounting the image for inspection desyncs the .bmap (ext4 superblock rewrite) -> bmaptool checksum mismatch on flash. Mount `-o ro` for inspection, or regenerate the .bmap after any mount.
 
@@ -71,3 +71,66 @@ Five structural bugs found, ALL in stage-arlowe plumbing — **none is the actua
 - Expect this list to grow — stage-arlowe's chroot provisioning (`install-arlowe-*.sh` in a real chroot, axcl `dpkg -i`, WM8960) is running for the first time; further bugs may surface during the checkpoint build.
 - Consider a proper DEV/QA pass on stage-arlowe rather than ad-hoc checkpoint patches. Related: [[F6]].
 </content>
+
+## ON-HARDWARE FINDINGS ROUND 3 (2026-09-08, journal + mount table captured from the paused test card)
+
+The two round-2 findings were resolved by capturing what round 2 stopped short of capturing. One was real
+and much larger than described; the other was never a bug.
+
+18. **`stage-arlowe/00-packages-nr` sat at the STAGE ROOT, where pi-gen never reads it — the declared
+    package set has been absent from every image ever built (FIXED).** Verified against upstream pi-gen
+    at the pinned tag `2026-06-18-raspios-bookworm-arm64`: `run_stage()` executes only `prerun.sh` at the
+    stage root and iterates **directories only** when looking for sub-stages; `NN-packages-nr` is read
+    from inside `${SUB_STAGE_DIR}`. A package list at the stage root is silently ignored — no warning,
+    no build failure.
+
+    Confirmed on hardware. `dpkg -l` on the running cert image:
+    - ABSENT: `cloud-guest-utils` (growpart), `nodejs`, `npm`, `ripgrep`, `python3-rpi.gpio`
+    - PRESENT: `alsa-utils`, `gdisk`, `network-manager`, `python3-spidev`
+
+    The present four are Raspberry Pi OS Lite base packages, not evidence the list ran. The proof is
+    internal: `python3-spidev` (`ii`) and `python3-rpi.gpio` (`un`) are adjacent lines in the same list,
+    and pi-gen installs a list with a single `apt-get install` — all-or-nothing. A partial result is
+    impossible, so the list never executed.
+
+    **This is the actual root cause of #16.** `growpart: command not found` at L113 was never fixed by
+    `0a6015c`; that commit edited a file nothing reads. The `parted -s print` safety check at L95 passed
+    cleanly (the GPT warning printed, `_last_part_num` parsed, execution continued) — #16's stated
+    hypothesis was wrong. Also: "line 565" in the round-2 journal reading was the syslog PID, not a line
+    number; source and installed script agree at 179 lines.
+
+    **Blast radius beyond growpart:** no Node runtime for `arlowe-dashboard` (Phase 4/5 deliverable), no
+    `python3-rpi.gpio` for the WhisPlay display driver, no `ripgrep`. Phase 6 is broken considerably
+    wider than one failing first-boot unit, and Phases 4/5 "passed-with-notes" rest on a substrate that
+    cannot run their services.
+
+    **Fixes applied:**
+    - Moved the list to `pi-gen/stage-arlowe/00-packages/00-packages-nr` (sorts before `01-runtime`, so
+      packages install before chroot provisioning) and documented the placement constraint in its header.
+    - Deleted `pi-gen/stage-arlowe/00-run.sh` — dead at the stage root for the same reason, and its
+      comment asserted the false claim ("pi-gen calls this before entering the sub-stages") that produced
+      this bug. Same wrong model caused F7 #1 (missing stage-root `prerun.sh`).
+    - Added a post-pi-gen guard in `build-image.sh`: parses the declared list and asserts each package is
+      `install ok installed` in the rootfs's `var/lib/dpkg/status`, failing the build otherwise. Matcher
+      unit-tested against the four real on-hardware results. **This is the durable fix** — the class of
+      failure here is a silent build-time no-op surfacing as a boot-time failure weeks later, and no
+      amount of care in the package list prevents a recurrence without an assertion on the artifact.
+
+19. **owner_state seeding WORKS — #17 was a permissions misread, not a substrate failure. Phase 7 is
+    NOT blocked.** `findmnt /var/lib/arlowe` -> `/dev/mmcblk0p4 ext4 rw,noatime`, and `sudo ls -la`
+    shows the full seeded skeleton: `identity/`, `conversations/`, `dashboard/`, `logs/`, `state/`,
+    `wake-word/`, all `arlowe:arlowe`. The build-time seed (`2352231`) is verified end-to-end:
+    image -> flash -> runtime.
+
+    The round-2 "empty" reading came from a non-sudo `ls` as user `pi` against a `0750 arlowe:arlowe`
+    directory. `pi` is not in the `arlowe` group, so the listing was empty by permission.
+
+    **Process note worth keeping:** #17 was written as a confirmed substrate failure ("Phase-7 STILL
+    blocked") on a single unprivileged `ls`, then the session paused *before* capturing the diagnostic
+    that would have falsified it. That inverted claim sat in STATE.md as a Phase 7 blocker for seven
+    weeks. Capture the disconfirming evidence before writing the finding, not after.
+
+**Status after round 3:** SC1 PASS (from-scratch). SC2 layout PASS, SC2 grow still FAIL until a rebuild
+carries the #18 fix. SC3 (A/B recovery) untested. #12 (locked-root recovery console) still an open design
+decision. Next step is a clean rebuild on arlowe-1 with the corrected package sub-stage, then re-flash and
+re-run SC2/SC3.

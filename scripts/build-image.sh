@@ -108,6 +108,34 @@ if [[ ! -d "${PIGEN_ROOTFS}" ]]; then
 fi
 ok "Model-free rootfs at: ${PIGEN_ROOTFS}"
 
+# Assert the packages stage-arlowe declares actually landed in the rootfs.
+# An unread package list is invisible at build time: pi-gen reads NN-packages-nr
+# only from inside a sub-stage directory, so a misplaced list builds a clean
+# image that fails at first boot instead (F7 #16/#18 — growpart, node, rpi.gpio
+# were absent from every image ever built).
+PACKAGE_LIST="${PI_GEN_DIR}/stage-arlowe/00-packages/00-packages-nr"
+if [[ ! -f "${PACKAGE_LIST}" ]]; then
+    fail "Declared package list not found at ${PACKAGE_LIST}"
+    exit 1
+fi
+
+mapfile -t DECLARED_PKGS < <(sed 's/#.*//' "${PACKAGE_LIST}" | tr -s '[:space:]' '\n' | grep -v '^$')
+MISSING_PKGS=()
+for pkg in "${DECLARED_PKGS[@]}"; do
+    sudo awk -v p="${pkg}" '
+        $1 == "Package:" { cur = ($2 == p) }
+        cur && $1 == "Status:" && /install ok installed/ { found = 1 }
+        END { exit(found ? 0 : 1) }
+    ' "${PIGEN_ROOTFS}/var/lib/dpkg/status" || MISSING_PKGS+=("${pkg}")
+done
+
+if (( ${#MISSING_PKGS[@]} > 0 )); then
+    fail "Declared packages absent from the built rootfs: ${MISSING_PKGS[*]}"
+    fail "stage-arlowe's package list did not install — confirm it sits inside a sub-stage directory."
+    exit 1
+fi
+ok "All ${#DECLARED_PKGS[@]} declared packages present in rootfs."
+
 # Locate the models staging tree (written by 02-models/00-run.sh).
 MODELS_STAGE_MARKER="${WORK_DIR}/arlowe-models-stage-path"
 if [[ -f "${MODELS_STAGE_MARKER}" ]]; then
