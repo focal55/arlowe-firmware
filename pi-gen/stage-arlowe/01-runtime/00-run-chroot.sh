@@ -80,21 +80,13 @@ echo "[00-run-chroot] step 4: units/install-units.sh"
 bash "${REPO_ROOT}/units/install-units.sh"
 
 # ---------------------------------------------------------------------------
-# 5. CLI symlinks: /usr/local/sbin/arlowe-* → /opt/arlowe/runtime/cli/<name>
-#    The targets are populated below (step: populate runtime tree).
+# 5. udev rules + polkit rule
 # ---------------------------------------------------------------------------
-echo "[00-run-chroot] step 5: install-arlowe-cli.sh"
-bash "${PROVISION}/install-arlowe-cli.sh"
-
-# ---------------------------------------------------------------------------
-# 6. udev rules + polkit rule
-# ---------------------------------------------------------------------------
-echo "[00-run-chroot] step 6: install-arlowe-udev-polkit.sh"
+echo "[00-run-chroot] step 5: install-arlowe-udev-polkit.sh"
 bash "${PROVISION}/install-arlowe-udev-polkit.sh"
 
 # ---------------------------------------------------------------------------
 # Populate /opt/arlowe/runtime + /opt/arlowe/config from the staged repo.
-# install-arlowe-cli.sh created the symlinks; the targets must exist.
 # install-arlowe-config.sh already installed config/ content; rsync below
 # is additive and will not overwrite the already-correctly-owned config files
 # because we sync only runtime/ here.
@@ -106,6 +98,16 @@ rsync -a --chown=root:arlowe "${REPO_ROOT}/runtime/" /opt/arlowe/runtime/
 if [[ -d /opt/arlowe/runtime/cli ]]; then
     chmod 0755 /opt/arlowe/runtime/cli/*  2>/dev/null || true
 fi
+
+# ---------------------------------------------------------------------------
+# CLI symlinks: /usr/local/sbin/arlowe-* → /opt/arlowe/runtime/cli/<name>
+# Runs AFTER the runtime tree is populated so install-arlowe-cli.sh can verify
+# each target exists. It used to run before, which meant ln -sf had nothing to
+# check against and a wrong name produced a dangling link that only surfaced on
+# hardware as "command not found" (F7 #21, arlowe-ab).
+# ---------------------------------------------------------------------------
+echo "[00-run-chroot] step 6: install-arlowe-cli.sh"
+bash "${PROVISION}/install-arlowe-cli.sh"
 
 # ---------------------------------------------------------------------------
 # Install the axcl deb.
@@ -192,7 +194,7 @@ EOF
     # 7. Run the axcl udev extraction diagnostic to confirm no rule conflict.
     echo "[00-run-chroot] step 7: extract-axcl-udev-from-deb.sh (diagnostic)"
     bash "${PROVISION}/extract-axcl-udev-from-deb.sh" "${AXCL_DEB}" || true
-    # install-arlowe-udev-polkit.sh (step 6) already removes the broken deb rule;
+    # install-arlowe-udev-polkit.sh (step 5) already removes the broken deb rule;
     # re-run the removal guard in case dpkg postinst re-created it.
     _axcl_deb_rule=/etc/udev/rules.d/axcl_host.rules
     if [[ -f "${_axcl_deb_rule}" ]] && grep -q 'GROUP="<users>"' "${_axcl_deb_rule}"; then
