@@ -202,3 +202,44 @@ recovery console, design decision, ties to F8) and #20 (dashboard has no build s
 
     Fifth instance of the same pattern: a Phase-6 deliverable that was never executed, failing silently
     at build time and surfacing only on hardware.
+
+## SC3 VERIFIED ON HARDWARE (2026-09-08) — ALL CHECKPOINT SCs NOW GREEN
+
+**SC3 PASS.** After `arlowe-ab switch B`: device rebooted into slot B, ran `arlowe-recovery.service`
+(console output visible on HDMI), reset the persistent default to slot A, and rebooted itself into
+slot A without intervention. Two reboots, no emergency mode, no manual step. Verified on landing:
+
+    Persistent default: slot A (root=PARTUUID=0fbbaf6a-4afc-4213-aa66-bdd45159fa6e)
+    /  /dev/mmcblk0p2 ext4 rw,noatime
+
+Both halves matter and agree: `arlowe-ab status` reads the STORED default (the self-heal wrote it),
+`findmnt /` shows the RUNNING slot. Pre-flight checks that made this safe to attempt: the PARTUUID map
+carried all five entries incl. `PARTUUID_B=e3d33191-dbf3-4cc9-b7d2-f6a79bfa0ac7`, and slot B's
+`multi-user.target.wants/` genuinely contained `arlowe-recovery.service` — the first Phase-6
+unit-enablement path found correctly wired.
+
+**CAVEAT — SC3 ran on a hand-patched card.** `arlowe-ab` only worked because the dangling symlink was
+repointed by hand (`ln -sf .../cli/arlowe-ab /usr/local/sbin/arlowe-ab`). The source fix (#21, renaming
+`runtime/cli/arlowe-ab` -> `runtime/cli/ab`) has NOT been validated from a clean build. Same posture as
+the July fstab hand-patch: the mechanism is proven, the build path that produces it is not.
+
+**Checkpoint SC status: SC1 PASS, SC2 layout PASS, SC2 grow PASS, SC3 PASS.**
+
+22. **No persistent journal — a recovery event leaves no forensic trace.** `journalctl -b -1` returns
+    "no persistent journal was found", so the slot-B recovery run's log is gone the moment it rebooted.
+    `arlowe-recovery.sh`'s `log_recovery()` writes only to stdout (journal) and `/dev/ttyAMA0`, so on a
+    unit with no serial attached, a device that fell into recovery and healed itself records nothing an
+    owner or a support session could later read. Recovery is precisely the event that needs forensics.
+
+    `/var/lib/arlowe/logs/` sits on the owner_state partition and is shared across both slots, which
+    makes it the natural place for a durable breadcrumb (timestamp, reason, slot, outcome). Ties to
+    [[F3]] (persistent journald) — but a recovery breadcrumb is worth having independently of whether
+    journald is made persistent, since it should survive a factory reset decision separately.
+
+23. **ADR-0005 and the implementation disagree on which file holds the persistent default (doc-level).**
+    `arlowe-ab`'s own help text on-device says "The persistent A/B default is the root= in
+    /boot/firmware/cmdline.txt", and `docs/operations/phase-6-ab-recovery.md` agrees (`cmdline.txt` |
+    Active root= line; edited by arlowe-ab). ADR-0005 instead says `arlowe-ab` rewrites the `root=` in
+    `config.txt`. The implementation works and SC3 passed, so this is a documentation defect, not a
+    behavioural one — but ADR-0005 is the artifact Phase 9 OTA will build against, so it should be
+    corrected to match the code before OTA work starts.
