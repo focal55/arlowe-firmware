@@ -243,3 +243,29 @@ the July fstab hand-patch: the mechanism is proven, the build path that produces
     `config.txt`. The implementation works and SC3 passed, so this is a documentation defect, not a
     behavioural one — but ADR-0005 is the artifact Phase 9 OTA will build against, so it should be
     corrected to match the code before OTA work starts.
+
+## VALIDATION BOOT (2026-09-09) — #21 PROVEN FIXED AT SOURCE
+
+Clean repo-built image, no hand-patching anywhere in the chain:
+
+    sudo arlowe-ab status
+    Persistent default: slot A (root=PARTUUID=8096e9f9-5ac4-44d2-afe5-3ebe979ba085)
+
+    sudo df -h /opt/arlowe/models
+    /dev/mmcblk0p5   48G  6.2G  40G  14%  /opt/arlowe/models
+
+`arlowe-firstboot` shows all THREE processes at `status=0/SUCCESS`, including the `ExecStartPost` that
+writes `.firstboot-done`. **#21 CLOSED**, and with it the ordering defect that caused it.
+
+**Coverage caveat, stated so nobody overclaims later:** the SC3 flip mechanism was verified on the
+hand-patched card (2026-09-08); the CLI shipping in working order is verified on this clean card. Both
+halves hold, but no single card has run both. Re-running `arlowe-ab switch B` here would close it.
+
+24. **`boot-check` reports a correctly-behaving device as broken.** First boot prints
+    `Results: 0 passed, 14 failed` / `Some services need attention`. Every failure is expected: the
+    Axera NPU and USB audio are deferred peripherals that are not attached, and the six runtime units
+    are disabled by design until the Phase 8 pairing daemon starts them. The check has no notion of
+    expected state, so a factory-fresh unit greets its owner by declaring total failure. `boot-check`
+    should gate its expectations on whether `/etc/arlowe/config.yml` exists — the same pairing signal
+    SC1 already uses — and report "ready to pair" rather than 14 failures in that state. Owner-facing,
+    so it should land before any unit ships.
