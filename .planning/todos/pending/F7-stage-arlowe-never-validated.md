@@ -134,3 +134,28 @@ and much larger than described; the other was never a bug.
 carries the #18 fix. SC3 (A/B recovery) untested. #12 (locked-root recovery console) still an open design
 decision. Next step is a clean rebuild on arlowe-1 with the corrected package sub-stage, then re-flash and
 re-run SC2/SC3.
+
+## FOUND WHILE PREPARING THE ROUND-3 REBUILD (2026-09-08, repo inspection — not yet on hardware)
+
+20. **`arlowe-dashboard.service` can never start: its `ExecStart` target is a build artifact nothing
+    builds.** The unit runs `/usr/bin/node /opt/arlowe/runtime/dashboard/server.js`. That `server.js` is
+    a Next.js *standalone* build output, and:
+    - `runtime/dashboard/next.config.ts` does not set `output: 'standalone'`, so `next build` never
+      emits a `server.js` at all;
+    - `.next/` and `node_modules/` are gitignored (`runtime/dashboard/.gitignore`), so neither the build
+      output nor the dependency tree can reach the image via the repo staging in `01-runtime/00-run.sh`;
+    - nothing in `stage-arlowe` runs `npm`/`pnpm install` or `next build` — grep for node/npm/dashboard
+      in `01-runtime/00-run-chroot.sh` returns nothing.
+
+    Until now this was masked: `nodejs`/`npm` were never installed either (#18), so the unit would have
+    failed on a missing interpreter before reaching the missing script. Fixing #18 installs the runtime
+    and exposes this as the next failure in line.
+
+    This is a distinct piece of Phase-6 work (decide where the dashboard is built — in-chroot at image
+    build, or prebuilt on the host/CI and staged as an artifact — then wire it and stage `node_modules`),
+    and it should get a proper DEV/QA pass rather than being patched during a hardware checkpoint. It
+    does NOT block the SC2 grow / SC3 recovery re-run, which is the immediate objective.
+
+    Note this is the same shape as #18 and #1: a Phase-6 deliverable declared complete whose code path
+    had never once executed. That is now four instances, which makes it a property of how Phase 6 was
+    verified rather than a run of bad luck.
