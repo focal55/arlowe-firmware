@@ -159,3 +159,25 @@ re-run SC2/SC3.
     Note this is the same shape as #18 and #1: a Phase-6 deliverable declared complete whose code path
     had never once executed. That is now four instances, which makes it a property of how Phase 6 was
     verified rather than a run of bad luck.
+
+## SC2 GROW VERIFIED ON HARDWARE (2026-09-08, boot of the rebuilt cert image)
+
+**#16 CLOSED — SC2 grow-to-fill PASSES.** First boot of the image built with the #18 package fix:
+
+    arlowe-firstboot.service - Active: inactive (dead)
+      Process: 512 ExecStartPre=/opt/arlowe/runtime/cli/arlowe-grow-models (code=exited, status=0/SUCCESS)
+      Process: 936 ExecStart=/opt/arlowe/runtime/cli/boot-check --first-boot (code=exited, status=0/SUCCESS)
+
+    /dev/mmcblk0p5   48G  6.2G  40G  14%  /opt/arlowe/models
+
+The models partition grew 22.5G -> 48G, filling the 58.2G card. Both unit processes exited 0.
+`inactive (dead)` is the correct terminal state for this unit (`Type=oneshot`, `RemainAfterExit=no`);
+`active (exited)` would require `RemainAfterExit=yes`. Do not read `inactive (dead)` as a failure here
+-- the `status=0/SUCCESS` on both processes is the signal.
+
+This confirms the whole #18 chain end-to-end: package list in a sub-stage -> `growpart` installed ->
+first-boot grow succeeds. Every prior image failed here at exit 127.
+
+**Checkpoint status:** SC1 PASS, SC2 layout PASS, SC2 grow PASS. SC3 (A/B tryboot flip + slot-B recovery
++ default reset to A) is the last untested criterion. Open non-hardware items unchanged: #12 (locked-root
+recovery console, design decision, ties to F8) and #20 (dashboard has no build step).
