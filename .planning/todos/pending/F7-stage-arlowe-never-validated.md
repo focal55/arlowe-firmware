@@ -181,3 +181,24 @@ first-boot grow succeeds. Every prior image failed here at exit 127.
 **Checkpoint status:** SC1 PASS, SC2 layout PASS, SC2 grow PASS. SC3 (A/B tryboot flip + slot-B recovery
 + default reset to A) is the last untested criterion. Open non-hardware items unchanged: #12 (locked-root
 recovery console, design decision, ties to F8) and #20 (dashboard has no build step).
+
+21. **`arlowe-ab` shipped as a dangling symlink — SC3 was untestable, not merely untested (FIXED).**
+    On the rebuilt image, `sudo arlowe-ab status` returns "command not found" even though
+    `/usr/local/sbin/arlowe-ab` exists. It points at `/opt/arlowe/runtime/cli/ab`, which does not exist:
+    the file in the repo was `runtime/cli/arlowe-ab`, the only CLI carrying the `arlowe-` prefix in its
+    own filename. `install-arlowe-cli.sh` builds each link as
+    `arlowe-${cli} -> ${TARGET_DIR}/${cli}` from a hardcoded `CLIS=(... ab)`, so the entry `ab` produced
+    a link to a nonexistent target. `ln -sf` creates a dangling symlink without error, so the installer
+    reported "installed 9 symlinks" and exited 0.
+
+    This is independent of #18 and predates it — SC3 could never have passed on any image built so far.
+    It also means every earlier plan to "run SC3 over serial" was blocked on something no amount of
+    console access would have revealed.
+
+    **Fixes applied:** renamed `runtime/cli/arlowe-ab` -> `runtime/cli/ab` to match the convention every
+    sibling already follows (bare name in `cli/`, `arlowe-` prefix only on the symlink); updated the one
+    doc line that recorded the source path; and made `install-arlowe-cli.sh` fail loudly when a `CLIS`
+    entry has no matching file, instead of installing a dangling link.
+
+    Fifth instance of the same pattern: a Phase-6 deliverable that was never executed, failing silently
+    at build time and surfacing only on hardware.

@@ -28,6 +28,13 @@ install -d -m 0755 "${LINK_DIR}"
 for cli in "${CLIS[@]}"; do
     link="${LINK_DIR}/arlowe-${cli}"
     target="${TARGET_DIR}/${cli}"
+    # ln -sf happily creates a dangling symlink, so a CLIS entry that does not
+    # match a real file installs silently and only surfaces as "command not
+    # found" on the device (F7 #21 -- arlowe-ab shipped broken this way).
+    if [[ ! -e "${target}" ]]; then
+        echo "[install-arlowe-cli] ERROR: no such CLI target: ${target}" >&2
+        exit 1
+    fi
     ln -sf "${target}" "${link}"
 done
 
