@@ -59,9 +59,36 @@ ok "Third-party deps verified."
 # ---------------------------------------------------------------------------
 log "=== Step 2: pi-gen build ==="
 
-if [[ ! -d "${PI_GEN_DIR}" ]]; then
-    fail "pi-gen directory not found at ${PI_GEN_DIR}"
-    exit 1
+# Provision upstream pi-gen at a pinned bookworm tag. Only the arlowe overlay
+# (config, stage-arlowe) is tracked in git; upstream is fetched here. The pin is
+# load-bearing: pi-gen master targets trixie, whose debian.sources names the
+# keyring .pgp (bookworm ships .gpg) and whose stage2 pulls trixie-only rpi-*
+# packages -- both break a RELEASE=bookworm build (F6).
+PIGEN_REF="2026-06-18-raspios-bookworm-arm64"
+PIGEN_MARKER="${PI_GEN_DIR}/.arlowe-pigen-ref"
+
+if [[ -f "${PIGEN_MARKER}" && "$(cat "${PIGEN_MARKER}")" == "${PIGEN_REF}" ]]; then
+    ok "pi-gen pinned at ${PIGEN_REF}"
+else
+    if [[ -f "${PI_GEN_DIR}/build.sh" ]]; then
+        log "pi-gen present but not at the pinned ref — re-provisioning"
+    fi
+    log "Cloning pi-gen at ${PIGEN_REF}..."
+    PIGEN_TMP="$(mktemp -d)"
+    trap 'rm -rf "${PIGEN_TMP}"' EXIT
+    git clone --quiet --branch "${PIGEN_REF}" --depth 1 \
+        https://github.com/RPi-Distro/pi-gen.git "${PIGEN_TMP}/pi-gen"
+    rm -rf "${PIGEN_TMP}/pi-gen/.git"
+    # Carry the arlowe overlay across so the fresh checkout keeps our stage.
+    rm -rf "${PIGEN_TMP}/pi-gen/config" "${PIGEN_TMP}/pi-gen/stage-arlowe"
+    cp -a "${PI_GEN_DIR}/config" "${PIGEN_TMP}/pi-gen/config"
+    cp -a "${PI_GEN_DIR}/stage-arlowe" "${PIGEN_TMP}/pi-gen/stage-arlowe"
+    sudo rm -rf "${PI_GEN_DIR}"
+    mv "${PIGEN_TMP}/pi-gen" "${PI_GEN_DIR}"
+    printf '%s\n' "${PIGEN_REF}" > "${PIGEN_MARKER}"
+    trap - EXIT
+    rm -rf "${PIGEN_TMP}"
+    ok "pi-gen provisioned at ${PIGEN_REF}"
 fi
 
 # pi-gen sets WORK_DIR; default to a canonical build-local path so the

@@ -38,3 +38,14 @@ Option 1 is correct; option 2 is a band-aid.
 - Related bookkeeping: Phase 6 pipeline lives only on `feat/110-arm64-ci-flash`, not `main`.
 </content>
 </invoke>
+
+## RESOLVED 2026-09-08 — option 1 implemented in the repo
+
+`scripts/build-image.sh` now provisions upstream pi-gen itself, pinned to
+`2026-06-18-raspios-bookworm-arm64`, and records the ref in `pi-gen/.arlowe-pigen-ref`. A tree that is
+absent, unmarked, or at a different ref is re-provisioned from a fresh shallow clone with the arlowe
+overlay (`config`, `stage-arlowe`) carried across. `.gitignore` now tracks only the overlay.
+
+This removes the last "fix that exists in exactly one place" from the checkpoint: the bookworm pin was
+a local hand-patch on arlowe-1 with nothing in the repo, so CI or any fresh host would have rebuilt
+straight back into the trixie skew. Same failure class as F7 #18 and #21.

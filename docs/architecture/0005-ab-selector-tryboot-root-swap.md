@@ -63,6 +63,29 @@ Both slots mount the same shared `models` partition (ADR-0004) at `/opt/arlowe/m
 - The persistent default lives in `config.txt` inside the FAT partition; `arlowe-ab` must mount `/boot/firmware` read-write to rewrite it and must sync before rebooting to avoid a partial write on power-loss mid-flip.
 - Boot-count / automatic A↔B rollback on failed boots is deferred to Phase 9. In v1 there is no auto-rollback; manual intervention or recovery-slot self-heal is the recovery path.
 
+## Amendment (2026-09-08) — the persistent default lives in `cmdline.txt`, not `config.txt`
+
+The decision text above says `arlowe-ab` implements the persistent flip by rewriting the `root=` in
+`config.txt`. **The implementation does not, and never did.** `runtime/cli/ab` writes
+`/boot/firmware/cmdline.txt` exclusively (`CMDLINE_FILE="${BOOT_MOUNT}/cmdline.txt"`), and
+`docs/operations/phase-6-ab-recovery.md` documents `cmdline.txt` as the edited file. The code even
+carries the comment "Persistent flips use cmdline.txt exclusively (per ADR-0005)" — citing conformance
+to a decision this document does not actually state.
+
+**The implementation is correct and is now the recorded decision.** Verified on hardware 2026-09-08
+(SC3): `arlowe-ab switch B` rewrote `cmdline.txt`, the device booted slot B, the recovery stub reset the
+default to slot A, and it self-rebooted into A. `arlowe-ab status` and `findmnt /` both confirmed slot A
+afterwards.
+
+Read every "`config.txt`" in the decision text above as "`cmdline.txt`" where it refers to *where the
+persistent `root=` lives*. The `tryboot_a_b=1` / `tryboot.txt` discussion is unaffected — that concerns
+the Phase 9 OTA trial-boot path, which is still reserved and unimplemented.
+
+**Why this matters beyond tidiness:** ADR-0005 is the artifact Phase 9 OTA is meant to build against,
+and it named the wrong file. An OTA implementation written from this document would have edited
+`config.txt` while `arlowe-ab` edited `cmdline.txt`, giving two writers, two sources of truth for the
+active slot, and a corrupted A/B state on the first OTA. Correct before Phase 9 planning starts.
+
 ## References
 
 - Research: `.planning/phases/06-image-build-with-a-b-partitions/06-RESEARCH.md` GATE 2

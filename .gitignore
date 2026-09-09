@@ -63,3 +63,9 @@ node_modules/
 .next/
 .env.local
 .env.*.local
+
+# Upstream pi-gen is provisioned at a pinned tag by scripts/build-image.sh;
+# only the arlowe overlay is tracked.
+/pi-gen/*
+!/pi-gen/config
+!/pi-gen/stage-arlowe
