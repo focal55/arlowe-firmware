@@ -84,7 +84,7 @@ jobs:
             scripts/lib/*.sh \
             pi-gen/stage-arlowe/**/*.sh \
             units/install-units.sh \
-            runtime/cli/arlowe-ab \
+            runtime/cli/ab \
             runtime/recovery/*.sh
 
   linked-issue:

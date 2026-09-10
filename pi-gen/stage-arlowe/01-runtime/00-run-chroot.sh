@@ -136,7 +136,7 @@ if [[ -n "${AXCL_DEB}" ]] && [[ -f "${AXCL_DEB}" ]]; then
     # NPU RUNTIME (module load + inference) is still validated later on real hardware
     # — deferred from the image build. A kernel update on-device would need a driver
     # rebuild (DKMS is the robust long-term answer; out of scope here).
-    IMG_KVER="$(ls /lib/modules 2>/dev/null | grep -- '-rpi-2712$' | sort -V | tail -1)"
+    IMG_KVER="$(find /lib/modules -maxdepth 1 -name '*-rpi-2712' -printf '%f\n' 2>/dev/null | sort -V | tail -1)"
     dpkg-divert --local --rename --add /usr/sbin/modprobe >/dev/null 2>&1 || true
     ln -sf /bin/true /usr/sbin/modprobe
     _uname_overridden=0
