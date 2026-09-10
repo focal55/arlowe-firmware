@@ -410,3 +410,40 @@ entries — the *partition-level* style that ADR-0005 explicitly rejected in fav
     mechanism within one reboot. SD-card wear is the real tradeoff; `Storage=persistent` with a modest
     `SystemMaxUse=` cap is the usual middle ground. Related: [[F3]], which is filed as dev-env
     infrastructure but is actually a product decision about whether a shipped Arlowe is debuggable.
+
+### #28 — TRYBOOT DOES NOT ENGAGE EITHER (2026-09-10 23:30). Both A/B mechanisms disproven.
+
+Owner approved "treat slot B as tryboot-only for v1" as the v1 answer to #25. **It was tested before
+being written up, and it does not work.**
+
+    reboot "0 tryboot"                  -> slot B mount count unchanged (1), root=p2
+    systemctl reboot "0 tryboot"        -> same; systemd confirmed it accepted the argument
+      ("Positional argument to reboot command is deprecated ... Accepting anyway")
+
+**`tryboot.txt` is never read.** Proven with a planted marker: `arlowe_tryboot_marker=1` was inserted
+into `tryboot_cmdline.txt`, and after a tryboot-flagged reboot it did NOT appear in `/proc/cmdline`.
+So the firmware is not loading `tryboot.txt` at all — this is not a case of the firmware reading it and
+then overriding `root=` (which is what it does to `cmdline.txt`, #25).
+
+Bootloader EEPROM is `57db150d` dated 2025-11-05 (an update is available). Tryboot support long predates
+that, so EEPROM age is not an obvious explanation.
+
+**Status of every A/B mechanism tried:**
+| Mechanism | Result |
+|---|---|
+| Persistent flip by rewriting `cmdline.txt` (`arlowe-ab set/switch`) | FAILS — firmware rewrites `root=` back to the booted partition (#25) |
+| One-shot `reboot 0 tryboot` -> `tryboot.txt` | FAILS — `tryboot.txt` never read (#28) |
+| `autoboot.txt` + two FAT boot partitions (partition-level) | UNTESTED — needs ADR-0004 layout change and SC2 rewrite |
+
+**Slot B has never booted, on any image, by any method.** Its ext4 superblock still reads
+`Mount count: 1 / Last mount time: Wed Sep 9 03:03:55 2026` — the single mount performed by
+`partition-image.sh` at image creation.
+
+**Concrete next step: attach a USB-TTL serial console.** `BOOT_UART=1` is already set in the EEPROM, so
+the bootloader prints its own decisions — including whether it honours the tryboot flag and which config
+file it loads. Every conclusion in #25 and #28 was reached indirectly, by file mtimes and ext4 mount
+counts, because the bootloader phase is otherwise unobservable. The July checkpoint plan called for a
+serial adapter and it was never used; it is now the blocking instrument, not a nice-to-have.
+
+**Do not write an ADR yet.** Two of the three candidate mechanisms are disproven and the third is
+untested. An ADR written now would record a decision with no verified mechanism behind it.
