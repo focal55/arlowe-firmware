@@ -269,3 +269,100 @@ halves hold, but no single card has run both. Re-running `arlowe-ab switch B` he
     should gate its expectations on whether `/etc/arlowe/config.yml` exists — the same pairing signal
     SC1 already uses — and report "ready to pair" rather than 14 failures in that state. Owner-facing,
     so it should land before any unit ships.
+
+## FINDING #25 — THE A/B PERSISTENT FLIP DOES NOT WORK (2026-09-10, under investigation)
+
+**SC3 cannot pass on any image built to date, for a reason unrelated to #21.** `arlowe-ab switch B`
+returns success and reboots, but the device always comes back in slot A. Reproduced repeatedly over SSH
+on the clean cert image (ethernet, key auth, hostname `arlowe`, 192.168.1.190).
+
+**Established by direct measurement:**
+- `arlowe-ab set B` writes correctly. `cmdline.txt` reads back as slot B's PARTUUID
+  (`bb382f2e-c33b-4c73-bf03-f9ef11aa2d51`) after `umount` + `mount`, which discards the page cache —
+  so the write genuinely reaches the card.
+- After a reboot, `cmdline.txt` contains slot A (`8096e9f9-...`) **with a fresh mtime**, i.e. it was
+  actively rewritten, not lost.
+- Two runs, same shape: written 21:56:20 -> mtime 21:57:24; written 22:02:40 -> mtime 22:03:56. Both
+  rewrites happened BEFORE the subsequent boot (boots at 21:58:45 and 22:05:20 respectively).
+- `/proc/cmdline` always shows slot A, consistent with the file already being slot A at boot time.
+- **Slot B has never mounted on this card**: `dumpe2fs -h /dev/mmcblk0p3` still reads `Mount count: 1`,
+  `Last mount time: Wed Sep 9 03:03:55` (image creation), `Last mounted on: /tmp/tmp.exSximm7D5`.
+- A sysrq hard reboot (`echo b > /proc/sysrq-trigger`), which skips all userspace shutdown, produced the
+  same result — so a clean-shutdown path is not required for the revert.
+
+**Ruled out by measurement, not reasoning:**
+- Page cache (umount/mount forces a disk read).
+- Firmware ignoring `cmdline.txt` (the file itself changes, with a new mtime).
+- systemd shutdown hooks (`/lib/systemd/system-shutdown/` and `/usr/lib/systemd/system-shutdown/` are
+  both empty).
+- A scheduled job (no cron entries beyond `e2scrub_all`; no systemd timer on a short cadence).
+- `arlowe-recovery.service` (not installed at all in slot A — `list-unit-files` shows only dashboard,
+  face, firstboot, voice).
+- `imager_fixup` (exits unless `systemd.run=/boot/firstrun.sh` is present), `wifi-check.sh` (read-only
+  grep), `arlowe-grow-models` (reads `/proc/cmdline` only).
+
+**The contradiction that remains:** a filesystem-wide search finds no writer of `cmdline.txt` other than
+`arlowe-ab` itself and `arlowe-recovery.sh`, yet the file's mtime advances and its content reverts. One
+of the measurements is being misinterpreted and the mechanism is not yet identified. Do NOT write a fix
+until it is.
+
+26. **`tryboot_a_b=1` is in `config.txt`, where the firmware does not read it.** That key belongs in
+    `autoboot.txt`, which this image does not have. It is therefore inert, and ADR-0005's "Style 2 —
+    file-level A/B" description rests on it doing something it is not doing. Independent of #25, this
+    means the documented A/B mechanism is not the mechanism actually in effect; the image is relying on
+    the plain default (`cmdline.txt` supplies the kernel command line). `include cmdline.txt` in
+    `config.txt` is also wrong — `include` pulls in a *config* fragment, and the kernel command line is
+    already read from `cmdline.txt` by default.
+
+**Corrections to the record this forced:** the 2026-09-08 "SC3 PASS" on the hand-patched card is now
+almost certainly wrong. It rested on two observed reboots plus the default reading slot A afterward —
+both of which are equally consistent with the flip never taking effect. That card has been overwritten,
+so it cannot be re-checked. SC3 has never been demonstrated to work.
+
+### #25 FINAL STATE (2026-09-10, 22:30) — arlowe-ab EXONERATED, mechanism still unidentified
+
+**The decisive test: a plain `sed -i` on `cmdline.txt`, with `arlowe-ab` not involved at all and
+`/boot/firmware` left mounted rw, reverts exactly the same way.**
+
+    22:25:02  sed writes root=PARTUUID=bb382f2e (slot B); sync; verified on disk
+    22:25:03  systemctl reboot
+    22:25:32  cmdline.txt rewritten to root=PARTUUID=8096e9f9 (slot A), fresh mtime
+
+So the A/B flip failure is NOT in arlowe's code. Something in the platform rewrites `root=` in
+`cmdline.txt` to the PARTUUID of the partition that actually booted. `arlowe-ab`'s remount rw/ro dance,
+its temp-file+rename, and its sync are all irrelevant to the outcome.
+
+**Additional evidence gathered:**
+- **Only `cmdline.txt` is touched.** A marker file (`ARLOWE-TEST-MARKER.txt`) written to the same FAT
+  partition in the same session survived the reboot with its original mtime, as did `config.txt.bak`.
+  The partition is not being rolled back; one file is being rewritten by name.
+- **It restores the BOOTED partition's PARTUUID**, which is "fix cmdline up to match reality" behaviour.
+- **Nothing rewrites it while running.** A 200-second idle watch (polling mtime every 2s) showed zero
+  change; the file sat on slot B untouched.
+- **The rewrite lands in the shutdown/firmware window**, consistently 29-38s after the reboot command
+  and always before the kernel's first journal entry.
+- **`tryboot_a_b=1` is NOT the cause.** Commenting it out of `config.txt` changed nothing. (Note it also
+  still exists in `tryboot.txt`, so that test disabled it only for the normal boot path.)
+- **The PARTUUID map is correct.** `lsblk` confirms p2=8096e9f9, p3=bb382f2e, matching
+  `/etc/arlowe/ab-partuuid-map` exactly. `arlowe-ab` writes a valid, resolvable root=.
+- **Ruled out:** page cache (umount/mount re-read), systemd shutdown hooks (both `system-shutdown/`
+  dirs empty), cron/timers (nothing on a short cadence), `arlowe-recovery` (not installed in slot A),
+  `imager_fixup` (gated on `systemd.run=`, and no initramfs is unpacked — `local-bottom` contains only
+  `firstboot_fstrim`, `imager_fixup`, `ntfs_3g`), `wifi-check.sh` (read-only), `arlowe-grow-models`
+  (reads `/proc/cmdline` only), EEPROM config (`BOOT_ORDER=0xf461`, nothing A/B).
+
+**Not yet checked (start here next session):** systemd units with an `ExecStop`/shutdown ordering that
+touch `/boot/firmware` (I only checked the `system-shutdown/` drop-in dirs, not unit `ExecStop=` lines);
+`raspberrypi-sys-mods` package contents in full; whether a *power-cycle* (rather than a reboot) behaves
+differently; and enabling persistent journald ([[F3]]) so the shutdown sequence is actually observable —
+every conclusion above had to be reconstructed from file mtimes because nothing is logged.
+
+**Design implication if this proves to be platform behaviour:** editing a shared `cmdline.txt` is the
+wrong persistence mechanism for the A/B default. The Pi-native approach is `autoboot.txt` with real
+`[all] boot_partition=` / `[tryboot] boot_partition=` entries, which is the partition-level style
+ADR-0005 explicitly rejected in favour of a single shared /boot. That rejection may need revisiting, and
+it is an ADR-level decision, not a patch.
+
+**Test card state left clean:** test artifacts removed, `cmdline.txt` on slot A, `config.txt` restored
+with `tryboot_a_b=1` intact. The Mac's SSH key remains in slot A's `/home/pi/.ssh/authorized_keys` (a
+deviation from the built image; the card is reachable at 192.168.1.190 over ethernet as user `pi`).
