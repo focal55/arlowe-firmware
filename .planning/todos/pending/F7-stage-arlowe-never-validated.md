@@ -366,3 +366,47 @@ it is an ADR-level decision, not a patch.
 **Test card state left clean:** test artifacts removed, `cmdline.txt` on slot A, `config.txt` restored
 with `tryboot_a_b=1` intact. The Mac's SSH key remains in slot A's `/home/pi/.ssh/authorized_keys` (a
 deviation from the built image; the card is reachable at 192.168.1.190 over ethernet as user `pi`).
+
+### #25 MECHANISM IDENTIFIED (2026-09-10 23:06) — THE PI BOOTLOADER REWRITES cmdline.txt
+
+Enabling persistent journald (see #27) made the shutdown window observable for the first time. The
+timeline is decisive:
+
+    23:05:53          cmdline.txt written with slot B (bb382f2e), synced, verified
+    23:05:54.557      systemd-journald[865]: Journal stopped   <- Linux fully down
+    23:06:24          cmdline.txt mtime, content now slot A (8096e9f9)
+    23:07:44          next boot's first kernel entry
+
+**The rewrite happens 30s after Linux shut down and 80s before the next kernel started.** No Linux
+process was alive at that moment, so no userspace or kernel code can be responsible. The only software
+running in that window is the Raspberry Pi bootloader.
+
+**Conclusion: the Pi firmware rewrites `root=` in `cmdline.txt` to the partition it actually booted.**
+This explains every observation: why `arlowe-ab` and a plain `sed` behave identically, why the write
+provably reaches disk and then reverts, why only `cmdline.txt` is touched while a marker file on the
+same FAT partition survives, why nothing changes during a 200s idle watch, and why slot B has never
+mounted (the firmware never boots it, so the recovery stub never gets a chance to run).
+
+**Design implication — this is an ADR-level decision, not a patch.** Editing a shared `cmdline.txt` is
+not a viable persistence mechanism for the A/B default on this platform; the firmware overwrites it.
+The Pi-native mechanism is `autoboot.txt` with real `[all] boot_partition=` / `[tryboot] boot_partition=`
+entries — the *partition-level* style that ADR-0005 explicitly rejected in favour of a single shared
+/boot FAT partition. Options, in rough order of preference:
+  1. Adopt `autoboot.txt` partition-level A/B. Requires two FAT boot partitions, so ADR-0004's layout
+     and ADR-0005's "single shared /boot" decision both need revisiting, and SC2's five-partition
+     layout changes.
+  2. Keep one /boot and drive the flip from the bootloader's own config rather than `cmdline.txt`
+     (needs research into what the Pi 5 bootloader honours and does not overwrite).
+  3. Abandon in-place A/B for v1 and treat slot B purely as a recovery target reached by an explicit
+     `reboot 0 tryboot`, which is the one path the firmware does not fight.
+
+**Do not attempt to fix `arlowe-ab`.** It is correct. The mechanism it implements is the problem.
+
+27. **`journald.conf` ships `Storage=volatile` while the image also creates `/var/log/journal`.** Those
+    contradict: the directory is the conventional signal for persistence, and the explicit setting
+    overrides it, so nothing survives a reboot. A fielded unit that misbehaves therefore keeps no record
+    of why — the same gap as #22 but broader. It also cost several hours tonight: every conclusion had
+    to be reconstructed from file mtimes until this was flipped, and flipping it identified #25's
+    mechanism within one reboot. SD-card wear is the real tradeoff; `Storage=persistent` with a modest
+    `SystemMaxUse=` cap is the usual middle ground. Related: [[F3]], which is filed as dev-env
+    infrastructure but is actually a product decision about whether a shipped Arlowe is debuggable.
