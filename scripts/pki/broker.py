@@ -183,14 +183,8 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="broker.py",
         description="Owner-token CSR broker for the Phase 7 staging PKI (dev host only).",
-        epilog=(
-            "Generate a self-signed staging TLS pair (both paths are gitignored):\n"
-            "  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \\\n"
-            "    -days 30 -subj '/CN=localhost' \\\n"
-            "    -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \\\n"
-            "    -keyout scripts/pki/broker-key.pem -out scripts/pki/broker-cert.pem\n\n"
-            "Required environment: " + ", ".join(REQUIRED_ENV)
-        ),
+        epilog="Required environment: %s.\nSelf-signed TLS pair and the POST %s contract: "
+               "see scripts/pki/README.md." % (", ".join(REQUIRED_ENV), ENDPOINT_PATH),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--host", default="127.0.0.1")
