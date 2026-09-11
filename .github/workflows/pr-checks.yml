@@ -82,6 +82,7 @@ jobs:
             scripts/provision/*.sh \
             scripts/sanitize/*.sh \
             scripts/lib/*.sh \
+            scripts/pki/*.sh \
             pi-gen/stage-arlowe/**/*.sh \
             units/install-units.sh \
             runtime/cli/ab \
