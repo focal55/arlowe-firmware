@@ -1,0 +1,73 @@
+[Unit]
+Description=Arlowe device identity initialization
+After=local-fs.target
+Before=arlowe-firstboot.service multi-user.target
+
+# The identity store lives on the owner_state partition (p4), mounted at
+# /var/lib/arlowe. RequiresMountsFor pulls in that mount unit and FAILS this
+# unit if the mount is not there.
+#
+# Deliberately NOT ConditionPathExists=/var/lib/arlowe/identity. A failed
+# Condition* makes systemd SKIP the unit -- one journal line, no failure state,
+# `systemctl is-failed` says "no". This is the SC2-critical unit: if it is
+# skipped, the device has no identity and nothing reports a problem. This repo
+# has lost roughly seven weeks to exactly that silent-no-op class (F7 #18
+# stage-root package list, #21 dangling symlink, #25 A/B flip). `identity init`
+# exits 5 with a message naming the missing store, so the loud path is already
+# built; do not put a silent one in front of it.
+RequiresMountsFor=/var/lib/arlowe
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# uid 995, nologin, HOME=/var/lib/arlowe. Running as arlowe means the key, CSR
+# and device-id land arlowe:arlowe with no chown step.
+User=arlowe
+Group=arlowe
+# systemd's default UMask is 0022, under which Python creates files 0644 -- which
+# would fail SC3's exact-0600 check. Every file the store writes TODAY goes
+# through write_secret()/update_metadata(), which open with O_EXCL and chmod 0600
+# explicitly, so today's 0600 does not actually depend on this line (measured:
+# running init under umask 0022 still yields 0600 on all five files). The 0077
+# umask below is here so the NEXT file added to the store is 0600 by default
+# rather than 0644 by default. That is the version of this mistake that ships.
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+Environment=ARLOWE_LIB=/opt/arlowe/runtime/lib
+ExecStart=/opt/arlowe/runtime/cli/identity init
+StandardOutput=journal
+StandardError=journal
+
+# Sandbox hardening -- mirrors the six Phase 3 units.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# `init` is entirely offline. AF_UNIX is the journal socket and nothing else.
+# If someone later makes init phone home, the unit fails rather than silently
+# acquiring a network dependency at boot.
+RestrictAddressFamilies=AF_UNIX
+# ProtectSystem=strict makes the whole filesystem read-only except the paths
+# below, so the identity store is the only thing this unit can write -- a hard
+# guarantee that init cannot drop key material under /opt/arlowe.
+ReadWritePaths=/var/lib/arlowe/identity
+
+# No ExecStartPre=arlowe_config_validate, unlike arlowe-face.service: init does
+# not require the config overlay, and on a factory image the overlay is
+# intentionally absent (its absence is the CONFIG-03 pairing trigger).
+
+[Install]
+WantedBy=multi-user.target
