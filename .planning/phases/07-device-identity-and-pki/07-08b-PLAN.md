@@ -229,3 +229,5 @@ Record: the unit's enablement decision with its reason, the `RequiresMountsFor` 
 `ConditionPathExists` was rejected, which loud-failure demonstration was actually run (real missing
 mount vs. approximated), and the chroot guard's error path.
 </output>
+
+**Budget note.** `pr-checks.yml`'s `size-check` excludes lockfiles only, not `.planning/`, so this plan's `SUMMARY.md` (~60-90 lines) counts against the net diff. Budget accordingly.

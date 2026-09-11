@@ -200,3 +200,5 @@ the client against them), the environment variables the broker requires, the
 `ARLOWE_BROKER_CA_BUNDLE` staging override, the boto3 pin, and the local test invocation for
 `scripts/pki/tests/`.
 </output>
+
+**Budget note.** `pr-checks.yml`'s `size-check` excludes lockfiles only, not `.planning/`, so this plan's `SUMMARY.md` (~60-90 lines) counts against the net diff. Budget accordingly.

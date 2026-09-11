@@ -195,3 +195,5 @@ Record: the six `.staging-env` variable names verbatim (07-05b's broker reads fo
 07-09's harness sources the file), the `--prefix` default, `revoke.sh`'s flags and exit behaviour,
 and the teardown ordering constraint AWS imposes on certificate deletion.
 </output>
+
+**Budget note.** `pr-checks.yml`'s `size-check` excludes lockfiles only, not `.planning/`, so this plan's `SUMMARY.md` (~60-90 lines) counts against the net diff. Budget accordingly.
