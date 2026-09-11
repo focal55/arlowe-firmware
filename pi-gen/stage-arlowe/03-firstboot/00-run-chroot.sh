@@ -1,6 +1,10 @@
 #!/bin/bash
-# Chroot step: install the arlowe-firstboot.service unit and enable it so it
-# runs ONCE on first boot, then disables itself via a sentinel file.
+# Chroot step. Installs and enables the units a factory device needs on its
+# very first boot:
+#   1. arlowe-firstboot.service   — runs ONCE, then disables itself via a
+#                                   sentinel file
+#   2. arlowe-grow-models         — the grow script firstboot's ExecStartPre calls
+#   3. arlowe-identity-init.service — device-id + keypair + CSR (Phase 7, SC2)
 #
 # The pairing daemon itself is Phase 8. This hook only brings the device to
 # "armed / ready to pair" state:
@@ -8,6 +12,8 @@
 #   (b) logs "ready to pair" to the journal
 #   (c) is the seam for plan 06-04's models partition grow-to-fill resize hook
 #       (the resize happens BEFORE the models partition is mounted ro, per 06-04's wiring)
+#   (d) enables arlowe-identity-init.service so the device has an identity
+#       before anyone pairs it
 #
 # The models partition is read-only at runtime in v1. The first-boot grow
 # (resize2fs of the models partition device) happens once here via the resize
@@ -100,3 +106,39 @@ else
     echo "[03-firstboot] WARNING: arlowe-grow-models.sh not found — grow script not installed" >&2
     echo "[03-firstboot]   The firstboot service ExecStartPre= will fail without it." >&2
 fi
+
+# ---------------------------------------------------------------------------
+# Enable arlowe-identity-init.service.
+#
+# DELIBERATELY ENABLED, unlike the six runtime units (face, voice, dashboard,
+# qwen-api, qwen-tokenizer, whisper-stt), which ship installed-but-disabled
+# because Phase 8's pairing daemon starts them after pairing. This one must run
+# on a factory device BEFORE any pairing: SC2 requires that a device boots and
+# derives its device-id, keypair and CSR with no human, no network and no
+# account. Do not "fix" it to match its siblings.
+#
+# units/install-units.sh put the file in /etc/systemd/system earlier in the
+# chain (01-runtime step 4). Verify that before linking: systemd silently
+# IGNORES a wants symlink whose target unit is missing — no error, no failure
+# state, the unit simply never runs. That is the same silent-no-op class as
+# F7 #18 (stage-root package list) and #21 (dangling CLI symlink), and it would
+# leave a shipped device with no identity and nothing to say so.
+# ---------------------------------------------------------------------------
+IDENTITY_UNIT="arlowe-identity-init.service"
+IDENTITY_UNIT_PATH="/etc/systemd/system/${IDENTITY_UNIT}"
+
+if [[ ! -f "${IDENTITY_UNIT_PATH}" ]]; then
+    echo "[03-firstboot] ERROR: ${IDENTITY_UNIT_PATH} is missing." >&2
+    echo "[03-firstboot]   units/install-units.sh (01-runtime step 4) should have" >&2
+    echo "[03-firstboot]   installed it from units/${IDENTITY_UNIT}." >&2
+    echo "[03-firstboot]   Refusing to create a wants symlink to a missing unit:" >&2
+    echo "[03-firstboot]   systemd ignores those silently and the device would" >&2
+    echo "[03-firstboot]   ship with no device identity (SC2)." >&2
+    exit 1
+fi
+
+install -d -m 0755 /etc/systemd/system/multi-user.target.wants
+ln -sf "${IDENTITY_UNIT_PATH}" \
+    "/etc/systemd/system/multi-user.target.wants/${IDENTITY_UNIT}"
+
+echo "[03-firstboot] ${IDENTITY_UNIT} enabled"
