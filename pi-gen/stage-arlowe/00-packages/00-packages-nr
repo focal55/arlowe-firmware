@@ -40,3 +40,10 @@ npm
 # "growpart: command not found" (exit 127) and the models partition never grows.
 cloud-guest-utils
 gdisk
+
+# Phase 7 device identity / PKI (ADR-0007). The identity CLI runs under system
+# python3 -- /opt/arlowe/venvs is not populated by the image build -- so these must
+# come from apt, not pip. python3-cryptography provides P-256 keygen + CSR building;
+# python3-requests provides the mutual-TLS call to the IoT credentials provider.
+python3-cryptography
+python3-requests

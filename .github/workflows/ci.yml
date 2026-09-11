@@ -35,9 +35,10 @@ jobs:
   # This job is the enforcement authority for the Debian bookworm cryptography
   # API floor (38.0.4) that runtime/lib code must stay within. The image runs
   # system python3 with apt packages -- /opt/arlowe/venvs is empty -- so a pip
-  # resolve would only approximate the real surface. Keep the apt list below a
-  # superset of the Python entries in
-  # pi-gen/stage-arlowe/00-packages/00-packages-nr. Do not rename this job:
+  # resolve would only approximate the real surface. The apt list below must
+  # cover every python3-* entry in pi-gen/stage-arlowe/00-packages/00-packages-nr
+  # that runtime/lib imports; the Pi-only ones (python3-rpi.gpio, python3-spidev)
+  # have no amd64 equivalent and are stubbed in tests. Do not rename this job:
   # plan 07-06 cites it by name as the proof its 38.0.4 floor claim rests on.
   python-floor-bookworm:
     name: Python tests (Debian bookworm API floor)
