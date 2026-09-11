@@ -62,7 +62,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          # pnpm 9 rejects runtime/dashboard/pnpm-workspace.yaml ("packages field
+          # missing or empty") because it holds settings-only keys. The project is
+          # developed with 10 (node_modules/.modules.yaml records pnpm@10.15.0).
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
