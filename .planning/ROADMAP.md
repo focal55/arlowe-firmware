@@ -308,7 +308,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Config overlay | 4/4 | Complete (passed-with-notes; SC4 on-device check deferred to Phase 6/12) | 2026-06-07 |
 | 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
 | 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
-| 7. Device identity and PKI | 0/TBD | Not started | - |
+| 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |
