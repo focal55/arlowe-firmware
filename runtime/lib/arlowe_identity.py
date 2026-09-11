@@ -5,17 +5,15 @@ Installed flat at /opt/arlowe/runtime/lib/arlowe_identity.py; import as:
     from arlowe_identity import ensure_device_id
 
 Standard library only. Every Phase 7 consumer (CSR generation, the cloud client,
-the identity CLI) takes its paths and its secret writer from here, so the store
-is defined in exactly one place.
+the identity CLI) takes its paths and its secret writer from here.
 
 Store lifecycle: /var/lib/arlowe is a dedicated ext4 partition (p4, owner_state)
 shared by both A/B slots, so the identity survives a slot flip and an app OTA and
 is destroyed only by factory reset (PAIR-07).
 
 Testing overrides: ARLOWE_IDENTITY_DIR relocates the store, ARLOWE_SERIAL_ROOT
-prefixes the hardware serial sources. Both are read at import time, mirroring
-arlowe_config's ARLOWE_*_PATH pattern, so tests monkeypatch the module attributes
-as well as the environment.
+prefixes the serial sources. Both are read at import time, mirroring
+arlowe_config's ARLOWE_*_PATH pattern, so tests monkeypatch module attributes too.
 """
 
 import hashlib
@@ -63,9 +61,9 @@ def write_secret(path: Path, data: bytes) -> None:
     documented exception and belongs to update_metadata.
 
     O_EXCL is the write-once guarantee, so an existing path raises FileExistsError
-    by design; a caller that means to replace key material must unlink it first and
-    say so. The explicit chmod after the open makes the mode independent of the
-    process umask, which otherwise masks os.open's mode argument.
+    by design; a caller that means to replace key material must unlink it first.
+    The explicit chmod makes the mode independent of the process umask, which
+    otherwise masks os.open's mode argument.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, SECRET_MODE)
@@ -89,9 +87,9 @@ def read_serial() -> tuple:
 
     rpi-duid is preferred because it is factory-allocated rather than RNG-derived
     and matches the 2D data-matrix laser-etched on the PCB, which is what RMA and
-    support quote. Device-tree properties are NUL-terminated, so raw bytes are
-    stripped before use. Exhausting every source raises rather than defaulting:
-    on real hardware that is a boundary condition worth failing loudly on.
+    support quote. Device-tree properties are NUL-terminated. Exhausting every
+    source raises rather than defaulting: on real hardware that is a boundary
+    condition worth failing loudly on.
     """
     for tag, path in SERIAL_SOURCES:
         try:
@@ -110,10 +108,10 @@ def read_serial() -> tuple:
 def ensure_entropy() -> bytes:
     """Return the per-device entropy, generating it exactly once.
 
-    This is not a TPM and not hardware-backed. It exists to close the documented
-    Pi-4-era duplicate-serial hole, to guarantee two units that share a serial
-    cannot derive the same id, and to keep the id unguessable from the serial
-    alone so it is not an enumeration vector.
+    This is not a TPM and not hardware-backed. It closes the documented Pi-4-era
+    duplicate-serial hole, guarantees two units sharing a serial cannot derive the
+    same id, and keeps the id unguessable from the serial alone so it is not an
+    enumeration vector.
     """
     if ENTROPY_PATH.exists():
         return ENTROPY_PATH.read_bytes()
@@ -154,10 +152,9 @@ def update_metadata(**fields) -> dict:
     Atomicity is not decorative. An unlink-then-rewrite leaves a window where
     identity.json does not exist, and a power cut inside it permanently loses
     serial_source and derived_at, because ensure_device_id short-circuits on the
-    persisted device-id and never rewrites metadata. os.replace closes the window:
-    a reader sees either the old file or the new one, never neither. The temp file
-    is opened O_EXCL and chmod'd explicitly so it is never world-readable even for
-    an instant under a permissive umask -- a naive open(tmp, "w") would inherit it.
+    persisted device-id and never rewrites metadata. os.replace closes the window.
+    The temp file is opened O_EXCL and chmod'd explicitly so it is never
+    group-readable even briefly -- a naive open(tmp, "w") would inherit the umask.
     """
     merged = {**read_metadata(), **fields}
     data = json.dumps(merged, indent=2, sort_keys=True).encode()
@@ -207,13 +204,13 @@ def resolve_hostname(template: str, device_id: str) -> str:
 
     The substituted value is "d" + device_id[:12], NOT the raw id, and that is not
     cosmetic. scripts/sanitize/check.sh matches tracked files and the mounted
-    rootfs with `rg -iF` against scripts/sanitize/banlist.txt, whose entries
-    include one of the form <this prefix>-<digit>. Fixed-string matching has no
-    word boundaries, so a hostname whose first substituted character is that digit
+    rootfs with `rg -iF` against scripts/sanitize/banlist.txt, one of whose entries
+    has the form <this hostname prefix>-<digit>. Fixed-string matching has no word
+    boundaries, so a hostname whose first substituted character is that digit
     contains the banned literal and trips the gate -- and --scan-dir mode, which
     build-image.sh uses over the slot-A rootfs, ignores .sanitize-allowlist, so
     there is no exception to grant. The constant "d" forces a letter immediately
-    after the prefix, and hex digits cannot spell any other banlist entry. Do not
+    after the prefix, and hex digits cannot spell any other entry. Do not
     "simplify" this back to the raw id.
     """
     if HOSTNAME_PLACEHOLDER not in template:
