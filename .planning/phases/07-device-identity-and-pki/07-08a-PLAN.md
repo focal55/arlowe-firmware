@@ -114,9 +114,10 @@ the machine shape. Exit 0 even when unprovisioned; unpaired is a correct state, 
    **Do not call `write_secret` on `METADATA_PATH` here, and do not "fix" this by removing `O_EXCL`
    from `write_secret`.** `identity.json` already exists at this point — `ensure_device_id` created
    it in step 1 — so a direct `write_secret` raises `FileExistsError`. `update_metadata` is the
-   sanctioned read-merge-unlink-rewrite path and preserves the 0600 mode guarantee; `O_EXCL` is the
-   write-once property protecting `device.key`, `device-entropy` and `device-id` and must not be
-   weakened to make a metadata update convenient.
+   sanctioned read-merge-and-atomically-replace path (`O_EXCL` temp file + explicit chmod +
+   `os.replace`); it preserves the 0600 mode guarantee and cannot lose the derivation fields to a
+   power cut. `O_EXCL` on `write_secret` is the write-once property protecting `device.key`,
+   `device-entropy` and `device-id` and must not be weakened to make a metadata update convenient.
 5. Print the certificate id and the thing name; `--json` for the machine shape.
 
 Defaults: `--ca-broker-url` falls back to `config["identity"]["provisioning_url"]` when omitted;
@@ -164,7 +165,18 @@ Offline smoke: `D=$(mktemp -d); ARLOWE_IDENTITY_DIR=$D ARLOWE_SERIAL_ROOT=runtim
 Tests at `runtime/lib/tests/test_identity_cli.py`, kept in the `runtime/lib` suite so CI's
 `python-test` and `python-floor-bookworm` jobs both run them. Import the CLI as a module via
 `importlib.util.spec_from_file_location` — the file has no `.py` extension — and drive `main(argv)`
-in-process against `ARLOWE_IDENTITY_DIR=<tmp>` with `arlowe_cloud` mocked. Cover:
+in-process against `ARLOWE_IDENTITY_DIR=<tmp>` with `arlowe_cloud` mocked.
+
+**Resolve the CLI path relative to the test file, not the cwd:**
+`Path(__file__).resolve().parents[3] / "runtime/cli/identity"`
+(`runtime/lib/tests/test_identity_cli.py` -> `parents[3]` is the repo root). 07-03 carries the same
+rule for the banlist fixture and it applies identically here: a cwd-relative path makes the suite
+pass or fail depending on where pytest was invoked from, and CI's `python-test` and
+`python-floor-bookworm` jobs run from the repo root while a developer may not. Assert the path
+exists and **fail** — do not skip — with a message naming it if it does not; a silently-skipped CLI
+suite is indistinguishable from a passing one.
+
+Cover:
 
 - `init` twice is idempotent and returns the same device-id.
 - `init` against a nonexistent identity directory exits 5 and creates nothing.

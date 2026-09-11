@@ -177,7 +177,14 @@ this override exists for **staging only**, and the local test invocation.
 - `bash scripts/sanitize/check.sh` exits 0.
 - `git grep -nE 'credentials\.iot\.[a-z0-9-]+\.amazonaws\.com|[0-9]{12}' -- scripts/pki` returns nothing.
 - `grep -rn "scripts/pki" pi-gen/` returns nothing — no part of this ships in the image.
-- Net diff under 350 lines.
+- Net diff under **425** lines. **This is an honest number, not the 350 an earlier draft carried.**
+  The declared `min_lines` alone (100 + 60) floor this at 160, and a broker implementing the frozen
+  request/response contract with `hmac.compare_digest` auth, CSR-CN-versus-device_id validation and
+  four distinct error codes, plus a test per response code against a mocked IoT client and the
+  README, realistically lands near 395. That clears the 600-line atomic-PR cap, so the 07-05a/07-05b
+  split is doing its job — the split's whole purpose was fitting under that cap, and a stated number
+  the artifact list already exceeds undermines it. Do not hit this number by dropping error-path
+  tests: every code in the frozen contract is what plan 07-07 implements its client against.
 </verification>
 
 <success_criteria>

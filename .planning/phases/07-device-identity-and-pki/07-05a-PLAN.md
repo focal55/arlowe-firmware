@@ -172,7 +172,14 @@ describe the broker here, it does not exist yet.
 - `bash scripts/sanitize/check.sh` exits 0.
 - `git ls-files scripts/pki` lists no `.staging-env` and no `.pem`, and no file containing an AWS account id or an endpoint prefix: `git grep -nE 'credentials\.iot\.[a-z0-9-]+\.amazonaws\.com|[0-9]{12}' -- scripts/pki` returns nothing.
 - No file under `scripts/pki/` is referenced by any `pi-gen/stage-arlowe/**` script: `grep -rn "scripts/pki" pi-gen/` returns nothing.
-- Net diff under 350 lines.
+- Net diff under **400** lines. **This is an honest number, not the 350 an earlier draft carried.**
+  The declared `min_lines` alone (80 + 50 + 40, plus `revoke.sh`) floor this near 200, and four
+  shell scripts with `set -euo pipefail`, argument validation, idempotent create/delete paths and
+  the `.gitignore` change realistically land at 310-400. Both figures clear the 600-line atomic-PR
+  cap, so the work is correctly sized — only the stated number was wrong, and a stated number that
+  the plan's own artifact list exceeds is worse than no number, because it invites an executor to
+  trim the teardown paths to hit it. Do not trim teardown coverage: an unreversed staging resource
+  is a recurring bill.
 </verification>
 
 <success_criteria>
