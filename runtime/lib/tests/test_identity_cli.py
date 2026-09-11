@@ -14,6 +14,7 @@ all of runtime/ into /opt/arlowe/runtime/, which is exactly the tree plan 07-04'
 build gate scans for identity material.
 """
 
+import importlib.machinery
 import importlib.util
 import json
 import sys
@@ -57,8 +58,14 @@ EXPIRATION = "2099-01-01T00:00:00Z"
 
 
 def _load_cli():
-    """Import the extensionless CLI file as a module."""
-    spec = importlib.util.spec_from_file_location("arlowe_identity_cli", CLI_PATH)
+    """Import the extensionless CLI file as a module.
+
+    An explicit SourceFileLoader is required: spec_from_file_location infers the
+    loader from the suffix and returns None for a file that has none.
+    """
+    name = "arlowe_identity_cli"
+    loader = importlib.machinery.SourceFileLoader(name, str(CLI_PATH))
+    spec = importlib.util.spec_from_file_location(name, CLI_PATH, loader=loader)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -130,9 +137,13 @@ def credentials():
             "sessionToken": SESSION_TOKEN, "expiration": EXPIRATION}
 
 
-def provision(capsys, *extra):
+def provision(capsys, *extra, token=OWNER_TOKEN):
+    """Drive a successful provision. token=None leaves extra to supply the token."""
+    argv = ["provision", "--ca-broker-url", BROKER_URL, *extra]
+    if token is not None:
+        argv += ["--owner-token", token]
     with mock.patch.object(cloud, "request_certificate", return_value=issuance()) as post:
-        code, output = run(capsys, "provision", "--ca-broker-url", BROKER_URL, *extra)
+        code, output = run(capsys, *argv)
     return code, output, post
 
 
@@ -145,11 +156,19 @@ def test_init_is_idempotent(store, config, capsys):
 
 
 def test_init_resolves_a_hostname_free_of_founder_literals(store, config, capsys):
+    """The substituted segment must open with a letter.
+
+    scripts/sanitize/banlist.txt carries an entry of the form <prefix>-<digit> and
+    the gate matches it with rg -iF, which has no word boundaries. Spelling that
+    entry here to assert its absence would itself trip the gate, so the property is
+    asserted directly instead.
+    """
     code, output = run(capsys, "init", "--json")
-    hostname = json.loads(output)["hostname"]
+    prefix, _, substituted = json.loads(output)["hostname"].partition("-")
     assert code == 0
-    assert hostname.startswith("arlowe-d")
-    assert "arlowe-1" not in hostname
+    assert prefix == "arlowe"
+    assert substituted[0].isalpha()
+    assert len(substituted) == 13
 
 
 def test_init_without_an_identity_dir_exits_5_and_creates_nothing(monkeypatch, tmp_path, capsys):
@@ -239,7 +258,7 @@ def test_provision_accepts_the_token_from_a_file_or_the_environment(store, confi
     else:
         monkeypatch.setenv("ARLOWE_OWNER_TOKEN", OWNER_TOKEN)
 
-    code, output, post = provision(capsys, *extra)
+    code, output, post = provision(capsys, *extra, token=None)
     assert code == 0
     assert post.call_args[0][1] == OWNER_TOKEN
     assert OWNER_TOKEN not in output
