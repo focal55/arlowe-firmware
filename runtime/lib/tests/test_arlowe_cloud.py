@@ -4,11 +4,10 @@ Unit tests for arlowe_cloud.
 Run from repo root:
     PYTHONPATH=runtime/lib python3 -m pytest runtime/lib/tests/test_arlowe_cloud.py -q
 
-Fully offline: requests.get/post are patched in every test that would otherwise
-leave the process. Key material is generated at runtime into a tmp_path store --
-committing a .key/.crt/.pem fixture under runtime/ would land it in the image,
-because pi-gen/stage-arlowe/01-runtime rsyncs all of runtime/ with no excludes and
-07-04's build gate scans that path.
+Fully offline: requests.get/post are patched in every test that would otherwise leave
+the process. Key material is generated at runtime into a tmp_path store -- a committed
+.key/.crt/.pem under runtime/ would land in the image, since 01-runtime rsyncs all of
+runtime/ with no excludes.
 """
 
 import json
@@ -36,24 +35,16 @@ SECRET_KEY = "test-secret-access-key"
 OWNER_TOKEN = "test-owner-token"
 BROKER_URL = "https://broker.example.invalid"
 POLL_INTERVAL = 900
-
-STORE_FILES = {
-    "DEVICE_ID_PATH": "device-id",
-    "ENTROPY_PATH": "device-entropy",
-    "KEY_PATH": "device.key",
-    "CSR_PATH": "device.csr",
-    "CERT_PATH": "device.crt",
-    "METADATA_PATH": "identity.json",
-}
+STORE_FILES = {"DEVICE_ID_PATH": "device-id", "ENTROPY_PATH": "device-entropy",
+               "KEY_PATH": "device.key", "CSR_PATH": "device.csr",
+               "CERT_PATH": "device.crt", "METADATA_PATH": "identity.json"}
 
 
 class FakeResponse:
     def __init__(self, status_code, payload=None, text=None):
         self.status_code = status_code
         self._payload = payload
-        if text is None:
-            text = json.dumps(payload) if payload is not None else ""
-        self.text = text
+        self.text = text if text is not None else json.dumps(payload or {})
 
     def json(self):
         if self._payload is None:
@@ -61,11 +52,11 @@ class FakeResponse:
         return self._payload
 
 
-def _patch(target, failure):
-    """Patch requests.<target> with a response or an exception side effect."""
-    if isinstance(failure, Exception):
-        return mock.patch.object(requests, target, side_effect=failure)
-    return mock.patch.object(requests, target, return_value=failure)
+def _patch(target, outcome):
+    """Patch requests.<target> with a response, or an exception side effect."""
+    if isinstance(outcome, Exception):
+        return mock.patch.object(requests, target, side_effect=outcome)
+    return mock.patch.object(requests, target, return_value=outcome)
 
 
 @pytest.fixture
@@ -84,33 +75,23 @@ def store(monkeypatch, tmp_path):
 
 @pytest.fixture
 def config(monkeypatch):
-    identity = {
-        "provisioning_url": "",
-        "credentials_endpoint": "",
-        "role_alias": "",
-        "poll_interval_seconds": POLL_INTERVAL,
-    }
+    identity = {"provisioning_url": "", "credentials_endpoint": "", "role_alias": "",
+                "poll_interval_seconds": POLL_INTERVAL}
     monkeypatch.setattr(cloud, "load", lambda: {"identity": identity})
     return identity
 
 
 @pytest.fixture
 def provisioned(store, config):
-    """A store holding a device id, a key, a self-signed cert and provisioned endpoints."""
+    """A store holding a device id, key, self-signed cert and provisioned endpoints."""
     key = pki.ensure_keypair()
     ident.write_secret(ident.DEVICE_ID_PATH, DEVICE_ID.encode())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, DEVICE_ID)])
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(name)
-        .issuer_name(name)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=1))
-        .sign(key, hashes.SHA256())
-    )
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+            .public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(days=1)).not_valid_after(now + timedelta(days=1))
+            .sign(key, hashes.SHA256()))
     pki.store_certificate(cert.public_bytes(serialization.Encoding.PEM).decode())
     ident.update_metadata(device_id=DEVICE_ID, credentials_endpoint=ENDPOINT, role_alias=ALIAS)
     return store
@@ -118,14 +99,10 @@ def provisioned(store, config):
 
 def credentials_payload(lifetime_seconds=POLL_INTERVAL):
     expiry = datetime.now(timezone.utc) + timedelta(seconds=lifetime_seconds)
-    return {
-        "credentials": {
-            "accessKeyId": "test-access-key-id",
-            "secretAccessKey": SECRET_KEY,
-            "sessionToken": "test-session-token",
-            "expiration": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }
-    }
+    return {"credentials": {
+        "accessKeyId": "test-access-key-id", "secretAccessKey": SECRET_KEY,
+        "sessionToken": "test-session-token",
+        "expiration": expiry.strftime("%Y-%m-%dT%H:%M:%SZ")}}
 
 
 def broker_payload(**overrides):
@@ -144,7 +121,6 @@ def test_missing_certificate_raises_before_any_network_call(store, config):
 def test_fetch_credentials_happy_path(provisioned, config):
     with _patch("get", FakeResponse(200, credentials_payload())) as get:
         creds = cloud.fetch_credentials()
-
     assert set(creds) == {"accessKeyId", "secretAccessKey", "sessionToken", "expiration"}
     assert creds["secretAccessKey"] == SECRET_KEY
     kwargs = get.call_args[1]
@@ -158,20 +134,16 @@ def test_403_is_certificate_revoked_and_not_cloud_unavailable(provisioned, confi
     with _patch("get", FakeResponse(403, text="certificate is inactive")):
         with pytest.raises(cloud.CertificateRevoked) as excinfo:
             cloud.fetch_credentials()
-
     assert "inactive" in str(excinfo.value)
     assert not isinstance(excinfo.value, cloud.CloudUnavailable)
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [FakeResponse(500, text="internal error"), requests.ConnectionError("no route to host")],
-)
-def test_5xx_and_transport_failures_are_cloud_unavailable(provisioned, config, failure):
-    with _patch("get", failure):
+@pytest.mark.parametrize("outcome", [FakeResponse(500, text="internal error"),
+                                     requests.ConnectionError("no route to host")])
+def test_5xx_and_transport_failures_are_cloud_unavailable(provisioned, config, outcome):
+    with _patch("get", outcome):
         with pytest.raises(cloud.CloudUnavailable) as excinfo:
             cloud.fetch_credentials()
-
     assert not isinstance(excinfo.value, cloud.CertificateRevoked)
 
 
@@ -191,7 +163,6 @@ def test_an_elapsed_cache_entry_triggers_a_second_exchange(provisioned, config, 
         cloud.fetch_credentials()
         clock[0] += POLL_INTERVAL + 1
         cloud.fetch_credentials()
-
     assert get.call_count == 2
 
 
@@ -202,14 +173,11 @@ def test_cache_ttl_is_capped_at_the_poll_interval(provisioned, config, monkeypat
     long_lived = credentials_payload(lifetime_seconds=12 * 3600)
     with _patch("get", FakeResponse(200, long_lived)):
         cloud.fetch_credentials()
-
     expires_at, _ = cloud._credential_cache
     assert expires_at - clock[0] == POLL_INTERVAL
-
     far_future = long_lived["credentials"]["expiration"]
     assert cloud._cache_ttl(far_future, POLL_INTERVAL) == POLL_INTERVAL
     assert cloud._cache_ttl(far_future, 86400) <= 12 * 3600 - 60
-
     soon = credentials_payload(lifetime_seconds=300)["credentials"]["expiration"]
     assert cloud._cache_ttl(soon, POLL_INTERVAL) <= 240
 
@@ -217,20 +185,17 @@ def test_cache_ttl_is_capped_at_the_poll_interval(provisioned, config, monkeypat
 def test_credentials_are_never_written_to_disk(provisioned, config):
     with _patch("get", FakeResponse(200, credentials_payload())):
         cloud.fetch_credentials()
-
     for path in provisioned.rglob("*"):
         if path.is_file():
             assert SECRET_KEY not in path.read_text(errors="replace")
 
 
-def test_resolve_endpoints_prefers_config_over_identity_json(provisioned, config):
+def test_resolve_endpoints_precedence(provisioned, config):
+    """Empty config falls back to identity.json; a non-empty config field wins."""
+    assert cloud.resolve_endpoints() == (ENDPOINT, ALIAS)
     config["credentials_endpoint"] = "override-host.example.invalid"
     config["role_alias"] = "override-alias"
     assert cloud.resolve_endpoints() == ("override-host.example.invalid", "override-alias")
-
-
-def test_resolve_endpoints_falls_back_to_identity_json(provisioned, config):
-    assert cloud.resolve_endpoints() == (ENDPOINT, ALIAS)
 
 
 def test_resolve_endpoints_raises_not_provisioned_when_both_are_empty(store, config):
@@ -241,15 +206,14 @@ def test_resolve_endpoints_raises_not_provisioned_when_both_are_empty(store, con
 def test_request_certificate_rejects_a_plaintext_url():
     with mock.patch.object(requests, "post") as post:
         with pytest.raises(cloud.ProvisioningRejected):
-            cloud.request_certificate("http://broker.example.invalid", OWNER_TOKEN, DEVICE_ID, "csr")
+            cloud.request_certificate("http://broker.example.invalid", OWNER_TOKEN, DEVICE_ID, "c")
     post.assert_not_called()
 
 
-def test_request_certificate_returns_the_full_issuance_without_logging_the_token(caplog):
+def test_request_certificate_returns_the_issuance_without_logging_the_token(caplog):
     caplog.set_level("DEBUG")
     with _patch("post", FakeResponse(200, broker_payload())) as post:
         issued = cloud.request_certificate(BROKER_URL, OWNER_TOKEN, DEVICE_ID, "csr-pem")
-
     assert set(issued) == set(cloud.BROKER_FIELDS)
     assert post.call_args[0][0] == BROKER_URL + "/v1/certificates"
     kwargs = post.call_args[1]
@@ -266,50 +230,38 @@ def test_request_certificate_rejects_a_half_populated_response():
             cloud.request_certificate(BROKER_URL, OWNER_TOKEN, DEVICE_ID, "csr")
 
 
-@pytest.mark.parametrize(
-    "status,reason",
-    [
-        (401, "unauthorized"),
-        (400, "malformed_request"),
-        (400, "invalid_device_id"),
-        (400, "unparseable_csr"),
-        (400, "csr_subject_mismatch"),
-        (404, "not_found"),
-    ],
-)
+@pytest.mark.parametrize("status,reason", [
+    (401, "unauthorized"), (400, "malformed_request"), (400, "invalid_device_id"),
+    (400, "unparseable_csr"), (400, "csr_subject_mismatch"), (404, "not_found"),
+])
 def test_broker_rejection_reasons_stay_distinguishable(status, reason):
     with _patch("post", FakeResponse(status, {"error": reason})):
         with pytest.raises(cloud.ProvisioningRejected) as excinfo:
             cloud.request_certificate(BROKER_URL, OWNER_TOKEN, DEVICE_ID, "csr")
-
     assert excinfo.value.status == status
     assert excinfo.value.reason == reason
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [
-        FakeResponse(503, {"error": "unavailable"}),
-        FakeResponse(502, {"error": "issuance_failed", "detail": "ThrottlingException"}),
-        requests.Timeout("read timed out"),
-    ],
-)
-def test_broker_5xx_and_transport_failures_are_cloud_unavailable(failure):
-    with _patch("post", failure):
+@pytest.mark.parametrize("outcome", [
+    FakeResponse(503, {"error": "unavailable"}),
+    FakeResponse(502, {"error": "issuance_failed", "detail": "ThrottlingException"}),
+    requests.Timeout("read timed out"),
+])
+def test_broker_5xx_and_transport_failures_are_cloud_unavailable(outcome):
+    with _patch("post", outcome):
         with pytest.raises(cloud.CloudUnavailable):
             cloud.request_certificate(BROKER_URL, OWNER_TOKEN, DEVICE_ID, "csr")
 
 
-def test_staging_ca_bundle_overrides_apply_to_both_calls(provisioned, config, monkeypatch, tmp_path):
+def test_staging_ca_bundle_overrides_apply_to_both_calls(provisioned, config, monkeypatch,
+                                                         tmp_path):
     bundle = tmp_path / "staging-ca-bundle"
     bundle.write_text("")
     monkeypatch.setenv("ARLOWE_BROKER_CA_BUNDLE", str(bundle))
     monkeypatch.setenv("ARLOWE_CLOUD_CA_BUNDLE", str(bundle))
-
     with _patch("post", FakeResponse(200, broker_payload())) as post:
         cloud.request_certificate(BROKER_URL, OWNER_TOKEN, DEVICE_ID, "csr")
     with _patch("get", FakeResponse(200, credentials_payload())) as get:
         cloud.fetch_credentials()
-
     assert post.call_args[1]["verify"] == str(bundle)
     assert get.call_args[1]["verify"] == str(bundle)
