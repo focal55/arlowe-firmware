@@ -68,4 +68,66 @@ bounds SC4's revocation window to a single polling interval; the reasoning is in
 
 ## Running the broker
 
-Added by plan 07-05b.
+`broker.py` is the owner-authenticated CSR signer, **run on the dev host only**. It stands in for
+whatever backend eventually does this job. Its token check is deliberately issuer-agnostic: it
+compares the bearer token against `$ARLOWE_BROKER_TOKEN` with `hmac.compare_digest` and does not
+know or care who minted it, so a hand-minted token for one unit and a token from a future
+account system both work here unchanged. Do not add owner-account logic to it.
+
+```bash
+python3 -m venv .venv-broker && .venv-broker/bin/pip install -r scripts/pki/requirements.txt
+
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
+  -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+  -keyout scripts/pki/broker-key.pem -out scripts/pki/broker-cert.pem
+
+set -a; . scripts/pki/.staging-env; set +a
+export ARLOWE_BROKER_TOKEN="$(openssl rand -hex 32)"     # hand-minted; never committed
+.venv-broker/bin/python scripts/pki/broker.py --port 8443
+```
+
+It reads `ARLOWE_BROKER_TOKEN`, `ARLOWE_PKI_POLICY`, `ARLOWE_PKI_ROLE_ALIAS` and
+`ARLOWE_PKI_CREDENTIALS_ENDPOINT` (the last three from `.staging-env`) and **exits non-zero at
+startup naming the first one that is unset**, rather than serving half-populated `200`s a device
+would then cache. `--certfile`/`--keyfile` default to `scripts/pki/broker-{cert,key}.pem`, which
+`.gitignore` covers. AWS credentials come from the ambient boto3 session, not from `.staging-env`.
+
+### `POST /v1/certificates` — frozen contract
+
+Plan 07-07's device client is written against this. Changing a field name or a status code breaks
+it.
+
+```
+POST /v1/certificates
+  Authorization: Bearer <owner-token>
+  Content-Type: application/json
+  {"device_id": "<32 hex chars>", "csr": "<PEM CSR>"}
+
+200 {"certificate_pem": "<PEM>", "certificate_id": "<hex>",
+     "certificate_arn": "arn:aws:iot:...", "thing_name": "<device_id>",
+     "credentials_endpoint": "<host>", "role_alias": "<alias>"}
+401 {"error": "unauthorized"}
+400 {"error": "malformed_request" | "invalid_device_id" | "unparseable_csr" | "csr_subject_mismatch"}
+502 {"error": "issuance_failed", "detail": "<aws error code>"}
+```
+
+The CSR's subject CN must equal the submitted `device_id`; a mismatch is a `400`, and that binding
+is what makes the issued certificate traceable to the derived id. **Authorization itself binds to
+the IoT Thing name and the certificate id, never to the CSR subject** — AWS is not documented to
+carry the CSR CN into the issued certificate verbatim, so nothing may depend on reading it back.
+
+The device client honours `ARLOWE_BROKER_CA_BUNDLE` (a path to the broker's self-signed
+certificate) to trust this endpoint. **That override is for staging only.** A production broker
+presents a publicly-trusted certificate and the variable is left unset; a device that needs it set
+in the field is a device trusting an unverified issuer.
+
+### Tests
+
+```bash
+python3 -m venv /tmp/brk && /tmp/brk/bin/pip install -r scripts/pki/requirements.txt pytest
+/tmp/brk/bin/python -m pytest scripts/pki/tests/ -q
+```
+
+`scripts/pki/tests/` is **not** part of the `runtime/lib/tests/` suite CI runs — it needs boto3,
+which the image never installs. Run it by hand when touching the broker. Test CSRs are generated
+in-process; no key-, CSR- or certificate-shaped fixture is tracked.
