@@ -47,3 +47,10 @@ gdisk
 # python3-requests provides the mutual-TLS call to the IoT credentials provider.
 python3-cryptography
 python3-requests
+# arlowe_config (imported transitively by the identity CLI) needs yaml + jsonschema.
+# These were only ever installed on the CI host and in the CI test container, never
+# in the rootfs, so `arlowe-identity init` died at import with ModuleNotFoundError on
+# a real image -- arlowe-identity-init.service would have failed on every factory
+# device and SC2 would never have passed.
+python3-yaml
+python3-jsonschema
