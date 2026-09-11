@@ -122,3 +122,59 @@ class TestSchemaViolations:
 
         captured = capsys.readouterr()
         assert "[arlowe-config] schema violation at" in captured.err
+
+
+class TestIdentityBlock:
+    """The identity block (ADR-0007) is optional at the top level but always
+    present in the merged dict. These tests are the regression proof that adding
+    it did not change the contract for any existing consumer."""
+
+    def test_identity_defaults_present_without_overlay(self, monkeypatch):
+        _set_paths(monkeypatch, overlay_path="/nonexistent/config.yml")
+        identity = arlowe_config.load()["identity"]
+        assert identity["provisioning_url"] == ""
+        assert identity["credentials_endpoint"] == ""
+        assert identity["role_alias"] == ""
+        assert identity["poll_interval_seconds"] == 3600
+
+    def test_identity_partial_overlay_deep_merges(self, monkeypatch, tmp_path):
+        overlay_file = tmp_path / "config.yml"
+        overlay_file.write_text(textwrap.dedent("""\
+            identity:
+              poll_interval_seconds: 900
+        """))
+        _set_paths(monkeypatch, overlay_path=str(overlay_file))
+
+        identity = arlowe_config.load()["identity"]
+
+        assert identity["poll_interval_seconds"] == 900, "overlay value must replace default"
+        assert identity["provisioning_url"] == "", "sibling keys must survive a partial overlay"
+        assert identity["credentials_endpoint"] == ""
+        assert identity["role_alias"] == ""
+
+    def test_identity_poll_interval_below_minimum_rejected(self, monkeypatch, tmp_path):
+        # 900s is the AWS credentialDurationSeconds floor; a shorter poll would
+        # break the one-polling-interval revocation bound ADR-0007 guarantees.
+        overlay_file = tmp_path / "config.yml"
+        overlay_file.write_text(textwrap.dedent("""\
+            identity:
+              poll_interval_seconds: 60
+        """))
+        _set_paths(monkeypatch, overlay_path=str(overlay_file))
+
+        with pytest.raises(SystemExit) as exc_info:
+            arlowe_config.load()
+        assert exc_info.value.code == 78
+
+    def test_config_without_identity_block_still_validates(self, monkeypatch, tmp_path):
+        overlay_file = tmp_path / "config.yml"
+        overlay_file.write_text(textwrap.dedent("""\
+            ota:
+              channel: "beta"
+        """))
+        _set_paths(monkeypatch, overlay_path=str(overlay_file))
+
+        result = arlowe_config.load()
+
+        assert result["ota"]["channel"] == "beta"
+        assert result["identity"]["poll_interval_seconds"] == 3600
