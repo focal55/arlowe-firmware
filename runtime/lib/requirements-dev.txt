@@ -1,0 +1,2 @@
+# Test toolchain for runtime/lib. Not installed in the firmware image.
+pytest==8.3.4
