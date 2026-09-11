@@ -189,7 +189,18 @@ Plans:
   3. The issued cert and private key land in `/var/lib/arlowe/identity/` with `0600` perms and never appear in `/opt/arlowe/`; an automated check enforces this on the dev image.
   4. A revoked unit refuses cloud calls (OTA fetch, support-mode key issuance) within one polling interval after revocation; this is verified end-to-end against a staging PKI.
 
-**Plans**: TBD
+**Plans**: 9 plans in 5 waves
+
+Plans:
+- [ ] 07-01-PLAN.md — ADR-0007 (managed-PKI selection) + optional `identity` config block
+- [ ] 07-02-PLAN.md — Python test job in CI + Phase 7 python deps (pip pins + apt packages)
+- [ ] 07-03-PLAN.md — `arlowe_identity.py`: device-id derivation, per-device entropy, 0600 secret writer
+- [ ] 07-04-PLAN.md — SC3 identity-store hygiene gate in `build-image.sh` + `boot-check check_identity`
+- [ ] 07-05-PLAN.md — staging PKI as code: `scripts/pki/` setup, token-agnostic CSR broker, revoke lever
+- [ ] 07-06-PLAN.md — `arlowe_pki.py`: P-256 keypair + CSR (CN = device-id) + certificate storage
+- [ ] 07-07-PLAN.md — `arlowe_cloud.py`: broker POST + IoT credentials exchange, `CertificateRevoked`
+- [ ] 07-08-PLAN.md — `arlowe-identity` CLI + first-boot unit (`UMask=0077`) + image wiring
+- [ ] 07-09-PLAN.md — SC4 end-to-end revocation verification against staging; ADR-0007 -> Accepted
 
 ### Phase 8: First-boot pairing and wake word
 
