@@ -209,3 +209,49 @@ properties:
         description: >
           Signed-manifest CDN base URL for the selected channel. Empty until
           set at pairing (Phase 8/9).
+
+  identity:
+    type: object
+    additionalProperties: false
+    description: >
+      Device identity / PKI knobs (ADR-0007). This key is intentionally NOT in the
+      top-level `required` list: defaults.yml always supplies it, so the merged dict
+      always carries it, while a raw partial body from the dashboard stays valid.
+      See runtime/dashboard/app/audio/save-body.ts REQUIRED_KEYS.
+    required:
+      - provisioning_url
+      - credentials_endpoint
+      - role_alias
+      - poll_interval_seconds
+    properties:
+      provisioning_url:
+        type: string
+        default: ""
+        description: >
+          Owner-authenticated CSR-broker endpoint. Empty until set at pairing (Phase 8).
+          Used as the default for `arlowe-identity provision --ca-broker-url`.
+          Never a tracked literal: the URL is account-identifying (see ADR-0007).
+      credentials_endpoint:
+        type: string
+        default: ""
+        description: >
+          Owner override for the IoT credentials-provider host. Empty by default; the
+          value written by `arlowe-identity provision` into
+          /var/lib/arlowe/identity/identity.json is used when this is empty.
+          Account-identifying — never a tracked literal.
+      role_alias:
+        type: string
+        default: ""
+        description: >
+          Owner override for the IoT role alias. Empty by default; the provisioned
+          value in identity.json is used when this is empty.
+      poll_interval_seconds:
+        type: integer
+        minimum: 900
+        maximum: 86400
+        default: 3600
+        description: >
+          Cloud polling interval. This is the number SC4 tests against: revocation
+          takes effect within max(poll_interval, remaining_credential_lifetime), and
+          the role alias is provisioned with credentialDurationSeconds=900 <= this
+          value, so the guaranteed bound is one polling interval (ADR-0007).
