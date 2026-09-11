@@ -54,14 +54,14 @@ for script in $(ls "${REPO}/scripts/provision/install-arlowe-"*.sh 2>/dev/null |
     if echo "${basename_script}" | grep -q "install-arlowe-cli"; then
         echo "  pre-staging CLI marker files for ${basename_script}"
         mkdir -p /opt/arlowe/runtime/cli
-        for cmd in face speak stt record boot-check purge-logs run-logrotate wake-train; do
-            src="${REPO}/runtime/cli/${cmd}"
-            dst="/opt/arlowe/runtime/cli/${cmd}"
-            if [[ -f "${src}" ]]; then
-                cp "${src}" "${dst}"
-            else
-                touch "${dst}"
-            fi
+        # Copy whatever runtime/cli/ actually holds rather than a hardcoded
+        # list. install-arlowe-cli.sh hard-fails on a missing target (F7 #21),
+        # so a list that drifts behind the repo turns a real installer into a
+        # red testbed with no bug behind it.
+        for src in "${REPO}"/runtime/cli/*; do
+            [[ -f "${src}" ]] || continue
+            dst="/opt/arlowe/runtime/cli/$(basename "${src}")"
+            cp "${src}" "${dst}"
             chmod 0755 "${dst}"
             chown root:arlowe "${dst}" 2>/dev/null || true
         done
