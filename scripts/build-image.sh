@@ -2,8 +2,8 @@
 # scripts/build-image.sh
 #
 # Full pipeline: verify deps → pi-gen (model-free rootfs + models tree) →
-# measure both → repartition(5) → clone A + seed models → sanitize gate →
-# emit .img.
+# measure both → repartition(5) → clone A + seed models →
+# sanitize + identity-store gates → emit .img.
 #
 # Supported build host: arm64 Linux only.
 # The Mac is NOT supported — pi-gen requires loop devices and privileged mounts
@@ -33,6 +33,9 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CARD_SIZE_GB="${CARD_SIZE_GB:-32}"
 OUTPUT_IMG="${OUTPUT_IMG:-${REPO_ROOT}/build/arlowe.img}"
 PI_GEN_DIR="${REPO_ROOT}/pi-gen"
+
+# shellcheck source=scripts/lib/identity-store-check.sh
+source "${SCRIPT_DIR}/lib/identity-store-check.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -279,9 +282,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5: SANITIZE GATE — scan-dir over the assembled slot-A rootfs (SANIT-08)
+# Step 5: IMAGE GATES — two checks over the assembled slot-A rootfs:
+#   a) sanitize scan-dir (SANIT-08)
+#   b) identity-store scan in --factory mode (SC3 / IDENT-03)
+# Both run inside this one read-only loop-mount. A second mount is not an
+# option: a read-write loop-mount rewrites the ext4 superblock after the .bmap
+# is generated, and bmaptool flash then aborts on a checksum mismatch.
 # ---------------------------------------------------------------------------
-log "=== Step 5: sanitize gate ==="
+log "=== Step 5: image gates (sanitize + identity store) ==="
 
 SANITIZE_SCRIPT="${SCRIPT_DIR}/sanitize/check.sh"
 if [[ ! -f "${SANITIZE_SCRIPT}" ]]; then
@@ -323,9 +331,22 @@ if ! "${SANITIZE_SCRIPT}" --scan-dir "${SLOT_A_MOUNTPOINT}"; then
     exit 1
 fi
 
+ok "Sanitize gate passed."
+
+log "Running identity-store gate on slot-A rootfs..."
+# install-arlowe-fs.sh creates /var/lib/arlowe/identity at 0700 inside the
+# pi-gen chroot, so this scans a real, present, empty directory. The owner_state
+# partition is mounted over that path only at runtime.
+if ! check_identity_store "${SLOT_A_MOUNTPOINT}" --factory; then
+    fail "Identity-store gate FAILED — aborting. Key material must never ship in the image."
+    cleanup_loop
+    trap - EXIT
+    exit 1
+fi
+
 cleanup_loop
 trap - EXIT
-ok "Sanitize gate passed."
+ok "Identity-store gate passed."
 
 # ---------------------------------------------------------------------------
 # Step 6 (placeholder): slot-B recovery write + tryboot config are wired in
