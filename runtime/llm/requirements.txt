@@ -1,6 +1,17 @@
 # LLM runtime dependencies
-# Pinned from arlowe-1 voice venv (~/venvs/voice/). Bump with care and
-# re-test on the Pi before merging — the ax-llm binary is ABI-sensitive.
+# Pinned from arlowe-1 voice venv (~/venvs/voice/).
+#
+# IMAGE NOTE: this file is for CI and local development only. It does NOT govern the
+# device. The firmware installs pi-gen/stage-arlowe/01-runtime/files/venv-requirements/llm.txt
+# into /opt/arlowe/venvs/llm, which is the interpreter qwen-tokenizer.service names.
+# (qwen-api.service execs the ax-llm binary through run_api.sh and imports no Python,
+# so it is unaffected by any of this.) numpy comes from the apt layer in
+# pi-gen/stage-arlowe/00-packages/00-packages-nr via --system-site-packages.
+# The unpinned ranges below are deliberate for CI; the image-side file pins every
+# version exactly, because two builds from the same commit must install the same bytes.
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md.
+#
+# Bump with care and re-test on the Pi before merging — the ax-llm binary is ABI-sensitive.
 
 # File locking for thread-safe usage-stats writes
 filelock>=3.12.0,<4

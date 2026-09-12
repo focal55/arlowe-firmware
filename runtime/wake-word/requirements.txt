@@ -1,6 +1,19 @@
 # runtime/wake-word -- training + testing deps
 # Pinned from arlowe-1 ~/venvs/voice/
-# Note: shared with runtime/voice -- keep versions in sync if both import openwakeword.
+#
+# IMAGE NOTE: this file is for CI and local development only. It does NOT govern the
+# device. No unit invokes this directory — it is training and bench tooling — but it
+# shares openwakeword with runtime/voice, so if it is ever run on a device it runs under
+# /opt/arlowe/venvs/voice, governed by
+# pi-gen/stage-arlowe/01-runtime/files/venv-requirements/voice.txt plus the apt layer in
+# pi-gen/stage-arlowe/00-packages/00-packages-nr.
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md.
+#
+# The previous "keep versions in sync if both import openwakeword" instruction is gone:
+# it was a manual-sync note with nothing reading it, and the pins had already drifted
+# from the image (numpy 2.3.5 vs apt's 1.24.2). Drift is now reported by plan 07.1-05's
+# `unit-import-bookworm` CI job, which resolves each import in a debian:bookworm
+# container and WARNs when the resolved version differs from the pin here.
 joblib==1.5.3
 numpy==2.3.5
 openwakeword==0.4.0

@@ -1,0 +1,36 @@
+# IMAGE-ONLY, and installed WITH --no-deps. Second half of the voice venv; read voice.txt first.
+#
+#   pip install -r voice-nodeps.txt -c constraints.txt --no-deps
+#
+# Why this file exists at all:
+#   noisereduce==3.0.3 declares matplotlib, which drags contourpy, cycler, fonttools,
+#   kiwisolver, pyparsing, python-dateutil and six. voice_client.py uses noisereduce only as
+#   nr.reduce_noise(...), which touches none of it. Measured in a debian:bookworm arm64
+#   container against the apt layer:
+#
+#     noisereduce with declared deps (matplotlib chain):  170 MB venv
+#     noisereduce --no-deps, real deps listed explicitly:  96 MB venv
+#
+#   and on the --no-deps venv:
+#     >>> nr.reduce_noise(y=numpy.zeros(16000, dtype=numpy.float32), sr=16000).shape
+#     reduce_noise OK (16000,)
+#     openwakeword OK
+#
+#   74 MB saved, twice over — A and B are equal-sized slots and both carry this venv.
+#
+# Why a separate FILE rather than a comment in voice.txt:
+#   `--no-deps` is not a valid requirements-file directive. pip rejects it outright:
+#     ERROR: Invalid requirement: --no-deps
+#     pip: error: no such option: --no-deps
+#   It is a command-line flag and applies to the whole invocation, so the packages that need
+#   it have to be installed separately from the packages that must keep their resolver.
+#
+# The cost, stated plainly: pip will not notice if a future noisereduce bump adds a real
+# dependency. That is why the version is pinned exactly, why its actual needs are enumerated
+# below, and why plan 07.1-05's unit-import-bookworm job imports the module rather than
+# trusting the install to have succeeded.
+
+# noisereduce's real needs: numpy and scipy (apt layer, shared in via --system-site-packages)
+# and tqdm (pinned in voice.txt, installed by the first step). All three are present before
+# this file is installed, which is why --no-deps is safe here and nowhere else.
+noisereduce==3.0.3

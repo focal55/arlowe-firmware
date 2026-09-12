@@ -1,0 +1,43 @@
+# IMAGE-ONLY. This file governs the device; runtime/llm/requirements.txt does not.
+#
+# Installed by pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh (plan 07.1-04) into
+# /opt/arlowe/venvs/llm, the interpreter qwen-tokenizer.service names. The venv is created
+# with --system-site-packages, so numpy, PyYAML, requests, certifi, idna, urllib3 and
+# charset-normalizer are NOT listed here: they come from the apt layer in
+# pi-gen/stage-arlowe/00-packages/00-packages-nr and are shared in.
+#
+# Install command (the -c is not optional):
+#   pip install -r llm.txt -c constraints.txt
+#
+# Every version is pinned with ==. Two builds from the same commit must install the same
+# bytes (Phase 6 SC5), so there are no ranges here even where runtime/llm/requirements.txt
+# has them. Versions below are not hand-picked: they were resolved in a debian:bookworm
+# arm64 container against the apt layer and read back with `pip freeze --local`.
+#
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md
+# Regenerate: see the "Regenerating these pins" section of that ADR.
+
+# qwen2.5_tokenizer_uid.py: `from transformers import AutoTokenizer, PreTrainedTokenizerFast`.
+# Capped below 5 to match runtime/llm/requirements.txt's tested range. Note this cap is what
+# holds huggingface_hub below 1.0 in this venv while the stt venv runs 1.x — see constraints.txt.
+transformers==4.57.6
+
+# llm/router.py: `from filelock import FileLock` for thread-safe usage-stats writes.
+filelock==3.32.6
+
+# --- transitive closure of the two above, pinned so it cannot float ---
+fsspec==2026.7.0
+hf-xet==1.6.0
+huggingface_hub==0.36.2
+packaging==26.3
+regex==2026.9.10
+safetensors==0.8.0
+tokenizers==0.22.2
+tqdm==4.70.1
+typing_extensions==4.16.0
+
+# NOT here, deliberately: torch / tensorflow / flax. transformers prints
+#   "None of PyTorch, TensorFlow >= 2.0, or Flax have been found."
+# on import and works anyway, because this unit only tokenizes — inference runs on the
+# AX650 NPU via the ax-llm binary, not in Python. Adding a framework would cost GB for
+# nothing. qwen-api.service execs run_api.sh and imports no Python at all.
