@@ -81,20 +81,14 @@ jobs:
   # pnpm 9 rejects outright with "packages field missing or empty". node_modules
   # was authored by pnpm 10.15.0.
 
-  # Non-blocking against 5 pre-existing react-hooks/set-state-in-effect errors
-  # that predate Phase 7 and were masked while detect keyed on a nonexistent
-  # root package.json (issue #120): app/page.tsx:44, app/logs/page.tsx:53,
-  # app/components/RetroActivityMonitor.tsx:56,
-  # app/connectivity/components/NetworkList.tsx:58,
-  # app/connectivity/components/SavedNetworksList.tsx:98.
-  # continue-on-error rather than an `if:` skip: build needs [lint, ...], and a
-  # skipped dependency skips the dependent. Restore blocking once #120 is fixed.
+  # Blocking. The 5 pre-existing react-hooks/set-state-in-effect errors this job
+  # surfaced once #120 was fixed are waived per-file in eslint.config.mjs and
+  # tracked in issue #123, so the rule still fails any new violation.
   lint:
     name: Lint
     runs-on: ubuntu-latest
     needs: detect
     if: needs.detect.outputs.has_node == 'true'
-    continue-on-error: true
     defaults:
       run:
         working-directory: runtime/dashboard
