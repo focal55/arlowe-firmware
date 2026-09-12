@@ -6,7 +6,17 @@
 # Lite base (stage2) already provides systemd, apt, coreutils, openssh-server.
 # Only add what the arlowe runtime actually needs at start-up.
 
-# Python runtime (units use system python3 + per-service venvs under /opt/arlowe/venvs)
+# Python runtime. Two consumers, one interpreter (ADR-0008):
+#   - system python3 directly: arlowe-identity-init, the identity CLI, boot-check.
+#   - three venvs under /opt/arlowe/venvs/{voice,llm,stt}, each built by plan 07.1-04's
+#     build-venvs.sh with --system-site-packages so they SHARE the apt modules below
+#     rather than carrying private copies. arlowe-voice, arlowe-face, whisper-stt and
+#     qwen-tokenizer name those venv interpreters in their Exec* stanzas.
+# The apt-vs-pip rule (ADR-0008): anything with a compiled extension that Debian packages
+# comes from apt -- it never has to build under the emulated cross-arch chroot, and one
+# copy stays shared between the system-python and venv consumers. Everything Debian does
+# not package is pinned pip residue in
+# pi-gen/stage-arlowe/01-runtime/files/venv-requirements/{voice,llm,stt}.txt.
 python3
 python3-venv
 python3-pip
@@ -29,10 +39,30 @@ ripgrep
 # for documentation clarity — not an extra install if already present)
 dpkg
 
-# Node.js for the arlowe-dashboard service (Next.js runtime)
-# nodejs from Debian bookworm is v18+; dashboard/package.json targets >=18.
-nodejs
-npm
+# Node.js for arlowe-dashboard is DELIBERATELY NOT an apt package -- see ADR-0008.
+#
+# The previous comment here claimed "nodejs from Debian bookworm is v18+;
+# dashboard/package.json targets >=18." Both halves were false.
+# runtime/dashboard/package.json has no `engines` field at all; the floor that actually
+# binds comes from next@16.1.6's own engines.node, which is >= 20.9.0. Bookworm's
+# candidate is 18.20.4 and bookworm-backports carries no nodejs at all (verified in an
+# arm64 container -- the backports version table is empty). So apt cannot satisfy the
+# floor at any pinning, and /usr/bin/node would be a wrong-version binary that the
+# plan 07.1-03 SC1 path gate passes by construction, because the path exists.
+#
+# Resolution: `nodejs` and `npm` are dropped. The dashboard runs the vendored,
+# SHA-256-pinned Node from third_party/node/manifest.yml, unpacked to the prefix that
+# manifest declares, and units/arlowe-dashboard.service names that interpreter path
+# explicitly (plan 07.1-04 applies it, 07.1-03's version-floor gate asserts it).
+# One Node in the image, named by the unit, version-asserted by the gate.
+# `npm` was unused either way: runtime/dashboard is pnpm (pnpm-lock.yaml, no package-lock.json).
+#
+# Fetching and unpacking that tarball inside the chroot needs these. Lite's base set is
+# not guaranteed to carry them, and an undeclared unpack dependency is the same defect
+# class as the missing python3-yaml below.
+curl
+ca-certificates
+xz-utils
 
 # First-boot models grow-to-fill (arlowe-grow-models). growpart lives in
 # cloud-guest-utils; growpart relocates the GPT backup header on a GPT disk via
@@ -54,3 +84,45 @@ python3-requests
 # device and SC2 would never have passed.
 python3-yaml
 python3-jsonschema
+
+# ---------------------------------------------------------------------------
+# Phase 7.1 runtime substrate (ADR-0008). Every entry below is a compiled
+# extension reachable from a shipping unit's Exec* stanza that Debian packages,
+# so it comes from apt and is shared into the three venvs via
+# --system-site-packages. Same shape as the Phase 7 block above: declare the
+# transitive hop, name the importer, say why it is not pip.
+# ---------------------------------------------------------------------------
+
+# numpy -- voice/voice_client.py, face/audio_sync.py, lib/arlowe_audio.py.
+# Also the ABI floor for every compiled wheel in the venvs: constraints.txt pins
+# pip to THIS version so a venv cannot install a second numpy over the top. Two
+# numpy builds in one image means the system-python consumers and the venv
+# consumers no longer agree on array layout.
+python3-numpy
+
+# Pillow -- face/face.py renders the WhisPlay display (Image, ImageDraw,
+# ImageFilter); runtime/recovery/arlowe-recovery.sh renders the recovery screen.
+# NOTE: no font package is needed with it. arlowe-recovery.sh imports ImageFont
+# but never calls it, and Pillow 9.4.0's built-in bitmap font accepts the
+# anchor="mm" that the recovery draw.text calls pass -- verified in an arm64
+# bookworm container. fonts-dejavu-core would be 2.9 MB of unreferenced data.
+python3-pil
+
+# scipy -- no runtime/ module imports it directly; it is a hard dependency of
+# both noisereduce and openwakeword, which voice_client.py imports at module
+# scope. This is the transitive hop that an "imports we grep for" audit misses.
+python3-scipy
+
+# scikit-learn + joblib -- there is NO `import sklearn` anywhere in runtime/,
+# which is exactly why these were never declared. voice_client.py loads the
+# wake-word verifier with pickle.load(); that pickle is a scikit-learn estimator
+# produced by openwakeword.custom_verifier_model, and unpickling it imports
+# sklearn (and joblib, its persistence layer) implicitly. Absent them, the load
+# raises ModuleNotFoundError from inside pickle, not from an import line.
+python3-sklearn
+python3-joblib
+
+# PyAudio -- voice/voice_client.py opens the capture stream; lib/arlowe_audio.py
+# maps the resolved ALSA card to a PortAudio device index. Binds to portaudio19,
+# which apt pulls in; the pip wheel would have to build it.
+python3-pyaudio
