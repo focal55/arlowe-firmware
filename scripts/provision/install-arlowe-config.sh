@@ -7,8 +7,7 @@
 #   /opt/arlowe/config/schema.yml         root:arlowe 0640  (read-only at runtime)
 #   /opt/arlowe/config/defaults.yml       root:arlowe 0640  (read-only at runtime)
 #   /opt/arlowe/runtime/lib/              root:arlowe 0755  (directory; created here)
-#   /opt/arlowe/runtime/lib/arlowe_config.py          root:arlowe 0644
-#   /opt/arlowe/runtime/lib/arlowe_config_validate.py root:arlowe 0644
+#   /opt/arlowe/runtime/lib/*.py          root:arlowe 0644  (every module in runtime/lib)
 #
 # Units import the loader with PYTHONPATH=/opt/arlowe/runtime/lib as flat modules:
 #   from arlowe_config import load
@@ -48,11 +47,21 @@ install -o root -g arlowe -m 0640 \
 
 install -d -o root -g arlowe -m 0755 /opt/arlowe/runtime/lib
 
-install -o root -g arlowe -m 0644 \
-    "${REPO_ROOT}/runtime/lib/arlowe_config.py" /opt/arlowe/runtime/lib/arlowe_config.py
+# Glob rather than an explicit list: adding a module must not require editing the
+# installer. An install list that drifted from reality has already bitten this
+# repo once (F7 #21, install-arlowe-cli.sh). runtime/lib/tests/ is a directory, so
+# *.py does not pick up test files. The guard below fails loudly if the glob
+# matches nothing, which would otherwise ship a lib directory with no modules.
+shopt -s nullglob
+LIB_MODULES=("${REPO_ROOT}"/runtime/lib/*.py)
+shopt -u nullglob
 
-install -o root -g arlowe -m 0644 \
-    "${REPO_ROOT}/runtime/lib/arlowe_config_validate.py" /opt/arlowe/runtime/lib/arlowe_config_validate.py
+[[ ${#LIB_MODULES[@]} -gt 0 ]] \
+    || { echo "[install-arlowe-config] ERROR: no modules matched ${REPO_ROOT}/runtime/lib/*.py" >&2; exit 1; }
+
+for module in "${LIB_MODULES[@]}"; do
+    install -o root -g arlowe -m 0644 "$module" "/opt/arlowe/runtime/lib/$(basename "$module")"
+done
 
 # ---------------------------------------------------------------------------
 # Absence contract: /etc/arlowe/config.yml must NOT be created here.

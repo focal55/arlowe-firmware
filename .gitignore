@@ -64,6 +64,14 @@ node_modules/
 .env.local
 .env.*.local
 
+# === Phase 7 staging PKI (scripts/pki/) ===
+# The IoT credentials endpoint is <account-specific-prefix>.credentials.iot.<region>
+# .amazonaws.com and the role ARN embeds the 12-digit account id. Neither literal is on
+# scripts/sanitize/banlist.txt, so the sanitize gate will NOT catch a committed one.
+# These reach a device only via identity.* config or the provisioning response.
+scripts/pki/.staging-env
+scripts/pki/*.pem
+
 # Upstream pi-gen is provisioned at a pinned tag by scripts/build-image.sh;
 # only the arlowe overlay is tracked.
 /pi-gen/*

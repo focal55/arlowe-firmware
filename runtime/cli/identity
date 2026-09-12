@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+"""
+arlowe-identity -- device identity and PKI CLI. The Phase 7/8 seam.
+
+Installed as /opt/arlowe/runtime/cli/identity, reached as arlowe-identity through
+the /usr/local/sbin symlink that scripts/provision/install-arlowe-cli.sh creates.
+The file is deliberately named `identity`, not `arlowe-identity`: the installer
+links arlowe-${cli} -> ${TARGET_DIR}/${cli}, and the one file that carried the
+prefix in its own name shipped as a dangling symlink (F7 #21).
+
+Subcommands: init, status, provision, check-cloud, reset.
+
+`provision` is the stubbed pairing trigger. Phase 8's pairing daemon calls exactly
+this command instead of a human, so it is non-interactive by contract: no prompts,
+no TTY assumptions. It is also token-agnostic by owner decision -- it takes a
+bearer token and a broker URL and does not know or care who issued the token.
+The customer-account half of IDENT-02 is Phase 8's; what lands here is the device
+half, bound via the IoT Thing name.
+
+Exit codes are a contract plan 07-09 asserts against, so they are distinct and
+stable: 0 ok, 2 usage, 3 rejected, 4 cloud unavailable, 5 local state,
+6 certificate revoked. 6 must mean "refused because revoked", never merely
+"the call failed" -- that distinction is the whole of SC4.
+
+The private key is never printed. The owner token is never printed or logged.
+Credential secrets are never printed, not even truncated; only the access key id
+prefix and the expiry leave this process.
+
+Off-device operation (07-09's harness depends on it): ARLOWE_LIB locates the
+runtime library, ARLOWE_IDENTITY_DIR relocates the store, ARLOWE_SERIAL_ROOT
+prefixes the serial sources, and ARLOWE_DEFAULTS_PATH / ARLOWE_SCHEMA_PATH /
+ARLOWE_CONFIG_PATH relocate the config, which otherwise defaults to
+/opt/arlowe/config and raises FileNotFoundError off the image.
+"""
+
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, os.environ.get("ARLOWE_LIB", "/opt/arlowe/runtime/lib"))
+
+import arlowe_cloud as cloud  # noqa: E402
+import arlowe_identity as ident  # noqa: E402
+import arlowe_pki as pki  # noqa: E402
+from arlowe_config import load  # noqa: E402
+
+EXIT_OK = 0
+EXIT_USAGE = 2
+EXIT_REJECTED = 3
+EXIT_UNAVAILABLE = 4
+EXIT_LOCAL = 5
+EXIT_REVOKED = 6
+
+TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+DEFAULT_HOSTNAME_TEMPLATE = "arlowe-" + ident.HOSTNAME_PLACEHOLDER
+# The certificate PEM is the one broker field that is not persisted to
+# identity.json: store_certificate owns it, and identity.json is bookkeeping.
+ISSUANCE_FIELDS = tuple(f for f in cloud.BROKER_FIELDS if f != "certificate_pem")
+ACCESS_KEY_PREFIX_LEN = 8
+
+
+class UsageError(Exception):
+    """Bad or absent arguments. Exits 2."""
+
+
+class LocalStateError(Exception):
+    """The on-disk identity store is missing or unusable. Exits 5."""
+
+
+def _emit(args, payload, lines):
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print("\n".join(lines))
+
+
+def _now():
+    return datetime.now(timezone.utc).strftime(TIMESTAMP_FORMAT)
+
+
+def _config():
+    """Return the merged config, or {} when it is unreadable.
+
+    `init` runs on first boot and off-device, where the config may legitimately be
+    absent; a missing config must not block identity derivation. A schema violation
+    raises SystemExit(78) inside load(), which is caught here for the same reason.
+    """
+    try:
+        return load()
+    except (FileNotFoundError, SystemExit):
+        return {}
+
+
+def _hostname(device_id):
+    template = (_config().get("device") or {}).get("hostname") or DEFAULT_HOSTNAME_TEMPLATE
+    if ident.HOSTNAME_PLACEHOLDER not in template:
+        return template
+    return ident.resolve_hostname(template, device_id)
+
+
+def _mode(path):
+    return format(path.stat().st_mode & 0o777, "o") if path.exists() else None
+
+
+def _require_store():
+    """Refuse to run if the identity store directory is absent.
+
+    install-arlowe-fs.sh creates it at arlowe:arlowe 0700, and on a running device
+    the owner_state partition (p4) is mounted there. An absent directory means the
+    mount did not happen, and creating it here would put the device's identity on
+    the underlying slot rootfs, where the next A/B flip discards it. This loud
+    failure is the deliberate counterpart to 07-08b's unit having no Condition*
+    guard.
+    """
+    if not ident.IDENTITY_DIR.is_dir():
+        raise LocalStateError(
+            "identity store %s does not exist; the owner_state partition is not "
+            "mounted. Refusing to create it -- identity written to the underlying "
+            "rootfs would be lost on the next A/B flip." % ident.IDENTITY_DIR)
+
+
+def _ensure_identity():
+    """The offline half: device-id, keypair, CSR. Idempotent, no network."""
+    _require_store()
+    device_id = ident.ensure_device_id()
+    pki.ensure_keypair()
+    pki.ensure_csr(device_id)
+    return device_id
+
+
+def cmd_init(args):
+    device_id = _ensure_identity()
+    hostname = _hostname(device_id)
+    _emit(args, {"device_id": device_id, "hostname": hostname},
+          ["device-id: %s" % device_id, "hostname:  %s" % hostname])
+    return EXIT_OK
+
+
+def cmd_status(args):
+    """Read-only. Exits 0 even unprovisioned: unpaired is a correct state."""
+    metadata = ident.read_metadata()
+    device_id = metadata.get("device_id")
+    if not device_id and ident.DEVICE_ID_PATH.exists():
+        device_id = ident.DEVICE_ID_PATH.read_text().strip()
+
+    payload = {
+        "identity_dir": str(ident.IDENTITY_DIR),
+        "device_id": device_id,
+        "serial_source": metadata.get("serial_source"),
+        "hostname": _hostname(device_id) if device_id else None,
+        "key_present": ident.KEY_PATH.exists(),
+        "csr_present": ident.CSR_PATH.exists(),
+        "cert_present": ident.CERT_PATH.exists(),
+        "modes": {path.name: _mode(path) for path in
+                  (ident.DEVICE_ID_PATH, ident.KEY_PATH, ident.CSR_PATH,
+                   ident.CERT_PATH, ident.METADATA_PATH)},
+        "certificate": pki.certificate_summary() if ident.CERT_PATH.exists() else None,
+    }
+    payload.update({field: metadata.get(field) for field in ISSUANCE_FIELDS})
+    payload["provisioned_at"] = metadata.get("provisioned_at")
+    payload["provisioned"] = bool(payload["cert_present"] and metadata.get("thing_name"))
+
+    lines = ["device-id:     %s" % (device_id or "(none)"),
+             "serial source: %s" % (payload["serial_source"] or "(none)"),
+             "hostname:      %s" % (payload["hostname"] or "(none)"),
+             "store:         %s" % payload["identity_dir"],
+             "key / csr / cert: %s / %s / %s" % (payload["key_present"],
+                                                 payload["csr_present"],
+                                                 payload["cert_present"]),
+             "modes:         %s" % json.dumps(payload["modes"], sort_keys=True),
+             "provisioned:   %s" % payload["provisioned"],
+             "thing name:    %s" % (payload["thing_name"] or "(none)")]
+    if payload["certificate"]:
+        lines += ["certificate:   %s" % json.dumps(payload["certificate"], sort_keys=True)]
+    _emit(args, payload, lines)
+    return EXIT_OK
+
+
+def _broker_url(args):
+    if args.ca_broker_url:
+        return args.ca_broker_url
+    url = ((_config().get("identity") or {}).get("provisioning_url") or "").strip()
+    if not url:
+        raise UsageError("no broker URL: pass --ca-broker-url or set "
+                         "identity.provisioning_url in the config")
+    return url
+
+
+def _owner_token(args):
+    """Resolve the token: --owner-token, then --owner-token-file, then the env.
+
+    The flag is supported but documented as the last resort: an argv token is
+    visible to every user on the box through ps.
+    """
+    if args.owner_token:
+        return args.owner_token
+    if args.owner_token_file:
+        token = Path(args.owner_token_file).read_text().strip()
+        if not token:
+            raise UsageError("owner token file %s is empty" % args.owner_token_file)
+        return token
+    token = os.environ.get("ARLOWE_OWNER_TOKEN", "").strip()
+    if not token:
+        raise UsageError("no owner token: set ARLOWE_OWNER_TOKEN or pass "
+                         "--owner-token-file PATH (--owner-token exposes it in ps)")
+    return token
+
+
+def cmd_provision(args):
+    """Run the whole issuance flow with no human in the loop."""
+    url = _broker_url(args)
+    token = _owner_token(args)
+    device_id = _ensure_identity()
+
+    issued = cloud.request_certificate(url, token, device_id, pki.load_csr_pem())
+    pki.store_certificate(issued["certificate_pem"])
+
+    # identity.json already exists -- ensure_device_id created it above -- so these
+    # fields are MERGED. write_secret is O_EXCL and would raise FileExistsError
+    # here; that O_EXCL is the write-once guarantee on device.key, device-entropy
+    # and device-id, and must not be weakened to make this update convenient.
+    # update_metadata is the sanctioned atomic read-merge-replace and preserves the
+    # derivation fields a power cut would otherwise cost us.
+    fields = {field: issued[field] for field in ISSUANCE_FIELDS}
+    fields["provisioned_at"] = _now()
+    ident.update_metadata(**fields)
+
+    # /etc/arlowe/config.yml is deliberately NOT written: its absence is the Phase 4
+    # CONFIG-03 pre-pairing signal, and writing it is Phase 8's job.
+    payload = {"device_id": device_id, **fields}
+    _emit(args, payload,
+          ["provisioned %s" % device_id,
+           "certificate id: %s" % fields["certificate_id"],
+           "thing name:     %s" % fields["thing_name"],
+           "credentials:    %s (%s)" % (fields["credentials_endpoint"], fields["role_alias"])])
+    return EXIT_OK
+
+
+def cmd_check_cloud(args):
+    """The SC4 trigger: exchange the certificate for credentials, right now.
+
+    force_refresh bypasses the in-process cache so the call actually leaves the
+    box; a cached hit would prove nothing about the certificate's current status.
+    """
+    credentials = cloud.fetch_credentials(force_refresh=True)
+    payload = {
+        "ok": True,
+        "expiration": credentials["expiration"],
+        "access_key_id_prefix": credentials["accessKeyId"][:ACCESS_KEY_PREFIX_LEN],
+        "thing_name": ident.read_metadata().get("thing_name"),
+    }
+    _emit(args, payload,
+          ["credentials issued for thing %s" % (payload["thing_name"] or "(unknown)"),
+           "access key id: %s..." % payload["access_key_id_prefix"],
+           "expiration:    %s" % payload["expiration"]])
+    return EXIT_OK
+
+
+def cmd_reset(args):
+    """Erase the identity store. Phase 8's factory-reset flow (PAIR-07) calls this."""
+    if not args.force:
+        print("arlowe-identity: refusing to erase %s without --force" % ident.IDENTITY_DIR,
+              file=sys.stderr)
+        return EXIT_USAGE
+    _require_store()
+    removed = []
+    for path in sorted(ident.IDENTITY_DIR.iterdir()):
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+            removed.append(path.name)
+    os.chmod(ident.IDENTITY_DIR, 0o700)
+    _emit(args, {"removed": removed, "identity_dir": str(ident.IDENTITY_DIR)},
+          ["removed %d file(s) from %s" % (len(removed), ident.IDENTITY_DIR)])
+    return EXIT_OK
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="arlowe-identity",
+        description="Device identity and PKI. Non-interactive; see exit codes in --help.",
+        epilog="exit codes: 0 ok, 2 usage, 3 provisioning rejected, "
+               "4 cloud unavailable, 5 local state, 6 certificate revoked")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    subparsers.add_parser("init", parents=[common],
+                          help="derive the device id, keypair and CSR (offline, idempotent)"
+                          ).set_defaults(handler=cmd_init)
+    subparsers.add_parser("status", parents=[common],
+                          help="report identity store contents (read-only)"
+                          ).set_defaults(handler=cmd_status)
+
+    provision = subparsers.add_parser("provision", parents=[common],
+                                      help="submit the CSR and store the issued certificate")
+    provision.add_argument("--ca-broker-url",
+                           help="owner-token CSR broker; defaults to identity.provisioning_url")
+    provision.add_argument("--owner-token",
+                           help="bearer token (visible in ps; prefer the file or env form)")
+    provision.add_argument("--owner-token-file", help="path to a file holding the bearer token")
+    provision.set_defaults(handler=cmd_provision)
+
+    subparsers.add_parser("check-cloud", parents=[common],
+                          help="exchange the certificate for credentials; exit 6 if revoked"
+                          ).set_defaults(handler=cmd_check_cloud)
+
+    reset = subparsers.add_parser("reset", parents=[common],
+                                  help="erase the identity store (factory reset)")
+    reset.add_argument("--force", action="store_true", help="required; this is destructive")
+    reset.set_defaults(handler=cmd_reset)
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    try:
+        return args.handler(args)
+    except UsageError as exc:
+        return _fail(exc, EXIT_USAGE)
+    except cloud.ProvisioningRejected as exc:
+        return _fail(exc, EXIT_REJECTED)
+    except cloud.CertificateRevoked as exc:
+        return _fail(exc, EXIT_REVOKED)
+    except cloud.CloudUnavailable as exc:
+        return _fail(exc, EXIT_UNAVAILABLE)
+    except cloud.NotProvisioned as exc:
+        return _fail(exc, EXIT_LOCAL)
+    except (LocalStateError, ident.IdentitySourceUnavailable, pki.IdentityMismatch,
+            OSError, ValueError) as exc:
+        return _fail(exc, EXIT_LOCAL)
+
+
+def _fail(exc, code):
+    print("arlowe-identity: %s" % exc, file=sys.stderr)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

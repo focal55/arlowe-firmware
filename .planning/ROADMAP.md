@@ -189,7 +189,25 @@ Plans:
   3. The issued cert and private key land in `/var/lib/arlowe/identity/` with `0600` perms and never appear in `/opt/arlowe/`; an automated check enforces this on the dev image.
   4. A revoked unit refuses cloud calls (OTA fetch, support-mode key issuance) within one polling interval after revocation; this is verified end-to-end against a staging PKI.
 
-**Plans**: TBD
+**Plans**: 11 plans in 7 waves
+
+Note on IDENT-02: Phase 7 delivers the device-unique-ID half of the binding (via the IoT Thing
+name). The **customer-account** half is deferred to Phase 8 — the bootstrap broker is
+token-agnostic by design and does not know who issued the token. Plan 07-09 records this in the
+REQUIREMENTS.md traceability row; IDENT-02 does not close with Phase 7.
+
+Plans:
+- [ ] 07-01-PLAN.md — ADR-0007 (managed-PKI selection) + optional `identity` config block
+- [ ] 07-02-PLAN.md — CI teeth: python-test job, bookworm cryptography floor job, dashboard jobs repointed; Phase 7 python deps
+- [ ] 07-03-PLAN.md — `arlowe_identity.py`: device-id derivation, per-device entropy, 0600 secret writer, identity.json read/update contract
+- [ ] 07-04-PLAN.md — SC3 identity-store hygiene gate in `build-image.sh` + `boot-check check_identity`
+- [ ] 07-05a-PLAN.md — staging PKI lifecycle as code: `scripts/pki/` setup, teardown, revoke lever
+- [ ] 07-05b-PLAN.md — token-agnostic CSR broker + frozen `POST /v1/certificates` contract
+- [ ] 07-06-PLAN.md — `arlowe_pki.py`: P-256 keypair + CSR (CN = device-id) + certificate storage
+- [ ] 07-07-PLAN.md — `arlowe_cloud.py`: broker POST + IoT credentials exchange, `CertificateRevoked`
+- [ ] 07-08a-PLAN.md — `arlowe-identity` CLI (init/status/provision/check-cloud/reset) + tests
+- [ ] 07-08b-PLAN.md — first-boot unit (`UMask=0077`, `RequiresMountsFor`) + image wiring
+- [ ] 07-09-PLAN.md — SC4 end-to-end revocation verification against staging; ADR-0007 -> Accepted
 
 ### Phase 8: First-boot pairing and wake word
 
@@ -290,7 +308,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Config overlay | 4/4 | Complete (passed-with-notes; SC4 on-device check deferred to Phase 6/12) | 2026-06-07 |
 | 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
 | 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
-| 7. Device identity and PKI | 0/TBD | Not started | - |
+| 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |

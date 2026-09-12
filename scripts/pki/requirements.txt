@@ -1,0 +1,7 @@
+# Dev-host only. No pi-gen stage references scripts/pki/, so nothing here reaches
+# the image.
+boto3==1.35.68
+# The device targets bookworm's cryptography 38.0.4 and this broker deliberately
+# uses only that API subset. The upper bound keeps the dev host from drifting onto
+# a surface the device does not have (and 46+ dropped Python 3.11).
+cryptography>=38.0.4,<46

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
 import Ajv2020 from 'ajv/dist/2020';
-import { buildSaveBody, CONFIG_DEFAULTS } from '../../app/audio/save-body.js';
+import { buildSaveBody, isFullConfig, CONFIG_DEFAULTS } from '../../app/audio/save-body.js';
 
 const SCHEMA_PATH = resolve(import.meta.dirname, '../../../../config/schema.yml');
 
@@ -102,5 +102,43 @@ describe('buildSaveBody: body construction', () => {
     const body = buildSaveBody(null, 'auto', 'auto');
     assert.equal((body.device as { hostname: string }).hostname, 'arlowe-${device_serial}');
     assert.equal((body.ota as { channel: string }).channel, 'stable');
+  });
+});
+
+// --- ADR-0007 identity block: inert for the dashboard save path -----------
+//
+// config/schema.yml gained an `identity` block but deliberately did NOT gain a
+// 9th entry in its top-level `required` list, because REQUIRED_KEYS above is
+// hard-coded to the 8 original keys and POST /api/config 422s a partial body.
+// These two tests fail if anyone later promotes `identity` to required without
+// updating save-body.ts.
+// -------------------------------------------------------------------------
+
+describe('identity block: dashboard save path is unaffected', () => {
+  const validate = buildValidator();
+
+  const configWithIdentity = {
+    ...CONFIG_DEFAULTS,
+    identity: {
+      provisioning_url: 'https://broker.example.invalid/v1/certificates',
+      credentials_endpoint: 'https://credentials.example.invalid',
+      role_alias: 'ArloweDeviceRole',
+      poll_interval_seconds: 900,
+    },
+  };
+
+  it('isFullConfig accepts a config carrying the extra identity key', () => {
+    assert.equal(isFullConfig(configWithIdentity), true);
+  });
+
+  it('buildSaveBody round-trips identity instead of stripping it', () => {
+    const body = buildSaveBody(configWithIdentity, 'hw:1,0', 'hw:1,0');
+    assert.deepEqual(body.identity, configWithIdentity.identity);
+  });
+
+  it('the round-tripped body still passes AJV against the real schema', () => {
+    const body = buildSaveBody(configWithIdentity, 'hw:1,0', 'hw:1,0');
+    const ok = validate(body);
+    assert.equal(ok, true, `Expected identity-bearing body to validate: ${JSON.stringify(validate.errors)}`);
   });
 });

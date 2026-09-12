@@ -45,3 +45,9 @@ support_mode:
 ota:
   channel: "stable"
   channel_url: ""
+
+identity:
+  provisioning_url: ""
+  credentials_endpoint: ""
+  role_alias: ""
+  poll_interval_seconds: 3600
