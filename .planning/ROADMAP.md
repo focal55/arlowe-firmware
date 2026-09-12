@@ -17,6 +17,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check (complete 2026-06-13, passed-with-notes — 7 plans merged via PRs #95-#101/#104; SC2 reframed Pi-5-has-no-3.5mm → wm8960 codec; on-Pi SC1-SC4 run deferred to a hardware checkpoint per Phase 1/3/4 precedent, procedure in docs/operations/phase-5-audio.md)
 - [x] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition (complete in code 2026-06-14, 6 plans merged via PRs #112/#113/#114/#115/#116. HARDWARE CHECKPOINT IN PROGRESS — started 2026-06-19 on arlowe-1 (first-ever build), paused mid-setup pending SD-card-size decision + WhisPlay-driver staging; see STATE.md Session Continuity for the resume checklist. Runbook docs/operations/phase-6-build-flash-deploy.md)
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls — 10/11 plans merged to main (PR #122, `e7dff4f`); SC4 unverified, 07-09 parked on an AWS staging account
+- [ ] **Phase 7.1: Runtime substrate repair (INSERTED)** - Populate `/opt/arlowe/venvs`, build the dashboard to `server.js`, declare the missing apt packages, guard the wake-word verifier; a build gate asserts every unit's ExecStart interpreter exists in the rootfs
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
 - [ ] **Phase 10: Owner-consented support access** - Dashboard "Support Mode" toggle provisions a time-bound founder SSH key; auto-revokes; full audit log
@@ -209,6 +210,26 @@ Plans:
 - [x] 07-08b-PLAN.md — first-boot unit (`UMask=0077`, `RequiresMountsFor`) + image wiring
 - [ ] 07-09-PLAN.md — SC4 end-to-end revocation verification against staging; ADR-0007 -> Accepted **(PARKED — needs a staging AWS account with `iot:*` + `iam:CreateRole/AttachRolePolicy/PassRole`; SC4 is the only unverified criterion and ADR-0007 stays Proposed until it runs)**
 
+### Phase 7.1: Runtime substrate repair (INSERTED)
+
+**Goal**: Make the six shipping runtime units actually startable on a factory image. Five of them invoke `/opt/arlowe/venvs/{voice,llm,stt}/bin/python`, an interpreter the image build never creates; the sixth invokes `dashboard/server.js`, which no build step produces. Close that gap and put a build-time gate behind it so the class cannot recur.
+
+**Depends on**: Phase 6 (image build), Phase 3 (unit definitions), Phase 1 (the runtime requirements.txt files)
+
+**Requirements**: No new REQ-IDs. Closes latent gaps in USER-04, USER-05 (units must actually run as specified) and IMAGE-02 (the runtime stage must produce a runnable runtime).
+
+**Why inserted**: Found during Phase 8 research (`.planning/phases/08-first-boot-pairing-and-wake-word/08-RESEARCH.md`). Phase 8 SC2 requires the pairing daemon to "start the runtime services"; that criterion is unreachable while the services cannot start at all. `scripts/provision/install-arlowe-fs.sh:51` records the original deferral in its own comment — *"venvs/ is empty in Phase 3; Phase 6 populates from runtime/*/requirements.txt"* — and Phase 6 never did. Kept out of Phase 8 so that a Phase 8 SC2 failure means "pairing is broken", not "the substrate was never there".
+
+**Success Criteria** (what must be TRUE):
+  1. A build-time gate parses every shipping unit's `ExecStart=` and `ExecStartPre=` and fails the build if the named interpreter or script is absent from the built rootfs. This is the durable fix; the venvs are one instance of it. Same shape as the `00-packages-nr` guard that caught F7 #18.
+  2. `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` exist in the built image and can import the module each unit invokes.
+  3. `runtime/dashboard` produces `server.js` and `arlowe-dashboard.service`'s `ExecStart` target resolves in the built rootfs.
+  4. Every Python import reachable from a unit entry point resolves under the image's own package set — verified in a `debian:bookworm` container built from `pi-gen/stage-arlowe/00-packages/00-packages-nr`, not from the host and not from `pip install -r`.
+  5. `arlowe-voice` starts with no wake-word verifier pickle present (the factory state). `runtime/voice/voice_client.py:349` currently opens it unguarded while `runtime/wake-word/README.md` documents a verifier-absent path that the code does not implement. A test exercises the absent-verifier path.
+  6. On a freshly flashed image, all six units reach `active` — hardware checkpoint, deferrable per Phase 1/3/4/5 precedent, but recorded as unproven until it runs.
+
+**Plans**: TBD
+
 ### Phase 8: First-boot pairing and wake word
 
 **Goal**: A factory-fresh image boots into a pairing daemon, captures Wi-Fi + owner account + device name, requests a device cert, writes the config overlay, and starts the runtime services. The generic "Hey Arlowe" model ships in the image. Factory reset returns the unit to the pairing state.
@@ -298,7 +319,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -309,6 +330,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
 | 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
 | 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
+| 7.1 Runtime substrate repair (INSERTED) | 0/TBD | Not started — blocks Phase 8 SC2 | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |

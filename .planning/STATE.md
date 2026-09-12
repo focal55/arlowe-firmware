@@ -122,6 +122,10 @@ Recent decisions affecting current work:
 - **Phase 3 group set** (resolved #73): the `arlowe` *user* gets supplementary groups {audio, gpio, spi}; video+dialout dropped. **Residual debt (#78):** `units/arlowe-face.service` still declares `SupplementaryGroups=...video` + `DeviceAllow=/dev/fb0` — #73 missed the unit file. Open backlog bug, NOT auto-dispatched.
 - **Axera NPU perms** (resolved #75): nodes 0660 root:arlowe; `install-arlowe-udev-polkit.sh` removes the axcl deb's broken `GROUP="<users>"` rule. Runtime verification deferred to Phase 6.
 
+### Roadmap Evolution
+
+- **2026-09-12 — Phase 7.1 "Runtime substrate repair" INSERTED after Phase 7 (URGENT).** Phase 8 research found that five of the six shipping units invoke `/opt/arlowe/venvs/{voice,llm,stt}/bin/python`, which the image build never creates, and the sixth invokes `dashboard/server.js`, which no build step produces (`next.config.ts` has no `output: 'standalone'`). Verified independently: `scripts/provision/install-arlowe-fs.sh:51` states the deferral in its own comment — *"venvs/ is empty in Phase 3; Phase 6 populates from runtime/*/requirements.txt"* — and Phase 6 never did it. Phase 8 SC2 ("starts the runtime services") is unreachable until this is fixed. Kept OUT of Phase 8 deliberately so a Phase 8 SC2 failure means "pairing is broken" rather than "the substrate was never there". The durable deliverable is a build-time gate asserting every unit's `ExecStart` interpreter exists in the rootfs — the venvs are one instance of that class, which is the same class as F7 #18 (a declared thing nothing read) and #21 (a symlink to a nonexistent target).
+
 ### Pending Todos
 
 In `.planning/todos/pending/`:
