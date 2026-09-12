@@ -54,9 +54,16 @@ jobs:
             ':(exclude)**/Gemfile.lock' \
             ':(exclude)**/composer.lock' \
             ':(exclude)**/go.sum' \
+            ':(exclude).planning/**' \
             | awk '{print $4 + $6}')
           NET=${NET:-0}
-          echo "Net lines changed (excluding lockfiles): $NET"
+          echo "Net lines changed (excluding lockfiles and .planning): $NET"
+          # .planning/ is excluded for the same reason lockfiles are: generated prose,
+          # not reviewable code. A phase's RESEARCH.md plus per-plan SUMMARY.md files
+          # add 1000+ lines that tell a reviewer nothing, and they were also eating
+          # each plan's own stated line budget. Measured on #117: 1534 total, 1175 of
+          # it planning prose, 359 actual code.
+          #
           # Hard cap raised to 1500 during Phase 1 (runtime extraction): pulling whole
           # Python files out of a monorepo is monolithic by nature; voice_client.py
           # alone is 543 LOC. Restore to 600 once Phase 1 closes and surgical work resumes.
