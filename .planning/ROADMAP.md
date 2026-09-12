@@ -212,7 +212,7 @@ Plans:
 
 ### Phase 7.1: Runtime substrate repair (INSERTED)
 
-**Goal**: Make the six shipping runtime units actually startable on a factory image. Five of them invoke `/opt/arlowe/venvs/{voice,llm,stt}/bin/python`, an interpreter the image build never creates; the sixth invokes `dashboard/server.js`, which no build step produces. Close that gap and put a build-time gate behind it so the class cannot recur.
+**Goal**: Make the six shipping runtime units actually startable on a factory image. **Four** of them — `arlowe-voice`, `arlowe-face`, `whisper-stt`, `qwen-tokenizer` — invoke one of three venv interpreters under `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` across **seven** `Exec*` stanzas, and the image build never creates any of them. A fifth, `arlowe-dashboard`, invokes `dashboard/server.js`, which no build step produces and which bookworm's Node 18 could not run even if it existed. Only `qwen-api` is unaffected: it execs the ax-llm binary through `run_api.sh` and touches no Python. Close those gaps and put a build-time gate behind them so the class cannot recur.
 
 **Depends on**: Phase 6 (image build), Phase 3 (unit definitions), Phase 1 (the runtime requirements.txt files)
 
@@ -222,8 +222,8 @@ Plans:
 
 **Success Criteria** (what must be TRUE):
   1. A build-time gate parses every shipping unit's `ExecStart=` and `ExecStartPre=` and fails the build if the named interpreter or script is absent from the built rootfs. This is the durable fix; the venvs are one instance of it. Same shape as the `00-packages-nr` guard that caught F7 #18.
-  2. `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` exist in the built image and can import the module each unit invokes.
-  3. `runtime/dashboard` produces `server.js` and `arlowe-dashboard.service`'s `ExecStart` target resolves in the built rootfs.
+  2. All three venv interpreters — `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` — exist in the built image and can import the module each of the seven `Exec*` stanzas invokes.
+  3. `runtime/dashboard` produces `server.js`, `arlowe-dashboard.service`'s `ExecStart` target resolves in the built rootfs, **and the interpreter that unit actually names reports a version `next` will run** (>= 20.9.0; bookworm ships 18.20.4). Path existence alone does not satisfy this criterion — see SC1's stated limitation.
   4. Every Python import reachable from a unit entry point resolves under the image's own package set — verified in a `debian:bookworm` container built from `pi-gen/stage-arlowe/00-packages/00-packages-nr`, not from the host and not from `pip install -r`.
   5. `arlowe-voice` starts with no wake-word verifier pickle present (the factory state). `runtime/voice/voice_client.py:349` currently opens it unguarded while `runtime/wake-word/README.md` documents a verifier-absent path that the code does not implement. A test exercises the absent-verifier path.
   6. On a freshly flashed image, all six units reach `active` — hardware checkpoint, deferrable per Phase 1/3/4/5 precedent, but recorded as unproven until it runs.
