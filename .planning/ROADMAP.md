@@ -228,7 +228,20 @@ Plans:
   5. `arlowe-voice` starts with no wake-word verifier pickle present (the factory state). `runtime/voice/voice_client.py:349` currently opens it unguarded while `runtime/wake-word/README.md` documents a verifier-absent path that the code does not implement. A test exercises the absent-verifier path.
   6. On a freshly flashed image, all six units reach `active` — hardware checkpoint, deferrable per Phase 1/3/4/5 precedent, but recorded as unproven until it runs.
 
-**Plans**: TBD
+**Plans**: 6 plans in 3 waves
+
+Plans:
+- [ ] 07.1-01-PLAN.md — Dependency ledger: apt layer for the Debian-packaged compiled deps, three pinned venv requirement files + shared constraints, Node-20 floor decision, ADR-0008 (Wave 1, foundational)
+- [ ] 07.1-02-PLAN.md — SC5: stdlib-only `voice/wake_gate.py`, unguarded pickle load removed, absent/corrupt-verifier tests, wake-word README reconciled with the code (Wave 1)
+- [ ] 07.1-03-PLAN.md — SC1: `verify_unit_execstart` gate deriving expectations from the rootfs's own units, fixture self-test whose negative case reproduces the pre-fix image, wired into build-image.sh beside the packages guard (Wave 1)
+- [ ] 07.1-04-PLAN.md — SC2+SC3: `build-venvs.sh` + `build-dashboard.sh` in the chroot, `output: "standalone"`, Node-20 runtime, stale install-arlowe-fs.sh comment corrected (Wave 2, depends on 07.1-01)
+- [ ] 07.1-05-PLAN.md — SC4: unit-derived import-graph checker using `find_spec`, debian:bookworm container built from 00-packages-nr, `unit-import-bookworm` CI job on arm64 (Wave 2, depends on 07.1-01, 07.1-02)
+- [ ] 07.1-06-PLAN.md — SC6: substrate runbook + hardware checkpoint + ROADMAP/REQUIREMENTS/STATE traceability (Wave 3; non-autonomous, deferrable per Phase 1/3/4/5 precedent, depends on 07.1-01..05)
+
+**Findings added during planning** (not in the original insertion brief, both verified in an arm64 `debian:bookworm` container):
+  - Debian bookworm's `nodejs` is **18.20.4**; `next@16.1.6` declares `engines.node >= 20.9.0`. Even once `server.js` exists, `/usr/bin/node` cannot execute it. The SC1 gate cannot catch this — it proves a path resolves, never that the binary there can run what it is handed. Resolved in ADR-0008 (plan 07.1-01) and asserted in plan 07.1-04.
+  - `runtime/dashboard` uses **pnpm** (`pnpm-lock.yaml`, `pnpm-workspace.yaml`, no `package-lock.json`), so the image build cannot use `npm ci`. CI already pins pnpm 10 for this reason.
+  - The dev pins in `runtime/*/requirements.txt` (`numpy==2.3.5`, `Pillow==11.1.0`) are not installable against bookworm's system layer (numpy 1.24.2, Pillow 9.4.0). A naive resolve shadows the apt numpy and floats onnxruntime/matplotlib to latest, breaking Phase 6 SC5 input reproducibility. Hence the separate pinned image-only requirement files.
 
 ### Phase 8: First-boot pairing and wake word
 
@@ -330,7 +343,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 8 -> 
 | 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
 | 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
 | 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
-| 7.1 Runtime substrate repair (INSERTED) | 0/TBD | Not started — blocks Phase 8 SC2 | - |
+| 7.1 Runtime substrate repair (INSERTED) | 0/6 | Planned (6 plans, 3 waves) — blocks Phase 8 SC2 | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |
