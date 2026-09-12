@@ -10,6 +10,7 @@ set -euo pipefail
 #   2. third_party/ax-llm submodule is initialized at the pinned commit
 #   3. Model artifacts (Qwen LLM, Whisper STT, Piper TTS) in third_party/models/manifest.yml
 #   4. WhisPlay driver source (WhisPlay.py + LICENSE) is locatable
+#   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
 #
 # Usage: scripts/verify-third-party.sh [--help]
 
@@ -18,6 +19,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 MANIFEST="${REPO_ROOT}/third_party/axcl/manifest.yml"
 MODELS_MANIFEST="${REPO_ROOT}/third_party/models/manifest.yml"
+NODE_MANIFEST="${REPO_ROOT}/third_party/node/manifest.yml"
 AX_LLM_DIR="${REPO_ROOT}/third_party/ax-llm"
 PINNED_AXLLM_COMMIT="df75c34ca2ed8fe55e7576204e4da9c5b5f88ad8"
 
@@ -41,6 +43,17 @@ Checks:
   2. third_party/ax-llm submodule is initialized and at the pinned commit
   3. Model artifacts (Qwen LLM, Whisper STT, Piper TTS) per third_party/models/manifest.yml
   4. WhisPlay driver source (WhisPlay.py + LICENSE) is locatable
+  5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
+
+Node tarball search order:
+  - \$ARLOWE_NODE_TARBALL
+  - third_party/node/<filename>
+  - /var/cache/arlowe-build/<filename>
+
+Unlike the other pins, third_party/node/manifest.yml carries a real url (Node is
+MIT-licensed and publicly downloadable). Set ARLOWE_NODE_FETCH=1 to have this gate
+download it to /var/cache/arlowe-build/ when absent; the SHA-256 is asserted either
+way, so fetching never weakens the pin.
 
 Model artifact search order (per artifact, using install_to subpath from manifest):
   - \$ARLOWE_MODELS_DIR/<install_to-subpath>
@@ -346,7 +359,88 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Check 5: WM8960 audio HAT redistribution rights — non-blocking warning
+# Check 5: Node.js tarball SHA-256 (ADR-0008)
+#
+# The dashboard unit's ExecStart names the interpreter this tarball unpacks to,
+# not /usr/bin/node — the apt nodejs/npm packages are deliberately absent from
+# 00-packages-nr because bookworm's 18.20.4 cannot run next@16.1.6 (engines.node
+# >= 20.9.0) and bookworm-backports has no nodejs at all. A version pin with no
+# recurring hash check is a decision that exists only on paper, so this block is
+# the gate. HARD FAIL on mismatch or absence.
+# ---------------------------------------------------------------------------
+if [[ ! -f "${NODE_MANIFEST}" ]]; then
+  printf "${RED}[FAIL]${NC} third_party/node/manifest.yml  not found\n"
+  all_ok=false
+else
+  node_sha256=$(python3 -c "
+import yaml
+with open('${NODE_MANIFEST}') as f:
+    m = yaml.safe_load(f)
+print(m['node']['sha256'])
+" 2>/dev/null) || {
+    echo >&2 "ERROR: failed to parse ${NODE_MANIFEST} (is python3-yaml installed?)"
+    exit 1
+  }
+
+  node_filename=$(python3 -c "
+import yaml
+with open('${NODE_MANIFEST}') as f:
+    m = yaml.safe_load(f)
+print(m['node']['filename'])
+" 2>/dev/null)
+
+  node_url=$(python3 -c "
+import yaml
+with open('${NODE_MANIFEST}') as f:
+    m = yaml.safe_load(f)
+print(m['node']['url'] or '')
+" 2>/dev/null)
+
+  node_path=""
+  if [[ -n "${ARLOWE_NODE_TARBALL:-}" ]]; then
+    node_path="${ARLOWE_NODE_TARBALL}"
+  elif [[ -f "${REPO_ROOT}/third_party/node/${node_filename}" ]]; then
+    node_path="${REPO_ROOT}/third_party/node/${node_filename}"
+  elif [[ -f "/var/cache/arlowe-build/${node_filename}" ]]; then
+    node_path="/var/cache/arlowe-build/${node_filename}"
+  fi
+
+  # Opt-in fetch. Node's url is non-null (MIT, publicly downloadable), unlike the
+  # axcl and model pins. Fetching still lands in the hash assertion below.
+  if [[ -z "${node_path}" ]] && [[ "${ARLOWE_NODE_FETCH:-}" == "1" ]] && [[ -n "${node_url}" ]]; then
+    mkdir -p /var/cache/arlowe-build
+    if curl -fsSL "${node_url}" -o "/var/cache/arlowe-build/${node_filename}.part"; then
+      mv "/var/cache/arlowe-build/${node_filename}.part" "/var/cache/arlowe-build/${node_filename}"
+      node_path="/var/cache/arlowe-build/${node_filename}"
+    else
+      rm -f "/var/cache/arlowe-build/${node_filename}.part"
+      echo >&2 "  ARLOWE_NODE_FETCH=1 set but download failed: ${node_url}"
+    fi
+  fi
+
+  if [[ -z "${node_path}" ]]; then
+    printf "${RED}[FAIL]${NC} %-50s not found\n" "${node_filename}"
+    echo >&2 "  Obtain it with either:"
+    echo >&2 "    ARLOWE_NODE_FETCH=1 scripts/verify-third-party.sh"
+    echo >&2 "    curl -fsSL ${node_url} -o /var/cache/arlowe-build/${node_filename}"
+    echo >&2 "  or set ARLOWE_NODE_TARBALL=/path/to/${node_filename}"
+    all_ok=false
+  else
+    node_actual_sha256=$(sha256sum "${node_path}" | awk '{print $1}')
+    if [[ "${node_actual_sha256}" == "${node_sha256}" ]]; then
+      printf "${GREEN}[OK]${NC}   %-50s sha256 matches\n" "third_party/node: ${node_filename}"
+    else
+      printf "${RED}[FAIL]${NC} %-50s sha256 mismatch\n" "third_party/node: ${node_filename}"
+      echo >&2 "  Expected: ${node_sha256}"
+      echo >&2 "  Actual:   ${node_actual_sha256}"
+      echo >&2 "  Path:     ${node_path}"
+      all_ok=false
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 6: WM8960 audio HAT redistribution rights — non-blocking warning
 # ---------------------------------------------------------------------------
 printf "${YELLOW}[WARN]${NC}  %-50s redistribution rights unresolved\n" "WM8960 audio HAT"
 echo "         The Waveshare WM8960 HAT driver bundle in the Whisplay repo has no"

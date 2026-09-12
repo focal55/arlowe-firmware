@@ -20,6 +20,10 @@
 #   - provision/           (udev/ + polkit/ rule sources)
 #   - third_party/axcl/    (manifest.yml + the axcl deb, if present)
 #   - third_party/whisplay-driver/ (WhisPlay.py, LICENSE, README, PROVENANCE)
+#   - third_party/node/       (manifest.yml; the tarball too when it has been
+#                              fetched into the repo dir — see ADR-0008. The
+#                              dashboard runs this Node, not /usr/bin/node,
+#                              because bookworm's 18.20.4 cannot run next@16.)
 #   - scripts/verify-third-party.sh
 #
 # We do NOT stage model artifacts here — models go to the separate models tree
@@ -49,7 +53,7 @@ echo "[01-runtime] staging repo tree into chroot at ${CHROOT_REPO}"
 install -d -m 0755 "${STAGING}"
 
 # Stage each required subdir. rsync preserves permissions and is idempotent.
-for subdir in scripts/provision units config runtime provision third_party/axcl third_party/whisplay-driver; do
+for subdir in scripts/provision units config runtime provision third_party/axcl third_party/whisplay-driver third_party/node; do
     src="${REPO_ROOT}/${subdir}"
     dst="${STAGING}/${subdir}"
     if [[ -d "${src}" ]]; then
