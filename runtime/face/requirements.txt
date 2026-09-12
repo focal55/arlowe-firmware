@@ -1,5 +1,17 @@
 # runtime/face -- Python deps for the face HTTP service + sentiment classifier
 # Pinned from arlowe-1 system Python and ~/venvs/voice/ on 2026-05-02
+#
+# IMAGE NOTE: this file is for CI and local development only. It does NOT govern the
+# device. arlowe-face.service runs under /opt/arlowe/venvs/voice — the SAME venv as
+# arlowe-voice, not one of its own — governed by
+# pi-gen/stage-arlowe/01-runtime/files/venv-requirements/voice.txt plus the apt layer in
+# pi-gen/stage-arlowe/00-packages/00-packages-nr, which supplies numpy and Pillow.
+# The Pillow 11.1.0 pin below is not installable against bookworm (apt ships 9.4.0).
+# Flask is listed here for future use but is NOT in the image: face_service.py uses
+# stdlib http.server, so Flask is not reachable from any unit entry point and the
+# dependency ledger in ADR-0008 deliberately excludes it.
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md.
+#
 # WhisPlay vendor driver is NOT a pip dep -- see third_party/whisplay-driver/PROVENANCE.md
 #
 # Note: face_service.py currently uses stdlib http.server; Flask is included for
