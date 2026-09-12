@@ -54,12 +54,21 @@ jobs:
             ':(exclude)**/Gemfile.lock' \
             ':(exclude)**/composer.lock' \
             ':(exclude)**/go.sum' \
+            ':(exclude).planning/**' \
             | awk '{print $4 + $6}')
           NET=${NET:-0}
-          echo "Net lines changed (excluding lockfiles): $NET"
+          echo "Net lines changed (excluding lockfiles and .planning): $NET"
+          # .planning/ is excluded for the same reason lockfiles are: it is generated
+          # prose, not reviewable code, and a phase's RESEARCH.md plus per-plan
+          # SUMMARY.md files routinely add 1000+ lines that tell a reviewer nothing
+          # about the change. Measured on PR #117: 1534 total, of which 1175 was
+          # planning prose and 359 was actual code.
+          #
           # Hard cap raised to 1500 during Phase 1 (runtime extraction): pulling whole
           # Python files out of a monorepo is monolithic by nature; voice_client.py
-          # alone is 543 LOC. Restore to 600 once Phase 1 closes and surgical work resumes.
+          # alone is 543 LOC. Restore to 600 once Phase 1 closes and surgical work
+          # resumes -- tracked as issue #121, still open because the Phase 7 branch
+          # is 4336 code lines and would need splitting first.
           if [ "$NET" -gt 1500 ]; then
             echo "::error::PR is too large ($NET net lines). Hard cap is 1500 during Phase 1. Please split."
             exit 1
@@ -84,7 +93,7 @@ jobs:
             scripts/lib/*.sh \
             pi-gen/stage-arlowe/**/*.sh \
             units/install-units.sh \
-            runtime/cli/arlowe-ab \
+            runtime/cli/ab \
             runtime/recovery/*.sh
 
   linked-issue:

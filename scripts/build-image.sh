@@ -59,9 +59,36 @@ ok "Third-party deps verified."
 # ---------------------------------------------------------------------------
 log "=== Step 2: pi-gen build ==="
 
-if [[ ! -d "${PI_GEN_DIR}" ]]; then
-    fail "pi-gen directory not found at ${PI_GEN_DIR}"
-    exit 1
+# Provision upstream pi-gen at a pinned bookworm tag. Only the arlowe overlay
+# (config, stage-arlowe) is tracked in git; upstream is fetched here. The pin is
+# load-bearing: pi-gen master targets trixie, whose debian.sources names the
+# keyring .pgp (bookworm ships .gpg) and whose stage2 pulls trixie-only rpi-*
+# packages -- both break a RELEASE=bookworm build (F6).
+PIGEN_REF="2026-06-18-raspios-bookworm-arm64"
+PIGEN_MARKER="${PI_GEN_DIR}/.arlowe-pigen-ref"
+
+if [[ -f "${PIGEN_MARKER}" && "$(cat "${PIGEN_MARKER}")" == "${PIGEN_REF}" ]]; then
+    ok "pi-gen pinned at ${PIGEN_REF}"
+else
+    if [[ -f "${PI_GEN_DIR}/build.sh" ]]; then
+        log "pi-gen present but not at the pinned ref — re-provisioning"
+    fi
+    log "Cloning pi-gen at ${PIGEN_REF}..."
+    PIGEN_TMP="$(mktemp -d)"
+    trap 'rm -rf "${PIGEN_TMP}"' EXIT
+    git clone --quiet --branch "${PIGEN_REF}" --depth 1 \
+        https://github.com/RPi-Distro/pi-gen.git "${PIGEN_TMP}/pi-gen"
+    rm -rf "${PIGEN_TMP}/pi-gen/.git"
+    # Carry the arlowe overlay across so the fresh checkout keeps our stage.
+    rm -rf "${PIGEN_TMP}/pi-gen/config" "${PIGEN_TMP}/pi-gen/stage-arlowe"
+    cp -a "${PI_GEN_DIR}/config" "${PIGEN_TMP}/pi-gen/config"
+    cp -a "${PI_GEN_DIR}/stage-arlowe" "${PIGEN_TMP}/pi-gen/stage-arlowe"
+    sudo rm -rf "${PI_GEN_DIR}"
+    mv "${PIGEN_TMP}/pi-gen" "${PI_GEN_DIR}"
+    printf '%s\n' "${PIGEN_REF}" > "${PIGEN_MARKER}"
+    trap - EXIT
+    rm -rf "${PIGEN_TMP}"
+    ok "pi-gen provisioned at ${PIGEN_REF}"
 fi
 
 # pi-gen sets WORK_DIR; default to a canonical build-local path so the
@@ -108,6 +135,34 @@ if [[ ! -d "${PIGEN_ROOTFS}" ]]; then
 fi
 ok "Model-free rootfs at: ${PIGEN_ROOTFS}"
 
+# Assert the packages stage-arlowe declares actually landed in the rootfs.
+# An unread package list is invisible at build time: pi-gen reads NN-packages-nr
+# only from inside a sub-stage directory, so a misplaced list builds a clean
+# image that fails at first boot instead (F7 #16/#18 — growpart, node, rpi.gpio
+# were absent from every image ever built).
+PACKAGE_LIST="${PI_GEN_DIR}/stage-arlowe/00-packages/00-packages-nr"
+if [[ ! -f "${PACKAGE_LIST}" ]]; then
+    fail "Declared package list not found at ${PACKAGE_LIST}"
+    exit 1
+fi
+
+mapfile -t DECLARED_PKGS < <(sed 's/#.*//' "${PACKAGE_LIST}" | tr -s '[:space:]' '\n' | grep -v '^$')
+MISSING_PKGS=()
+for pkg in "${DECLARED_PKGS[@]}"; do
+    sudo awk -v p="${pkg}" '
+        $1 == "Package:" { cur = ($2 == p) }
+        cur && $1 == "Status:" && /install ok installed/ { found = 1 }
+        END { exit(found ? 0 : 1) }
+    ' "${PIGEN_ROOTFS}/var/lib/dpkg/status" || MISSING_PKGS+=("${pkg}")
+done
+
+if (( ${#MISSING_PKGS[@]} > 0 )); then
+    fail "Declared packages absent from the built rootfs: ${MISSING_PKGS[*]}"
+    fail "stage-arlowe's package list did not install — confirm it sits inside a sub-stage directory."
+    exit 1
+fi
+ok "All ${#DECLARED_PKGS[@]} declared packages present in rootfs."
+
 # Locate the models staging tree (written by 02-models/00-run.sh).
 MODELS_STAGE_MARKER="${WORK_DIR}/arlowe-models-stage-path"
 if [[ -f "${MODELS_STAGE_MARKER}" ]]; then
@@ -124,23 +179,36 @@ ok "Models staging tree at: ${ARLOWE_MODELS_STAGE}"
 # ---------------------------------------------------------------------------
 log "=== Step 3: measure rootfs + models ==="
 
-ROOTFS_BYTES="$(du -sb "${PIGEN_ROOTFS}" | awk '{print $1}')"
-MODELS_BYTES="$(du -sb "${ARLOWE_MODELS_STAGE}" | awk '{print $1}')"
+# sudo: the pi-gen rootfs has root-owned 0700 dirs (identity/, /root, ssl/private,
+# ...) that a non-root du can't read — it would both error out (pipefail) and
+# undercount the rootfs, yielding a too-small slot. Measure as root for accuracy.
+ROOTFS_BYTES="$(sudo du -sb "${PIGEN_ROOTFS}" | awk '{print $1}')"
+MODELS_BYTES="$(sudo du -sb "${ARLOWE_MODELS_STAGE}" | awk '{print $1}')"
 
 log "Measured model-free rootfs: $(( ROOTFS_BYTES / 1024 / 1024 )) MiB (${ROOTFS_BYTES} bytes)"
 log "Measured models tree:       $(( MODELS_BYTES / 1024 / 1024 )) MiB (${MODELS_BYTES} bytes)"
 
-# Apply 25% headroom to the rootfs measurement for the slot size.
+# Slot size = rootfs measurement + 25% headroom, but never below the ADR-0004
+# reference floor. A percentage-only headroom collapses to near-nothing on a
+# small rootfs: the Phase-6 checkpoint measured ~1.6 GiB, so +25% gave a 2 GiB
+# slot that booted 97% full (55 MiB free) with no room for apt/updates/tmp.
+# ADR-0004's reference is therefore a FLOOR — measured wins only when larger.
 # Round up to the nearest 64 MiB boundary for partition alignment.
 _ALIGN_BYTES=$(( 64 * 1024 * 1024 ))
-_SLOT_RAW=$(( ROOTFS_BYTES + ROOTFS_BYTES / 4 ))
-SLOT_BYTES=$(( (_SLOT_RAW + _ALIGN_BYTES - 1) / _ALIGN_BYTES * _ALIGN_BYTES ))
 
-log "Slot size (rootfs + 25% headroom, 64 MiB aligned): $(( SLOT_BYTES / 1024 / 1024 )) MiB"
-
-# ADR-0004 reference values (starting points; measured values win).
+# ADR-0004 reference values (floors; measured values win only when larger).
 _ADR_SLOT_REF_MIB=3072
 _ADR_MODELS_REF_MIB=6144
+
+_SLOT_RAW=$(( ROOTFS_BYTES + ROOTFS_BYTES / 4 ))
+_SLOT_FLOOR_BYTES=$(( _ADR_SLOT_REF_MIB * 1024 * 1024 ))
+if (( _SLOT_RAW < _SLOT_FLOOR_BYTES )); then
+    log "Measured slot (rootfs + 25% = $(( _SLOT_RAW / 1024 / 1024 )) MiB) is under the ADR-0004 ${_ADR_SLOT_REF_MIB} MiB floor; using the floor."
+    _SLOT_RAW="${_SLOT_FLOOR_BYTES}"
+fi
+SLOT_BYTES=$(( (_SLOT_RAW + _ALIGN_BYTES - 1) / _ALIGN_BYTES * _ALIGN_BYTES ))
+
+log "Slot size (rootfs + 25% headroom, ADR-0004 ${_ADR_SLOT_REF_MIB} MiB floor, 64 MiB aligned): $(( SLOT_BYTES / 1024 / 1024 )) MiB"
 
 if (( SLOT_BYTES / 1024 / 1024 > _ADR_SLOT_REF_MIB * 2 )); then
     warn "Measured slot size materially exceeds ADR-0004 ~${_ADR_SLOT_REF_MIB} MiB reference — proceeding with measured value."
@@ -274,5 +342,17 @@ log "Image size:   $(du -sh "${OUTPUT_IMG}" | awk '{print $1}')"
 log ""
 log "Partition table:"
 sudo parted -s "${OUTPUT_IMG}" print
+
+# Generate a block map so flash-sd.sh's bmaptool path writes only used blocks.
+# The image is sized to the full card but mostly empty (models grow-to-fill on
+# first boot), so a plain dd writes the whole card; bmaptool skips the unused
+# space and cuts a flash from ~50-77 min to ~10 min on a slow card.
+if command -v bmaptool >/dev/null 2>&1; then
+    log "Generating block map for fast flashing..."
+    bmaptool create -o "${OUTPUT_IMG}.bmap" "${OUTPUT_IMG}"
+    ok "Block map written: ${OUTPUT_IMG}.bmap"
+else
+    warn "bmaptool not installed; skipping .bmap (flash-sd.sh will fall back to a full dd). Install bmap-tools to enable fast flashing."
+fi
 
 ok "Build complete: ${OUTPUT_IMG}"

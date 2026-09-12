@@ -93,6 +93,7 @@ build_partition_image() {
 
     _pimg_mkfs           "${loop_dev}"
     _pimg_rsync_rootfs   "${loop_dev}" "${rootfs}"
+    _pimg_seed_owner_state "${loop_dev}" "${rootfs}"
     _pimg_seed_models    "${loop_dev}" "${models_stage}"
     _pimg_write_fstab    "${loop_dev}" "${partuuid_map}"
     _pimg_export_partuuids "${loop_dev}" "${partuuid_map}"
@@ -267,6 +268,41 @@ _pimg_rsync_rootfs() {
 }
 
 # ---------------------------------------------------------------------------
+# Internal: _pimg_seed_owner_state — seed owner-state partition (p4) with the
+# /var/lib/arlowe skeleton the chroot built into the rootfs.
+#
+# The chroot's install-arlowe-fs.sh creates /var/lib/arlowe/{identity,logs,...}
+# (arlowe:arlowe, perms per the Phase-3 layout) INSIDE the rootfs, which lands on
+# system_a (p2). At runtime the owner-state partition (p4) mounts over
+# /var/lib/arlowe and would otherwise shadow that skeleton with an empty fs, so
+# Phase-7 PKI paths like /var/lib/arlowe/identity/ would not exist. Copy the
+# already-built skeleton onto p4 so it ships pre-seeded with correct ownership.
+# --numeric-ids keeps the arlowe uid/gid verbatim (the build host has no arlowe
+# user to resolve names against).
+# ---------------------------------------------------------------------------
+_pimg_seed_owner_state() {
+    local loop_dev="$1"
+    local rootfs="$2"
+
+    local skeleton="${rootfs}/var/lib/arlowe"
+    if [[ ! -d "${skeleton}" ]]; then
+        echo "[partition-image] WARNING: no /var/lib/arlowe skeleton in rootfs; owner-state left empty" >&2
+        return 0
+    fi
+
+    local mnt_owner
+    mnt_owner="$(mktemp -d)"
+    sudo mount "${loop_dev}p4" "${mnt_owner}"
+
+    echo "[partition-image] seeding owner-state partition from rootfs skeleton..."
+    sudo rsync -aHAX --numeric-ids "${skeleton}/" "${mnt_owner}/"
+
+    sudo umount "${mnt_owner}"
+    rmdir "${mnt_owner}"
+    echo "[partition-image] owner-state partition seeded (/var/lib/arlowe skeleton, arlowe-owned)"
+}
+
+# ---------------------------------------------------------------------------
 # Internal: _pimg_seed_models — rsync models staging tree into models partition (p5)
 # ---------------------------------------------------------------------------
 _pimg_seed_models() {
@@ -323,14 +359,24 @@ _pimg_write_fstab() {
 
     # Read the PARTUUIDs from blkid directly (map file may not exist yet when
     # this is called; we re-read fresh to keep ordering independent).
-    local puuid_boot puuid_owner puuid_models
+    local puuid_boot puuid_a puuid_owner puuid_models
     puuid_boot="$(sudo blkid -s PARTUUID -o value "${loop_dev}p1")"
+    puuid_a="$(sudo blkid -s PARTUUID -o value "${loop_dev}p2")"
     puuid_owner="$(sudo blkid -s PARTUUID -o value "${loop_dev}p4")"
     puuid_models="$(sudo blkid -s PARTUUID -o value "${loop_dev}p5")"
 
     local mnt_a
     mnt_a="$(mktemp -d)"
     sudo mount "${loop_dev}p2" "${mnt_a}"
+
+    # Substitute pi-gen's fstab template placeholders. pi-gen leaves literal
+    # BOOTDEV/ROOTDEV tokens that its own export-image stage normally rewrites;
+    # we SKIP_IMAGES and partition ourselves, so they'd stay literal and the
+    # bogus BOOTDEV/ROOTDEV mounts fail → boot drops to emergency mode. Rewrite
+    # ROOTDEV → this slot's root (p2), BOOTDEV → boot (p1). The append guards
+    # below then see the boot entry already present and don't duplicate it.
+    sudo sed -i "s|^ROOTDEV\b|PARTUUID=${puuid_a}|; s|^BOOTDEV\b|PARTUUID=${puuid_boot}|" \
+        "${mnt_a}/etc/fstab"
 
     # Replace the PARTUUID placeholder baked into the rootfs during chroot provisioning.
     local placeholder="ARLOWE-MODELS-PARTUUID-REPLACE-BY-06-04"

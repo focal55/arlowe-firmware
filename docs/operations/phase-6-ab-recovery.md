@@ -174,7 +174,7 @@ See `docs/operations/phase-6-partitions.md` for partition layout reference.
 - ADR-0004: `docs/architecture/0004-shared-model-partition-sizing.md`
 - Boot config library: `scripts/lib/boot-config.sh`
 - Recovery stub library: `scripts/lib/recovery-stub.sh`
-- A/B CLI: `runtime/cli/arlowe-ab`
+- A/B CLI: `runtime/cli/ab`
 - Recovery service: `runtime/recovery/arlowe-recovery.service`
 - Recovery script: `runtime/recovery/arlowe-recovery.sh`
 - Partition layout: `docs/operations/phase-6-partitions.md`

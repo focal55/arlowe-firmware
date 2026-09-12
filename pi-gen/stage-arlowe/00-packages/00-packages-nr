@@ -1,4 +1,8 @@
 # Packages installed with --no-install-recommends in stage-arlowe.
+#
+# This file MUST live inside a sub-stage directory. pi-gen's run_stage()
+# iterates only directories under the stage root and reads NN-packages-nr
+# from within each one; a copy at the stage root is silently ignored.
 # Lite base (stage2) already provides systemd, apt, coreutils, openssh-server.
 # Only add what the arlowe runtime actually needs at start-up.
 
@@ -29,3 +33,10 @@ dpkg
 # nodejs from Debian bookworm is v18+; dashboard/package.json targets >=18.
 nodejs
 npm
+
+# First-boot models grow-to-fill (arlowe-grow-models). growpart lives in
+# cloud-guest-utils; growpart relocates the GPT backup header on a GPT disk via
+# sgdisk (gdisk). Without these the first-boot service dies with
+# "growpart: command not found" (exit 127) and the models partition never grows.
+cloud-guest-utils
+gdisk
