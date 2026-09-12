@@ -2,7 +2,7 @@ name: PR Checks
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   conventional-commits:
@@ -39,6 +39,8 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check PR size
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
@@ -64,11 +66,22 @@ jobs:
           # each plan's own stated line budget. Measured on #117: 1534 total, 1175 of
           # it planning prose, 359 actual code.
           #
-          # Hard cap raised to 1500 during Phase 1 (runtime extraction): pulling whole
-          # Python files out of a monorepo is monolithic by nature; voice_client.py
-          # alone is 543 LOC. Restore to 600 once Phase 1 closes and surgical work resumes.
-          if [ "$NET" -gt 1500 ]; then
-            echo "::error::PR is too large ($NET net lines). Hard cap is 1500 during Phase 1. Please split."
+          # The cap is 600, the documented project convention. It was raised to 1500
+          # "during Phase 1" and stayed there through Phase 6 (issue #121), which meant
+          # the per-plan size budgets agreed at planning time had no gate behind them.
+          #
+          # A whole-phase branch legitimately exceeds 600 and cannot be split into
+          # independent PRs — the slices are stacked, and squash-merging a base branch
+          # conflicts every branch cut from it. Such a PR is waived by applying the
+          # `size:phase-branch` label, which is a deliberate human act, re-triggers
+          # this check (see the `labeled` event type above), and leaves a record on the
+          # PR. Silently raising the number again is what produced #121.
+          if printf '%s' "$PR_LABELS" | grep -q '"size:phase-branch"'; then
+            echo "::warning::PR is $NET net lines, over the 600 cap. Waived by the size:phase-branch label."
+            exit 0
+          fi
+          if [ "$NET" -gt 600 ]; then
+            echo "::error::PR is too large ($NET net lines). Hard cap is 600. Split it, or apply the size:phase-branch label if this is a whole-phase branch."
             exit 1
           fi
           if [ "$NET" -gt 400 ]; then
