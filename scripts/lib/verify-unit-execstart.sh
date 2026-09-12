@@ -35,7 +35,15 @@
 #   1  at least one FAIL — a real substrate defect
 #   2  HARD ERROR — the gate could not perform its test. Never a pass, never a
 #      skip. A gate that reports "clean" because it could not read is worse than
-#      no gate at all.
+#      no gate at all, and one that reports FAIL because it could not read is
+#      worse still: it trains the next reader to ignore it.
+#
+# PRIVILEGE. scripts/provision/install-arlowe-fs.sh creates /opt/arlowe as
+# 0750 root:arlowe. A build-host user is neither root nor in the image's arlowe
+# group, so unprivileged existence tests on every Exec* target under that tree
+# return false. Both functions detect an unsearchable directory and return the
+# HARD ERROR rather than collapsing it into "missing"; scripts/build-image.sh
+# therefore invokes them under sudo, for the same reason its `du` runs under sudo.
 #
 # `-`-PREFIXED STANZAS are reported as WARN, not FAIL. systemd itself tolerates
 # their failure (`ExecStartPre=-/opt/arlowe/x` means "run it, ignore the result"),
@@ -141,6 +149,11 @@ _vue_shield_off() {
 #   0  final target exists
 #   1  final target does not exist (a dangling symlink lands here — F7 #21)
 #   2  symlink loop / depth exceeded
+#   3  a directory on the way is not searchable by this user, so absence cannot
+#      be distinguished from denial. NEVER collapsed into 1: reporting a
+#      permission wall as a missing file is a FAIL for the wrong reason, and a
+#      gate that fails for the wrong reason is indistinguishable from one that
+#      works until the day it matters.
 # ---------------------------------------------------------------------------
 _vue_resolve() {
     local rootfs="$1" rest="${2#/}"
@@ -160,6 +173,14 @@ _vue_resolve() {
             ''|.)  continue ;;
             ..)    resolved="${resolved%/*}"; continue ;;
         esac
+
+        # A directory we cannot search makes every child test false.
+        # install-arlowe-fs.sh creates /opt/arlowe 0750 root:arlowe, so an
+        # unprivileged caller hits this on every Exec* target in the tree.
+        if [[ -d "${rootfs}${resolved:-/}" && ! -x "${rootfs}${resolved:-/}" ]]; then
+            printf '%s\n' "${resolved}/${comp}"
+            return 3
+        fi
 
         if [[ -L "${rootfs}${resolved}/${comp}" ]]; then
             target="$(readlink "${rootfs}${resolved}/${comp}" 2>/dev/null)"
@@ -255,6 +276,25 @@ _vue_unit_files() {
     return 0
 }
 
+# _vue_hard_permission <tag> <unit> <token> <blocked-path>
+_vue_hard_permission() {
+    _vue_err "$1" "$2: cannot search inside the rootfs as far as $4 (blocked resolving $3) as $(id -un 2>/dev/null || printf 'uid %s' "$(id -u)"). install-arlowe-fs.sh creates /opt/arlowe 0750 root:arlowe — run this gate with the privilege the rootfs requires, the way build-image.sh's du does."
+}
+
+# An unreadable unit directory produces an EMPTY glob, which would otherwise be
+# reported as "zero units" — a FAIL for a permission reason. Hard-error instead.
+#   0 readable   2 present but unreadable
+_vue_unit_dir_readable() {
+    local rootfs="$1" tag="$2"
+    local dir="${rootfs}/etc/systemd/system"
+    [[ -d "${dir}" ]] || return 0
+    if [[ ! -r "${dir}" || ! -x "${dir}" ]]; then
+        _vue_err "${tag}" "cannot read ${dir} as $(id -un 2>/dev/null || printf 'uid %s' "$(id -u)") — the unit set cannot be enumerated. Run this gate with the privilege the rootfs requires; reporting 'no units' here would be a pass-shaped lie."
+        return 2
+    fi
+    return 0
+}
+
 # ===========================================================================
 # GATE 1 — every Exec* target resolves inside the rootfs
 # ===========================================================================
@@ -264,10 +304,15 @@ verify_unit_execstart() {
 
     _vue_shield_on
     local tag='unit-execstart'
-    local rc=0 fails=0 skips=0 warns=0 checked=0 units=0
+    local rc=0 fails=0 skips=0 warns=0 checked=0 units=0 hard=0
     local unit name directive value tolerate stripped
     local -a tokens
     local token exe resolved rrc
+
+    if ! _vue_unit_dir_readable "${rootfs}" "${tag}"; then
+        _vue_shield_off
+        return 2
+    fi
 
     local -a unit_files=()
     while IFS= read -r unit; do
@@ -309,6 +354,11 @@ verify_unit_execstart() {
 
             checked=$(( checked + 1 ))
             resolved="$(_vue_resolve "${rootfs}" "${exe}")"; rrc=$?
+            if (( rrc == 3 )); then
+                _vue_hard_permission "${tag}" "${name}" "${exe}" "${resolved}"
+                hard=1
+                continue
+            fi
             if (( rrc == 2 )); then
                 _vue_fail "${tag}" "${name}: ${directive} symlink loop resolving ${exe}"
                 fails=$(( fails + 1 ))
@@ -353,6 +403,11 @@ verify_unit_execstart() {
 
                 checked=$(( checked + 1 ))
                 resolved="$(_vue_resolve "${rootfs}" "${token}")"; rrc=$?
+                if (( rrc == 3 )); then
+                    _vue_hard_permission "${tag}" "${name}" "${token}" "${resolved}"
+                    hard=1
+                    continue
+                fi
                 if (( rrc != 0 )); then
                     if (( tolerate )); then
                         _vue_warn "${tag}" "${name}: ${directive} is '-' prefixed (failure tolerated); argument file missing in rootfs: ${token}"
@@ -365,6 +420,12 @@ verify_unit_execstart() {
             done
         done < <(_vue_exec_stanzas "${unit}")
     done
+
+    if (( hard )); then
+        _vue_err "${tag}" "the gate could not read parts of ${rootfs}, so absence cannot be distinguished from denial. This is neither a pass nor a FAIL."
+        _vue_shield_off
+        return 2
+    fi
 
     _vue_log "${tag}" "${units} unit(s), ${checked} target(s) checked, ${fails} failure(s), ${warns} warning(s), ${skips} skip(s)"
     if (( fails > 0 )); then
@@ -499,7 +560,7 @@ verify_unit_runtime_versions() {
 
     _vue_shield_on
     local tag='unit-versions'
-    local rc=0 fails=0 skips=0 probes=0 undeclared=0
+    local rc=0 fails=0 skips=0 probes=0 undeclared=0 hard=0
     local unit name directive value stripped exe resolved rrc base
     local floor raw got allowed entry
     local -a tokens unit_files=()
@@ -514,6 +575,11 @@ verify_unit_runtime_versions() {
 
     if ! command -v dpkg >/dev/null 2>&1; then
         _vue_err "${tag}" "dpkg is required for --compare-versions and is not on this host; version floors cannot be evaluated"
+        _vue_shield_off
+        return 2
+    fi
+
+    if ! _vue_unit_dir_readable "${rootfs}" "${tag}"; then
         _vue_shield_off
         return 2
     fi
@@ -550,6 +616,11 @@ verify_unit_runtime_versions() {
             [[ "${exe}" == /* ]] || continue   # gate 1 owns the non-absolute FAIL
 
             resolved="$(_vue_resolve "${rootfs}" "${exe}")"; rrc=$?
+            if (( rrc == 3 )); then
+                _vue_hard_permission "${tag}" "${name}" "${exe}" "${resolved}"
+                hard=1
+                continue
+            fi
             if (( rrc != 0 )); then
                 _vue_fail "${tag}" "${name}: cannot resolve ${exe} inside the rootfs, so its version cannot be established"
                 fails=$(( fails + 1 ))
@@ -606,6 +677,12 @@ verify_unit_runtime_versions() {
             fi
         done < <(_vue_exec_stanzas "${unit}")
     done
+
+    if (( hard )); then
+        _vue_err "${tag}" "the gate could not read parts of ${rootfs}, so absence cannot be distinguished from denial. This is neither a pass nor a FAIL."
+        _vue_shield_off
+        return 2
+    fi
 
     _vue_log "${tag}" "${probes} interpreter(s) probed, ${undeclared} allowlisted undeclared, ${fails} failure(s), ${skips} skip(s)"
     if (( fails > 0 )); then

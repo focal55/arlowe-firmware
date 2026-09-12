@@ -315,6 +315,27 @@ assert_out "${OUT}" 'under emulation — version results would not be the device
 assert_no_out "${OUT}" 'OK' "[unprobeable] nothing is reported as passing"
 
 # ===========================================================================
+# [permission-wall] — an unsearchable directory is a HARD ERROR, not a FAIL.
+# install-arlowe-fs.sh creates /opt/arlowe 0750 root:arlowe, so an unprivileged
+# run against a real rootfs hits this on every target in the tree. Reporting it
+# as "missing" would be a gate failing for the wrong reason on every build.
+# Skipped when running as root, where the mode is unenforceable.
+# ===========================================================================
+if [[ "$(id -u)" == "0" ]]; then
+    printf 'SKIP: [permission-wall] not meaningful as root (mode bits do not apply)\n'
+else
+    DENY="$(new_rootfs permission-wall)"
+    mkexec "${DENY}/opt/arlowe/runtime/cli/thing"
+    write_unit "${DENY}" arlowe-deny 'ExecStart=/opt/arlowe/runtime/cli/thing'
+    chmod 0640 "${DENY}/opt/arlowe"
+    run_gate verify_unit_execstart "${DENY}" permission-wall
+    chmod 0755 "${DENY}/opt/arlowe"
+    assert_rc 2 "${RC}" "[permission-wall] an unsearchable directory is a HARD ERROR"
+    assert_out "${OUT}" 'cannot search inside the rootfs' "[permission-wall] names the denial"
+    assert_no_out "${OUT}" 'missing in rootfs' "[permission-wall] does not report the target as missing"
+fi
+
+# ===========================================================================
 # [probe-override-is-loud] — an exported ARLOWE_VERSION_PROBE announces itself,
 # so an accidental export cannot make a build's gate quietly lie.
 # ===========================================================================
