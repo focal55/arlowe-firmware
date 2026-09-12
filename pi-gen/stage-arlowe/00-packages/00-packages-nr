@@ -41,8 +41,8 @@ dpkg
 
 # Node.js for arlowe-dashboard is DELIBERATELY NOT an apt package -- see ADR-0008.
 #
-# The previous comment here claimed "nodejs from Debian bookworm is v18+;
-# dashboard/package.json targets >=18." Both halves were false.
+# The previous comment here asserted that bookworm's nodejs was new enough because
+# dashboard/package.json declared a Node 18 floor. Both halves were false.
 # runtime/dashboard/package.json has no `engines` field at all; the floor that actually
 # binds comes from next@16.1.6's own engines.node, which is >= 20.9.0. Bookworm's
 # candidate is 18.20.4 and bookworm-backports carries no nodejs at all (verified in an
