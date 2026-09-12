@@ -16,7 +16,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 4: Config overlay** - Schema-validated `defaults.yml` + `/etc/arlowe/config.yml` overlay; every personal literal flows through config (complete 2026-06-07, passed-with-notes — 4 plans merged via PRs #84/#85/#86/#87; SC4 on-device persona-knob check deferred to Phase 6/12, arlowe-1 has no arlowe layout to run it)
 - [x] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check (complete 2026-06-13, passed-with-notes — 7 plans merged via PRs #95-#101/#104; SC2 reframed Pi-5-has-no-3.5mm → wm8960 codec; on-Pi SC1-SC4 run deferred to a hardware checkpoint per Phase 1/3/4 precedent, procedure in docs/operations/phase-5-audio.md)
 - [x] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition (complete in code 2026-06-14, 6 plans merged via PRs #112/#113/#114/#115/#116. HARDWARE CHECKPOINT IN PROGRESS — started 2026-06-19 on arlowe-1 (first-ever build), paused mid-setup pending SD-card-size decision + WhisPlay-driver staging; see STATE.md Session Continuity for the resume checklist. Runbook docs/operations/phase-6-build-flash-deploy.md)
-- [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls
+- [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls — 10/11 plans merged to main (PR #122, `e7dff4f`); SC4 unverified, 07-09 parked on an AWS staging account
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
 - [ ] **Phase 10: Owner-consented support access** - Dashboard "Support Mode" toggle provisions a time-bound founder SSH key; auto-revokes; full audit log
@@ -197,17 +197,17 @@ token-agnostic by design and does not know who issued the token. Plan 07-09 reco
 REQUIREMENTS.md traceability row; IDENT-02 does not close with Phase 7.
 
 Plans:
-- [ ] 07-01-PLAN.md — ADR-0007 (managed-PKI selection) + optional `identity` config block
-- [ ] 07-02-PLAN.md — CI teeth: python-test job, bookworm cryptography floor job, dashboard jobs repointed; Phase 7 python deps
-- [ ] 07-03-PLAN.md — `arlowe_identity.py`: device-id derivation, per-device entropy, 0600 secret writer, identity.json read/update contract
-- [ ] 07-04-PLAN.md — SC3 identity-store hygiene gate in `build-image.sh` + `boot-check check_identity`
-- [ ] 07-05a-PLAN.md — staging PKI lifecycle as code: `scripts/pki/` setup, teardown, revoke lever
-- [ ] 07-05b-PLAN.md — token-agnostic CSR broker + frozen `POST /v1/certificates` contract
-- [ ] 07-06-PLAN.md — `arlowe_pki.py`: P-256 keypair + CSR (CN = device-id) + certificate storage
-- [ ] 07-07-PLAN.md — `arlowe_cloud.py`: broker POST + IoT credentials exchange, `CertificateRevoked`
-- [ ] 07-08a-PLAN.md — `arlowe-identity` CLI (init/status/provision/check-cloud/reset) + tests
-- [ ] 07-08b-PLAN.md — first-boot unit (`UMask=0077`, `RequiresMountsFor`) + image wiring
-- [ ] 07-09-PLAN.md — SC4 end-to-end revocation verification against staging; ADR-0007 -> Accepted
+- [x] 07-01-PLAN.md — ADR-0007 (managed-PKI selection) + optional `identity` config block
+- [x] 07-02-PLAN.md — CI teeth: python-test job, bookworm cryptography floor job, dashboard jobs repointed; Phase 7 python deps
+- [x] 07-03-PLAN.md — `arlowe_identity.py`: device-id derivation, per-device entropy, 0600 secret writer, identity.json read/update contract
+- [x] 07-04-PLAN.md — SC3 identity-store hygiene gate in `build-image.sh` + `boot-check check_identity`
+- [x] 07-05a-PLAN.md — staging PKI lifecycle as code: `scripts/pki/` setup, teardown, revoke lever
+- [x] 07-05b-PLAN.md — token-agnostic CSR broker + frozen `POST /v1/certificates` contract
+- [x] 07-06-PLAN.md — `arlowe_pki.py`: P-256 keypair + CSR (CN = device-id) + certificate storage
+- [x] 07-07-PLAN.md — `arlowe_cloud.py`: broker POST + IoT credentials exchange, `CertificateRevoked`
+- [x] 07-08a-PLAN.md — `arlowe-identity` CLI (init/status/provision/check-cloud/reset) + tests
+- [x] 07-08b-PLAN.md — first-boot unit (`UMask=0077`, `RequiresMountsFor`) + image wiring
+- [ ] 07-09-PLAN.md — SC4 end-to-end revocation verification against staging; ADR-0007 -> Accepted **(PARKED — needs a staging AWS account with `iot:*` + `iam:CreateRole/AttachRolePolicy/PassRole`; SC4 is the only unverified criterion and ADR-0007 stays Proposed until it runs)**
 
 ### Phase 8: First-boot pairing and wake word
 
