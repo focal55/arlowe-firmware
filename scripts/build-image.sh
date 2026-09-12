@@ -37,6 +37,10 @@ PI_GEN_DIR="${REPO_ROOT}/pi-gen"
 # shellcheck source=scripts/lib/identity-store-check.sh
 source "${SCRIPT_DIR}/lib/identity-store-check.sh"
 
+SUBSTRATE_LIB="${SCRIPT_DIR}/lib/verify-unit-execstart.sh"
+# shellcheck source=scripts/lib/verify-unit-execstart.sh
+source "${SUBSTRATE_LIB}"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -165,6 +169,91 @@ if (( ${#MISSING_PKGS[@]} > 0 )); then
     exit 1
 fi
 ok "All ${#DECLARED_PKGS[@]} declared packages present in rootfs."
+
+# ---------------------------------------------------------------------------
+# UNIT SUBSTRATE GATES — the inverse of the packages guard directly above.
+#
+# That guard proves DECLARED packages landed, so by construction it cannot see a
+# dependency nobody declared. These two derive their expectations from the
+# rootfs's own /etc/systemd/system/*.service glob instead of from any maintained
+# list, so they cover exactly the things nobody remembered to declare. Adding an
+# eighth unit extends them with no edit here or in the library.
+#
+#   verify_unit_execstart          every Exec* executable and script argument
+#                                  named by a unit resolves inside the rootfs.
+#   verify_unit_runtime_versions   the interpreter each unit names meets a
+#                                  declared version floor. The path gate cannot
+#                                  tell a Node 20 from a Node 18, and the
+#                                  dashboard unit names /usr/bin/node, where
+#                                  00-packages-nr puts bookworm's 18.20.4:
+#                                  existence-only, that unit passes and the
+#                                  dashboard still never starts.
+#
+# Order is load-bearing, not cosmetic: probing a path is only meaningful once it
+# resolves. Both run even when the first fails, so one rootfs build reports every
+# substrate defect rather than revealing them one per build.
+#
+# Neither covers module-import resolution — that is `unit-import-bookworm`, plan
+# 07.1-05 — nor end-to-end runtime behaviour, which is SC6. See ADR-0008.
+#
+# PLACEMENT is deliberate: adjacent to the packages guard, after the rootfs is
+# fully provisioned and before anything is measured or partitioned. A substrate
+# defect therefore costs one rootfs build, not a full partition-and-image cycle.
+#
+# SUDO for the same reason `du` uses it at step 3: install-arlowe-fs.sh creates
+# /opt/arlowe as 0750 root:arlowe, and this user is neither root nor in the
+# image's arlowe group, so unprivileged existence tests on the whole tree return
+# false. The library detects an unsearchable directory and hard-errors (exit 2)
+# rather than reporting the target as missing, so a privilege mistake can never
+# masquerade as a substrate defect.
+#
+# SLOT-B COVERAGE IS A KNOWN GAP. The slot-B recovery rootfs also carries a unit
+# (arlowe-recovery.service), but it does not exist yet at this point — it is
+# written in step 4b, after partitioning. Running these gates there would also
+# be wrong as things stand: recovery-stub.sh clones slot A and prunes
+# /opt/arlowe/runtime/{voice,llm,stt,tts,dashboard,wake-word,face,lib} while
+# leaving every slot-A unit in /etc/systemd/system, so a CORRECT slot B names
+# targets that are deliberately absent and would FAIL. That mismatch is a real
+# finding and is recorded in this plan's SUMMARY; it needs the prune to drop the
+# units too, which is not this plan's change to make.
+# ---------------------------------------------------------------------------
+
+# ARLOWE_VERSION_PROBE replaces the version gate's chroot probe with a stub. It
+# exists for tests/phase-07.1/test-verify-unit-execstart.sh and nothing else.
+# This ASSERTS rather than `unset`s: unsetting normalises the anomaly into
+# silence, whereas an inherited value means someone is either running the
+# self-test's plumbing against a real build or trying to make the gate lie, and
+# both are events a build should announce. A gate that can be silently disabled
+# by an environment variable is not a gate.
+# (CI is already covered — build-image.yml's `sudo --preserve-env=...` strips it.
+# The residual exposure is a local run on the build host.)
+if [[ -n "${ARLOWE_VERSION_PROBE+x}" ]]; then
+    fail "ARLOWE_VERSION_PROBE is set in the build environment (value: '${ARLOWE_VERSION_PROBE}')."
+    fail "That variable stubs out the interpreter version probe and exists only for"
+    fail "tests/phase-07.1/test-verify-unit-execstart.sh. A real build must measure."
+    fail "Unset it and re-run; the build will not proceed with a gate that can be faked."
+    exit 1
+fi
+
+log "Running unit substrate gates over the built rootfs..."
+EXECSTART_RC=0
+sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_execstart "$2"' \
+    _ "${SUBSTRATE_LIB}" "${PIGEN_ROOTFS}" || EXECSTART_RC=$?
+VERSIONS_RC=0
+sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_runtime_versions "$2"' \
+    _ "${SUBSTRATE_LIB}" "${PIGEN_ROOTFS}" || VERSIONS_RC=$?
+
+if (( EXECSTART_RC == 2 || VERSIONS_RC == 2 )); then
+    fail "A unit substrate gate could not perform its test (see the ERROR above)."
+    fail "That is neither a pass nor a failure — the build stops rather than guess."
+    exit 1
+fi
+if (( EXECSTART_RC != 0 || VERSIONS_RC != 0 )); then
+    fail "Unit substrate gates FAILED — the rootfs names runtime artifacts it does not contain,"
+    fail "or ships an interpreter below its declared floor. Every failure is listed above."
+    exit 1
+fi
+ok "Unit substrate gates passed: every Exec* target resolves and every interpreter meets its floor."
 
 # Locate the models staging tree (written by 02-models/00-run.sh).
 MODELS_STAGE_MARKER="${WORK_DIR}/arlowe-models-stage-path"
