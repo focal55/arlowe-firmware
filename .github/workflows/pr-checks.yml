@@ -108,6 +108,23 @@ jobs:
             runtime/cli/ab \
             runtime/recovery/*.sh
 
+  unit-substrate-gate-self-test:
+    name: Unit substrate gate self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # scripts/lib/verify-unit-execstart.sh runs per image build, but
+      # build-image.sh only runs from the tag/dispatch-triggered build-image.yml.
+      # Without this job the gate's negative cases would execute once, at the time
+      # they were written, and never again — a later edit turning a FAIL into a
+      # SKIP or a PASS would emit no signal until the next hardware checkpoint.
+      # Same shape as sanitize.yml's self-test job.
+      #
+      # No arm64 runner and no chroot are needed: the version cases go through
+      # ARLOWE_VERSION_PROBE stubs and the path cases are pure filesystem.
+      - name: Run the deliberate-failure self-test
+        run: bash tests/phase-07.1/test-verify-unit-execstart.sh
+
   linked-issue:
     name: Linked issue
     runs-on: ubuntu-latest
