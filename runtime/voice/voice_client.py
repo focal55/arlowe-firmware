@@ -16,7 +16,6 @@ import sys
 
 import time
 import json
-import pickle
 import subprocess
 import tempfile
 import urllib.request
@@ -29,6 +28,7 @@ from llm.router import route as llm_route, reset_local
 from voice.rules_engine import get_engine
 from voice.voice_expression_controller import get_controller
 from voice.action_executor import ActionExecutor
+from voice.wake_gate import WakeGate, VERIFIER_LOG_THRESHOLD, VERIFIER_THRESHOLD
 from tts.tts_sync import TTSWithSync, TTSBackend
 import openwakeword
 from openwakeword.model import Model as WakeWordModel
@@ -66,9 +66,9 @@ if _resolved_capture is None:
 RECORD_DEVICE = os.environ.get("ARLOWE_ALSA_DEVICE") or _resolved_capture or "plughw:2,0"
 PLAY_DEVICE = os.environ.get("ARLOWE_PLAY_DEVICE") or _arlowe_audio.resolve_playback(_play_override) or "plughw:2,0"
 
-# Wake word detection thresholds
-BASE_THRESHOLD = 0.20
-VERIFIER_THRESHOLD = 0.30
+# Wake word detection thresholds live in voice.wake_gate and nowhere else.
+# The active base threshold depends on whether this device is personalized, so
+# it is read off the WakeGate instance rather than a module-level constant.
 
 # Face control
 FACE_API = os.environ.get("ARLOWE_FACE_URL", "http://localhost:8080")
@@ -345,11 +345,20 @@ def main_loop():
     oww_model = WakeWordModel(wakeword_model_paths=models)
     print(f"  Loaded: {models[0]}", flush=True)
     
-    print("\n[2/4] Loading verifier...", flush=True)
-    with open(VERIFIER_MODEL, 'rb') as f:
-        verifier = pickle.load(f)
-    print(f"  Loaded: {VERIFIER_MODEL}", flush=True)
-    
+    gate = WakeGate(VERIFIER_MODEL)
+    if gate.personalized:
+        print(f"\n[2/4] Wake gate: personalized (verifier {VERIFIER_MODEL})", flush=True)
+        print(
+            f"  base threshold {gate.base_threshold}, then verifier > {VERIFIER_THRESHOLD}",
+            flush=True,
+        )
+    else:
+        print(
+            f"\n[2/4] Wake gate: generic model, base threshold {gate.base_threshold} "
+            f"(no verifier at {VERIFIER_MODEL} - device not personalized)",
+            flush=True,
+        )
+
     print("\n[3/4] Opening audio stream...", flush=True)
     pa = pyaudio.PyAudio()
     # PortAudio uses a separate device namespace from ALSA; map the resolved ALSA
@@ -412,25 +421,38 @@ def main_loop():
             prediction = oww_model.predict(audio_chunk)
             
             for model_name, base_score in prediction.items():
-                if base_score > BASE_THRESHOLD:
-                    # Get verifier score
-                    features = oww_model.preprocessor.get_features(oww_model.model_inputs[model_name])
-                    verifier_score = verifier.predict_proba([features.flatten()])[0][1]
-                    
-                    # Log all attempts above base threshold
-                    if verifier_score > 0.20:
-                        status = "✓ WAKE" if verifier_score > VERIFIER_THRESHOLD else "✗ miss"
+                if base_score > gate.base_threshold:
+                    # features_fn is only invoked in personalized mode, so a
+                    # generic device never pays for feature extraction.
+                    accepted, verifier_score = gate.evaluate(
+                        base_score,
+                        lambda name=model_name: oww_model.preprocessor.get_features(
+                            oww_model.model_inputs[name]
+                        ).flatten(),
+                    )
+
+                    # Log near-misses so the verifier can be tuned from the journal.
+                    if verifier_score is not None and verifier_score > VERIFIER_LOG_THRESHOLD:
+                        status = "WAKE" if accepted else "miss"
                         print(f"  [{status}] base:{base_score:.2f} verify:{verifier_score:.2f}", flush=True)
-                    
-                    if verifier_score > VERIFIER_THRESHOLD:
+
+                    if accepted:
                         # ====== WAKE WORD DETECTED ======
                         # Close stream to free device for recording
                         stream.stop_stream()
                         stream.close()
                         
+                        # verifier_score is None in generic mode; formatting it
+                        # with :.2f would raise inside the detection hot path.
+                        score_label = (
+                            f"v:{verifier_score:.2f}"
+                            if verifier_score is not None
+                            else f"base:{base_score:.2f}"
+                        )
+
                         print("\n" + "=" * 50, flush=True)
-                        print(f"🔔 WAKE DETECTED (v:{verifier_score:.2f})", flush=True)
-                        log_voice(f"🔔 Wake word (score: {verifier_score:.2f})")
+                        print(f"🔔 WAKE DETECTED ({score_label})", flush=True)
+                        log_voice(f"🔔 Wake word ({score_label})")
                         
                         # VISUAL: Pink background + listening (ears open!), clear any icon
                         voice_expr.wake_word()  # Trigger wake word expression event
