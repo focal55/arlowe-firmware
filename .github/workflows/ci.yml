@@ -76,10 +76,21 @@ jobs:
             echo "has_node=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # pnpm 10, not 9, in every Node job below: runtime/dashboard/pnpm-workspace.yaml
-  # carries only settings (ignoredBuiltDependencies) with no `packages` key, which
-  # pnpm 9 rejects outright with "packages field missing or empty". node_modules
-  # was authored by pnpm 10.15.0.
+  # THE PNPM PIN LIVES IN runtime/dashboard/package.json, in the `packageManager`
+  # field, and nowhere else. Every pnpm/action-setup step below derives from it by
+  # naming that file instead of restating a version.
+  #
+  # It has to be pnpm 10, not 9: runtime/dashboard/pnpm-workspace.yaml carries only
+  # settings (ignoredBuiltDependencies) with no `packages` key, which pnpm 9 rejects
+  # outright with "packages field missing or empty". These jobs used to say
+  # `version: 10` — a floating major that would have picked up any 10.x pnpm ships,
+  # while node_modules was authored by 10.15.0. With the Python side fully pinned and
+  # --frozen-lockfile in force, the package manager was the last floating build input,
+  # and it is the one that RESOLVES the lockfile.
+  #
+  # pi-gen/stage-arlowe/01-runtime/files/build-dashboard.sh reads the same field via
+  # corepack and hard-fails if `pnpm --version` disagrees, so CI and the image build
+  # cannot drift apart.
 
   # Blocking. The 5 pre-existing react-hooks/set-state-in-effect errors this job
   # surfaced once #120 was fixed are waived per-file in eslint.config.mjs and
@@ -96,7 +107,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          # No `version:` — action-setup reads the pin from the packageManager
+          # field of the package.json named here. The dashboard is not at the
+          # workspace root, so the path is explicit; the action's default is
+          # ./package.json, which does not exist in this repo.
+          package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -117,7 +132,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          # No `version:` — action-setup reads the pin from the packageManager
+          # field of the package.json named here. The dashboard is not at the
+          # workspace root, so the path is explicit; the action's default is
+          # ./package.json, which does not exist in this repo.
+          package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -138,7 +157,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          # No `version:` — action-setup reads the pin from the packageManager
+          # field of the package.json named here. The dashboard is not at the
+          # workspace root, so the path is explicit; the action's default is
+          # ./package.json, which does not exist in this repo.
+          package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -161,7 +184,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          # No `version:` — action-setup reads the pin from the packageManager
+          # field of the package.json named here. The dashboard is not at the
+          # workspace root, so the path is explicit; the action's default is
+          # ./package.json, which does not exist in this repo.
+          package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

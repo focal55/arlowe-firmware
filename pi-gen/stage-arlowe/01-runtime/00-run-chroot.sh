@@ -20,12 +20,13 @@
 #   -- rsync the staged runtime/ tree into /opt/arlowe/runtime --
 #   6. install-arlowe-cli.sh     — /usr/local/sbin/arlowe-* symlinks
 #   7. 01-runtime/files/build-venvs.sh — populate /opt/arlowe/venvs/{voice,llm,stt}
-#   8. (post-axcl) extract-axcl-udev-from-deb.sh diagnostic (axcl deb installs its rule; ours overrides)
+#   8. 01-runtime/files/build-dashboard.sh — next build → /opt/arlowe/runtime/dashboard/server.js
+#   9. (post-axcl) extract-axcl-udev-from-deb.sh diagnostic (axcl deb installs its rule; ours overrides)
 #
-# Steps 6 and 7 both consume the rsync above them, which is why the rsync is
-# called out in the list rather than left implicit. Step 7 additionally consumes
-# the STAGED repo tree, so it must precede the cleanup at the end of this
-# script — it deletes that tree.
+# Steps 6, 7 and 8 all consume the rsync above them, which is why the rsync is
+# called out in the list rather than left implicit. Steps 7 and 8 additionally
+# consume the STAGED repo tree, so both must precede the cleanup at the end of
+# this script — it deletes that tree.
 #
 # After the provision chain:
 #   - Populate /opt/arlowe/runtime + /opt/arlowe/config + /opt/arlowe/third_party
@@ -146,6 +147,19 @@ echo "[00-run-chroot] step 7: build-venvs.sh"
 bash "${REPO_ROOT}/pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh"
 
 # ---------------------------------------------------------------------------
+# Build the dashboard into a standalone bundle at
+# /opt/arlowe/runtime/dashboard/server.js — the path
+# units/arlowe-dashboard.service names. Consumes the runtime rsync above (the
+# source tree) and the staged third_party/node/manifest.yml (the interpreter),
+# and like step 7 it must precede the cleanup that deletes the staged tree.
+#
+# It also replaces that directory with the built bundle, so it must run after
+# anything that reads the dashboard SOURCE. Nothing currently does.
+# ---------------------------------------------------------------------------
+echo "[00-run-chroot] step 8: build-dashboard.sh"
+bash "${REPO_ROOT}/pi-gen/stage-arlowe/01-runtime/files/build-dashboard.sh"
+
+# ---------------------------------------------------------------------------
 # Install the axcl deb.
 # The deb path inside the chroot was written by the host-side 00-run.sh into
 # /root/arlowe-build/repo/.axcl-deb-path. Fall back to scanning third_party/axcl/.
@@ -227,8 +241,8 @@ EOF
             exit "${_axcl_rc}"
         fi
     fi
-    # 8. Run the axcl udev extraction diagnostic to confirm no rule conflict.
-    echo "[00-run-chroot] step 8: extract-axcl-udev-from-deb.sh (diagnostic)"
+    # 9. Run the axcl udev extraction diagnostic to confirm no rule conflict.
+    echo "[00-run-chroot] step 9: extract-axcl-udev-from-deb.sh (diagnostic)"
     bash "${PROVISION}/extract-axcl-udev-from-deb.sh" "${AXCL_DEB}" || true
     # install-arlowe-udev-polkit.sh (step 5) already removes the broken deb rule;
     # re-run the removal guard in case dpkg postinst re-created it.

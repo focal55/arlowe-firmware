@@ -15,7 +15,17 @@ Environment=NEXT_PRIVATE_CACHE_DIR=/var/lib/arlowe/dashboard/cache
 Environment=ARLOWE_CONFIG_PATH=/etc/arlowe/config.yml
 Environment=ARLOWE_LOGS_DIR=/var/lib/arlowe/logs
 Environment=ARLOWE_SYSTEMCTL_MODE=system
-ExecStart=/usr/bin/node /opt/arlowe/runtime/dashboard/server.js
+# The vendored Node from third_party/node/manifest.yml, named by ABSOLUTE PATH and
+# unconditionally — not /usr/bin/node, and not `node` off PATH. next@16.1.6 declares
+# engines.node ">= 20.9.0"; bookworm's nodejs is 18.20.4 and backports carries none,
+# so apt cannot satisfy the floor (ADR-0008). `nodejs`/`npm` are dropped from
+# 00-packages-nr, so this is the only Node in the image. Naming it explicitly is what
+# makes plan 07.1-03's verify_unit_runtime_versions able to assert the floor at all:
+# an existence-only path check cannot tell a Node 24 from a Node 18, and under the
+# old /usr/bin/node line this unit PASSED every gate while the dashboard never started.
+# This path, the prefix build-dashboard.sh unpacks to, and the manifest's node_bin
+# field are one fact written three places — change them together.
+ExecStart=/opt/arlowe/node/bin/node /opt/arlowe/runtime/dashboard/server.js
 Restart=on-failure
 RestartSec=5
 
