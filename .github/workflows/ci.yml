@@ -2,12 +2,7 @@ name: CI
 
 on:
   push:
-    # TEMPORARY, REVERTED IN THE NEXT COMMIT OF THIS PLAN. ci.yml fires on main and
-    # nothing else, so pushing a phase branch runs no job at all. A new gate whose
-    # first green run is assumed rather than observed is the exact failure this
-    # repo has paid for before, so the branch is added here only long enough to
-    # capture a real run URL for unit-import-bookworm.
-    branches: [main, worktree-agent-a3f5ff7975edc9456]
+    branches: [main]
   pull_request:
     branches: [main]
 
