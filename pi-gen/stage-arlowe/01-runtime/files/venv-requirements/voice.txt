@@ -32,6 +32,19 @@ openwakeword==0.4.0
 # verified by `numpy.__file__` resolving under /usr/lib/python3/dist-packages in the built venv.
 onnxruntime==1.30.0
 
+# llm/router.py: `from filelock import FileLock`. Declared here as well as in llm.txt
+# because voice_client.py:27 does `from llm.router import route` at MODULE SCOPE, so
+# arlowe-voice reaches filelock at start-up even though the module lives under
+# runtime/llm and the qwen-tokenizer unit is the obvious consumer. Without this line
+# arlowe-voice dies with ModuleNotFoundError: No module named 'filelock' on the first
+# boot of every device, and every path gate in the build still passes.
+#
+# Found by the unit-import-bookworm CI job (tests/phase-07.1/import-graph.py), which is
+# the only thing in the pipeline that walks from a unit entry point through a first-party
+# module in ANOTHER service's directory. Keep the version identical to llm.txt's: the
+# same source file is imported under both interpreters and should behave the same.
+filelock==3.32.6
+
 # --- transitive closure, pinned so it cannot float ---
 flatbuffers==25.12.19
 packaging==26.3
