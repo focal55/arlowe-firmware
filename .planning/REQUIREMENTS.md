@@ -195,7 +195,7 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
+Every v1 requirement is mapped to exactly one **owning** phase in `.planning/ROADMAP.md`. A `(+ N)` suffix marks a later phase that closed a latent gap in that requirement without introducing a new REQ-ID; see the note below the table.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
@@ -222,8 +222,8 @@ Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
 | USER-01 | Phase 3 | Pending |
 | USER-02 | Phase 3 | Pending |
 | USER-03 | Phase 3 | Pending |
-| USER-04 | Phase 3 | Pending |
-| USER-05 | Phase 3 | Pending |
+| USER-04 | Phase 3 (+ 7.1) | Pending |
+| USER-05 | Phase 3 (+ 7.1) | Pending |
 | AUDIO-01 | Phase 5 | Pending |
 | AUDIO-02 | Phase 5 | Pending |
 | AUDIO-03 | Phase 5 | Pending |
@@ -251,7 +251,7 @@ Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
 | WAKE-02 | Phase 8 | Pending |
 | WAKE-03 | Phase 8 | Pending |
 | IMAGE-01 | Phase 6 | Pending |
-| IMAGE-02 | Phase 6 | Pending |
+| IMAGE-02 | Phase 6 (+ 7.1) | Pending |
 | IMAGE-03 | Phase 6 | Pending |
 | IMAGE-04 | Phase 6 | Pending |
 | IMAGE-05 | Phase 6 | Pending |
@@ -293,6 +293,32 @@ Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
 | LOG-03 | Phase 11 | Pending |
 
 **Phase 12 (First-flash integration on real hardware) does not introduce new REQ-IDs; it verifies the integration of all prior requirements end-to-end on real hardware as the v1 ship gate.**
+
+**Phase 7.1 (Runtime substrate repair) introduces no new REQ-IDs either, by design. It closed a latent gap in three existing ones:**
+
+- **USER-04** ("all systemd units are system-level, running as `arlowe`") and **USER-05**
+  ("service capabilities/sandboxing applied per unit") were both marked against Phase 3, which
+  wrote the unit files. The unit files were correct. What nothing checked was whether the
+  interpreter each `ExecStart=` named existed in the built rootfs — and for seven `Exec*` stanzas
+  across four units, it did not: `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` were never created
+  by any build step. **A unit that cannot start satisfies neither requirement in practice.** It
+  runs as nobody and is sandboxed from nothing. `verify_unit_execstart` now enforces the path at
+  build time, and `verify_unit_runtime_versions` enforces that the binary there clears a declared
+  version floor — because path existence is not capability, which is how `arlowe-dashboard`
+  passed an existence check while pointing at a Node 18 that could not run `next@16`.
+  Both gates run from `scripts/build-image.sh`.
+
+- **IMAGE-02** requires the runtime stage to produce `/opt/arlowe/runtime/`. It did — an empty
+  tree satisfies a literal reading. **"Produce" now means "produce something that can start",**
+  enforced by the same two gates plus `unit-import-bookworm`, which resolves every Python import
+  reachable from a unit entry point under that unit's own interpreter in a `debian:bookworm`
+  container built from the image's own package set. That job's first run found `arlowe-voice`
+  would have died at import on every factory device.
+
+Coverage boundary of all three gates — including what they do **not** prove:
+`docs/operations/phase-7.1-substrate.md` §Part A. SC6 (units reaching `active` on real hardware)
+is **UNPROVEN**; until that checkpoint runs, none of these three requirements has been confirmed
+on a device.
 
 **Coverage:**
 - v1 requirements: 92 total
