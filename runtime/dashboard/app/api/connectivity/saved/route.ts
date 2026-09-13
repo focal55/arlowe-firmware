@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { verifyAuth } from '../../middleware/auth';
 
-const execAsync = promisify(exec);
+// execFile, never exec: an SSID is whatever a nearby access point broadcasts, so it
+// is attacker-supplied data that must never reach a shell. Arguments go as an array.
+const execFileAsync = promisify(execFile);
 
 export async function GET() {
   console.log('--- [arlowe-dashboard-backend] GET /api/connectivity/saved ---');
 
   try {
     // List all saved Wi-Fi connections
-    const command = "nmcli --terse --fields NAME,TYPE connection show | grep 802-11-wireless";
-    const { stdout, stderr } = await execAsync(command);
+    const { stdout, stderr } = await execFileAsync(
+      'nmcli', ['--terse', '--fields', 'NAME,TYPE', 'connection', 'show'], { timeout: 10000 });
 
     if (stderr) {
       console.error('nmcli stderr:', stderr);
@@ -20,7 +22,7 @@ export async function GET() {
     const networks = stdout
       .trim()
       .split('\n')
-      .filter(line => line.trim())
+      .filter(line => line.trim() && line.includes('802-11-wireless'))
       .map(line => {
         const [name] = line.split(':');
         return {
@@ -57,13 +59,12 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const { ssid } = body;
 
-    if (!ssid) {
+    if (typeof ssid !== 'string' || !ssid) {
       return NextResponse.json({ error: 'SSID is required' }, { status: 400 });
     }
 
-    const command = `nmcli connection delete "${ssid}"`;
-    console.log(`Executing delete command for SSID: ${ssid}`);
-    const { stdout, stderr } = await execAsync(command);
+    const { stdout, stderr } = await execFileAsync(
+      'nmcli', ['connection', 'delete', ssid], { timeout: 10000 });
 
     if (stderr && !stderr.includes('successfully deleted')) {
       console.error(`nmcli delete stderr for SSID "${ssid}":`, stderr);
