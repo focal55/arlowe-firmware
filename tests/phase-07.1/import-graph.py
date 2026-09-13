@@ -199,12 +199,12 @@ def entry_points(unit: Unit, repo_root: Path, runtime: Path) -> "list[Entry]":
             out.append(Entry(unit, key, "script", exe, f, "#!" + " (shebang)"))
             continue
 
-        reason = "not a Python entry point"
         if f is not None and f.is_file():
             reason = "not a Python entry point (no python shebang)"
         elif f is None:
-            reason = "not a Python entry point (outside /opt/arlowe)"
-        elif not f.is_file():
+            reason = ("not a Python entry point (no counterpart in the checkout: "
+                      "not under /opt/arlowe/runtime or /opt/arlowe/third_party)")
+        else:
             reason = f"not present in the checkout at {f} (built or installed later)"
         out.append(Entry(unit, key, "skipped", exe, f, exe, reason))
     return out
@@ -644,9 +644,20 @@ def list_units(unit_files: "list[Path]", repo_root: Path, runtime: Path) -> int:
     would be one more thing to forget to update."""
     for unit_file in unit_files:
         unit = Unit(unit_file)
-        entries = [e for e in entry_points(unit, repo_root, runtime)
-                   if e.kind != "skipped"]
+        all_entries = entry_points(unit, repo_root, runtime)
+        entries = [e for e in all_entries if e.kind != "skipped"]
+        # Skips go to stderr, so the driver's run shows them in the CI log without
+        # polluting the TSV it parses.  A unit quietly dropping out of coverage is
+        # the same defect class this whole gate exists for: qwen-api and
+        # arlowe-dashboard are legitimately not Python, and a reader has to be able
+        # to see that they were considered and why they were passed over.
+        for e in all_entries:
+            if e.kind == "skipped":
+                print(f"[import-graph] SKIP-ENTRY {unit.name}: "
+                      f"{e.exec_key}={e.target} -- {e.note}", file=sys.stderr)
         if not entries:
+            print(f"[import-graph] NO-PYTHON {unit.name}: no Python entry point",
+                  file=sys.stderr)
             continue
         interp = ""
         for e in entries:
