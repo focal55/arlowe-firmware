@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # TEMPORARY, REVERTED IN THE NEXT COMMIT OF THIS PLAN. ci.yml fires on main and
+    # nothing else, so pushing a phase branch runs no job at all. A new gate whose
+    # first green run is assumed rather than observed is the exact failure this
+    # repo has paid for before, so the branch is added here only long enough to
+    # capture a real run URL for unit-import-bookworm.
+    branches: [main, worktree-agent-a3f5ff7975edc9456]
   pull_request:
     branches: [main]
 
@@ -29,8 +34,16 @@ jobs:
           ARLOWE_SCHEMA_PATH: config/schema.yml
           ARLOWE_DEFAULTS_PATH: config/defaults.yml
           ARLOWE_CONFIG_PATH: /nonexistent
-          PYTHONPATH: runtime/lib
-        run: python -m pytest runtime/lib/tests/ -q
+          # runtime, not just runtime/lib: `voice` is a PEP 420 namespace package
+          # under runtime/, so voice.wake_gate only resolves with runtime on the
+          # path. runtime/voice/tests deliberately carries no __init__.py, so it
+          # cannot collide with runtime/lib/tests' top-level `tests` package when
+          # both suites are collected in one invocation (07.1-02 decision 1) --
+          # do not "fix" that by adding the file.
+          PYTHONPATH: runtime:runtime/lib
+        # The wake-gate suite needs no third-party package by construction. If it
+        # ever does, this cheap job says so, which is the signal worth having.
+        run: python -m pytest runtime/lib/tests/ runtime/voice/tests/ -q
 
   # This job is the enforcement authority for the Debian bookworm cryptography
   # API floor (38.0.4) that runtime/lib code must stay within. The image runs
@@ -60,6 +73,45 @@ jobs:
           ARLOWE_CONFIG_PATH: /nonexistent
           PYTHONPATH: runtime/lib
         run: python3 -m pytest runtime/lib/tests/ -q
+
+  # This job is the enforcement authority for SC4: every Python import reachable
+  # from a shipping unit's Exec* stanza resolves under the image's own package set.
+  # Adding an import to a module that a unit entry point can reach, WITHOUT adding
+  # its package to pi-gen/stage-arlowe/00-packages/00-packages-nr or to one of
+  # pi-gen/stage-arlowe/01-runtime/files/venv-requirements/*.txt, must fail here --
+  # before an image is ever built.
+  #
+  # build-image.sh's declared-packages guard cannot catch this. It verifies that
+  # packages we DECLARED actually landed in the rootfs; an import nobody ever
+  # declared is invisible to it. That blind spot is why python3-yaml and
+  # python3-jsonschema were absent from every image until Phase 7 caught it by
+  # hand, and why numpy and Pillow were still missing after that. Plan 07.1-03's
+  # gate closes the "the file isn't there" half of the class; this closes the "the
+  # import isn't there" half.
+  #
+  # Do not rename this job: plan 07.1-05's SUMMARY cites it by name as the evidence
+  # SC4 rests on, and plan 07.1-06 records that citation against the ROADMAP.
+  # Sibling in intent to python-floor-bookworm above: verify against the image's
+  # environment, never the developer's.
+  #
+  # arm64, and not as a preference. python3-rpi.gpio and python3-spidev exist for
+  # arm64 bookworm and do not exist for amd64 at any version, so on an amd64 runner
+  # the two packages the WhisPlay display driver needs would have to be stubbed and
+  # would stop being checked at all. build-image.yml already uses an arm64 runner,
+  # so one is available to this repo.
+  #
+  # No build cache, deliberately. build-venvs.sh installs with --no-cache-dir (it
+  # keeps ~/.cache/pip out of the image), so there is no pip download directory to
+  # cache, and a container-layer cache is the one thing that could hide a change to
+  # 00-packages-nr from the job whose entire purpose is to notice one. A fresh
+  # build on a native arm64 runner is a few minutes; that is the right trade.
+  unit-import-bookworm:
+    name: Unit import graph (image package set)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve every unit-reachable import against the image's packages
+        run: bash tests/phase-07.1/run-import-check.sh
 
   detect:
     name: Detect Node project
