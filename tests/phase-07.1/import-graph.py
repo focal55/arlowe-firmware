@@ -617,18 +617,67 @@ def dev_pins(repo_root: Path) -> "dict[str, list[tuple[str, str]]]":
 # main
 # ---------------------------------------------------------------------------
 
+def _shebang_interpreter(path: Path) -> "str | None":
+    try:
+        with path.open("rb") as fh:
+            first = fh.readline(256).decode("utf-8", "replace").strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+    parts = first[2:].split()
+    if not parts:
+        return None
+    if parts[0].endswith("/env") and len(parts) > 1:
+        return parts[1]
+    return parts[0]
+
+
+def list_units(unit_files: "list[Path]", repo_root: Path, runtime: Path) -> int:
+    """Emit `unit<TAB>interpreter<TAB>PYTHONPATH` for every unit with a Python
+    entry point, so the shell driver does not have to restate the unit-to-venv
+    mapping.  The interpreter comes out of the unit's own Exec* line (or the
+    entry script's shebang) and the PYTHONPATH out of its own Environment= line,
+    re-rooted onto this checkout -- arlowe-voice and arlowe-face declare
+    /opt/arlowe/runtime:/opt/arlowe/runtime/lib, qwen-tokenizer declares only
+    .../lib and whisper-stt declares none, and a hardcoded table in the driver
+    would be one more thing to forget to update."""
+    for unit_file in unit_files:
+        unit = Unit(unit_file)
+        entries = [e for e in entry_points(unit, repo_root, runtime)
+                   if e.kind != "skipped"]
+        if not entries:
+            continue
+        interp = ""
+        for e in entries:
+            if e.interpreter.startswith("#!"):
+                if e.file is not None:
+                    interp = _shebang_interpreter(e.file) or ""
+            else:
+                interp = e.interpreter
+            if interp:
+                break
+        roots = search_roots(unit, repo_root, runtime)
+        print(f"{unit.name}\t{interp}\t{':'.join(str(r) for r in roots)}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--units", action="append", required=True,
                     help="directory of *.service files (repeatable)")
     ap.add_argument("--runtime", required=True, help="the runtime/ source tree")
-    ap.add_argument("--python", required=True,
+    ap.add_argument("--python",
                     help="interpreter to resolve third-party modules under")
     ap.add_argument("--unit", action="append", default=[],
                     help="restrict to these unit names (repeatable)")
+    ap.add_argument("--list-units", action="store_true",
+                    help="emit unit/interpreter/PYTHONPATH as TSV and exit")
     ap.add_argument("--repo-root", default=".")
     args = ap.parse_args()
+    if not args.list_units and not args.python:
+        ap.error("--python is required unless --list-units is given")
 
     repo_root = Path(args.repo_root).resolve()
     runtime = Path(args.runtime).resolve()
@@ -648,6 +697,9 @@ def main() -> int:
     if not unit_files:
         print("[import-graph] HARD ERROR: no unit files selected", file=sys.stderr)
         return 2
+
+    if args.list_units:
+        return list_units(unit_files, repo_root, runtime)
 
     pins = dev_pins(repo_root)
 
