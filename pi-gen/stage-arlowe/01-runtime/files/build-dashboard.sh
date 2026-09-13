@@ -214,6 +214,31 @@ SIZE_AFTER="$(du -sh "${DASH}" | cut -f1)"
 log "size: ${SIZE_BEFORE} (source + build tree) -> ${SIZE_AFTER} (shipped bundle)"
 
 # ---------------------------------------------------------------------------
+# 5b. Package-manager caches. These live OUTSIDE ${DASH}, so the directory swap
+# above does not touch them and they would otherwise ship.
+#
+# pnpm's content-addressed global store holds a full copy of every package it
+# resolved, which is the same order of magnitude as the node_modules we just
+# deleted. corepack caches the pnpm tarball it fetched. Neither is reachable at
+# runtime and both are build nondeterminism of exactly the kind the cleanup
+# block at the end of 00-run-chroot.sh exists to remove — that block just cannot
+# know these paths.
+#
+# Safe to delete after the relocation: Next's file tracing COPIES traced files
+# into the standalone tree, and even where a copy shares an inode with a store
+# entry, removing the store entry only drops a link, never the data.
+# ---------------------------------------------------------------------------
+log "=== removing package-manager caches (build-only, must not ship) ==="
+PNPM_STORE="$(pnpm store path 2>/dev/null || true)"
+for cache in "${PNPM_STORE}" "${HOME:-/root}/.local/share/pnpm" "${HOME:-/root}/.cache/node" \
+             "${HOME:-/root}/.cache/pnpm" "${HOME:-/root}/.npm"; do
+    if [[ -n "${cache}" && -d "${cache}" ]]; then
+        log "  removing $(du -sh "${cache}" 2>/dev/null | cut -f1) ${cache}"
+        rm -rf "${cache}"
+    fi
+done
+
+# ---------------------------------------------------------------------------
 # 6. Ownership, matching the rest of /opt/arlowe/runtime.
 # ---------------------------------------------------------------------------
 if getent group arlowe >/dev/null 2>&1; then

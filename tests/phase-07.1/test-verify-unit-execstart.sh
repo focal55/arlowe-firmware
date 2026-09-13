@@ -33,6 +33,19 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/scripts/lib/verify-unit-execstart.sh"
 
+# The interpreter arlowe-dashboard.service names, READ FROM THE UNIT rather than
+# restated here. The fixtures below copy the repo's real units/*.service, so a
+# hardcoded path silently decouples the test from the thing under test: this file
+# used to say /usr/bin/node, and when plan 07.1-04 repointed the unit at the
+# vendored Node prefix, seven cases failed for a reason that had nothing to do
+# with the behaviour they cover. Derive it, and the test follows the unit.
+DASH_NODE="$(awk -F'[= ]' '/^ExecStart=/{print $2; exit}' \
+    "${REPO_ROOT}/units/arlowe-dashboard.service")"
+if [[ -z "${DASH_NODE}" ]]; then
+    echo "cannot read ExecStart from units/arlowe-dashboard.service" >&2
+    exit 1
+fi
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
@@ -114,7 +127,7 @@ mkdir -p "${PREFIX}/opt/arlowe/runtime/voice" \
          "${PREFIX}/opt/arlowe/runtime/dashboard" \
          "${PREFIX}/opt/arlowe/runtime/cli" \
          "${PREFIX}/opt/arlowe/venvs"
-mkexec "${PREFIX}/usr/bin/node"
+mkexec "${PREFIX}${DASH_NODE}"
 mkexec "${PREFIX}/bin/touch"
 mkexec "${PREFIX}/opt/arlowe/runtime/llm/run_api.sh"
 mkexec "${PREFIX}/opt/arlowe/runtime/cli/identity"
@@ -160,7 +173,7 @@ run_gate verify_unit_runtime_versions "${FIXED}" node18-trap
 evidence "node18-trap / verify_unit_runtime_versions" "${OUT}"
 assert_rc 1 "${RC}" "[node18-trap] bookworm Node 18.20.4 at the dashboard ExecStart path FAILS"
 assert_out "${OUT}" 'arlowe-dashboard' "[node18-trap] names the arlowe-dashboard unit"
-assert_out "${OUT}" '/usr/bin/node'    "[node18-trap] names the ExecStart path"
+assert_out "${OUT}" "${DASH_NODE}"    "[node18-trap] names the ExecStart path"
 assert_out "${OUT}" '18.20.4'          "[node18-trap] names the observed version"
 assert_out "${OUT}" '20.9.0'           "[node18-trap] names the declared floor"
 

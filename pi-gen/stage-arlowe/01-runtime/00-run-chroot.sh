@@ -31,6 +31,10 @@
 # After the provision chain:
 #   - Populate /opt/arlowe/runtime + /opt/arlowe/config + /opt/arlowe/third_party
 #     from the staged repo tree.
+#   - Build the three venvs and the dashboard standalone bundle (steps 7 and 8),
+#     so that every interpreter and entry point the units name actually exists.
+#     Both SC1 gates in scripts/lib/verify-unit-execstart.sh assert this over the
+#     finished rootfs at the end of scripts/build-image.sh.
 #   - dpkg-install the axcl deb; remove the deb's broken udev rule (GROUP placeholder).
 #   - Vendor WhisPlay.py to /opt/arlowe/third_party/whisplay-driver/.
 #   - Optionally install the WM8960 audio HAT driver (skipped if bundle absent — rights

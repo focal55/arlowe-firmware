@@ -107,8 +107,18 @@ declare -A ARLOWE_RUNTIME_FLOOR=(
 # 00-packages-nr shape that produced F7 #18 one layer up, and a genuinely new
 # interpreter must not be able to arrive as one more line in a passing list.
 # ---------------------------------------------------------------------------
+#
+# NOT EVERY UNIT IN THE GLOB IS OURS. The expectation set is globbed from the
+# rootfs's own /etc/systemd/system, which is deliberate — a seventh arlowe unit
+# extends the gate with no edit here — but apt puts units there too. bookworm's
+# network-manager (declared in 00-packages-nr for Phase 8 wifi provisioning)
+# installs dbus-org.freedesktop.nm-dispatcher.service, so the glob is 9 units on
+# a real rootfs, not the 8 the unit source directory would suggest.
+# Found by plan 07.1-04's integration run; the fixture self-test never saw it
+# because its rootfs is synthetic and has no apt-installed units.
 ARLOWE_EXPECTED_UNDECLARED=(
     '/bin/touch'                                     # coreutils; firstboot ExecStartPost marker
+    '/usr/lib/NetworkManager/nm-dispatcher'          # bookworm network-manager's own unit, not ours — apt owns its version
     '/opt/arlowe/runtime/cli/arlowe-grow-models'     # first-party grow script, firstboot ExecStartPre
     '/opt/arlowe/runtime/cli/boot-check'             # first-party entry point
     '/opt/arlowe/runtime/cli/identity'               # first-party entry point
@@ -561,7 +571,7 @@ verify_unit_runtime_versions() {
     _vue_shield_on
     local tag='unit-versions'
     local rc=0 fails=0 skips=0 probes=0 undeclared=0 hard=0
-    local unit name directive value stripped exe resolved rrc base
+    local unit name directive value stripped exe resolved rrc base lit_base
     local floor raw got allowed entry
     local -a tokens unit_files=()
     local -A seen_version=()
@@ -628,6 +638,31 @@ verify_unit_runtime_versions() {
             fi
             base="${resolved##*/}"
             floor="${ARLOWE_RUNTIME_FLOOR[${base}]:-}"
+
+            # Fall back to the basename of the LITERAL token when the resolved
+            # one carries no floor.
+            #
+            # Why this is needed, found by plan 07.1-04's integration run against
+            # a real built rootfs: a venv interpreter is a symlink chain.
+            #     /opt/arlowe/venvs/voice/bin/python
+            #       -> python3 -> /usr/bin/python3 -> /usr/bin/python3.11
+            # so the RESOLVED basename is `python3.11`, which is not a key in
+            # ARLOWE_RUNTIME_FLOOR, and all seven venv stanzas reported as
+            # undeclared interpreters — while the table's own comment above
+            # states it covers "/opt/arlowe/venvs/*/bin/python". The lookup and
+            # the documented intent disagreed; the fixture self-test could not
+            # see it because its interpreters are stubs, not symlinked venvs.
+            #
+            # Keying on the literal basename loses NO detection power: it selects
+            # which floor APPLIES, while the probe below still measures the
+            # resolved binary. The /usr/bin/node-is-really-18.20.4 trap is caught
+            # exactly as before — `node` floors at 20.9.0 and the probe returns
+            # 18.20.4. Resolved-first keeps a path that resolves to a more
+            # specific declared name honouring that name.
+            if [[ -z "${floor}" ]]; then
+                lit_base="${exe##*/}"
+                floor="${ARLOWE_RUNTIME_FLOOR[${lit_base}]:-}"
+            fi
 
             if [[ -z "${floor}" ]]; then
                 # No declared floor. The LITERAL token — not the resolved path —
