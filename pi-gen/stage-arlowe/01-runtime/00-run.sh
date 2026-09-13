@@ -24,6 +24,17 @@
 #                              fetched into the repo dir — see ADR-0008. The
 #                              dashboard runs this Node, not /usr/bin/node,
 #                              because bookworm's 18.20.4 cannot run next@16.)
+#   - pi-gen/stage-arlowe/01-runtime/files/  (this stage's own chroot build
+#                              scripts and, under venv-requirements/, the pinned
+#                              pip requirement files build-venvs.sh installs.
+#                              Staging a pi-gen path back into the chroot looks
+#                              odd; it is deliberate. The requirement files are
+#                              build inputs that must be resolvable from INSIDE
+#                              the chroot, and the chroot can see nothing but
+#                              this staged tree. Without this entry they reach
+#                              the chroot not at all and build-venvs.sh fails on
+#                              its input gate — which is the correct failure, but
+#                              it is still a failure.)
 #   - scripts/verify-third-party.sh
 #
 # We do NOT stage model artifacts here — models go to the separate models tree
@@ -53,7 +64,7 @@ echo "[01-runtime] staging repo tree into chroot at ${CHROOT_REPO}"
 install -d -m 0755 "${STAGING}"
 
 # Stage each required subdir. rsync preserves permissions and is idempotent.
-for subdir in scripts/provision units config runtime provision third_party/axcl third_party/whisplay-driver third_party/node; do
+for subdir in scripts/provision units config runtime provision third_party/axcl third_party/whisplay-driver third_party/node pi-gen/stage-arlowe/01-runtime/files; do
     src="${REPO_ROOT}/${subdir}"
     dst="${STAGING}/${subdir}"
     if [[ -d "${src}" ]]; then

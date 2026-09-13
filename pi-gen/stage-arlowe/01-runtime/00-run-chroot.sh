@@ -6,14 +6,26 @@
 # but uses the LITERAL `arlowe` (no sed transforms) — this is the production
 # image, not the staging environment.
 #
-# Composition order (matches the staging reference):
+# Composition order. This block describes the script BELOW it — if you insert a
+# step, renumber here in the same edit. It previously listed 5=cli and 6=udev
+# while the body did the reverse, which is the same stale-comment defect class as
+# install-arlowe-fs.sh's "Phase 6 populates the venvs": a reader who trusts the
+# header reasons about a script that does not exist.
+#
 #   1. install-arlowe-user.sh    — create arlowe system user + group
 #   2. install-arlowe-fs.sh      — /opt/arlowe, /var/lib/arlowe, /etc/arlowe layout
 #   3. install-arlowe-config.sh  — schema.yml + defaults.yml + loader library
 #   4. units/install-units.sh    — copy *.service to /etc/systemd/system
-#   5. install-arlowe-cli.sh     — /usr/local/sbin/arlowe-* symlinks
-#   6. install-arlowe-udev-polkit.sh
-#   7. (post-axcl) extract-axcl-udev-from-deb.sh diagnostic (axcl deb installs its rule; ours overrides)
+#   5. install-arlowe-udev-polkit.sh
+#   -- rsync the staged runtime/ tree into /opt/arlowe/runtime --
+#   6. install-arlowe-cli.sh     — /usr/local/sbin/arlowe-* symlinks
+#   7. 01-runtime/files/build-venvs.sh — populate /opt/arlowe/venvs/{voice,llm,stt}
+#   8. (post-axcl) extract-axcl-udev-from-deb.sh diagnostic (axcl deb installs its rule; ours overrides)
+#
+# Steps 6 and 7 both consume the rsync above them, which is why the rsync is
+# called out in the list rather than left implicit. Step 7 additionally consumes
+# the STAGED repo tree, so it must precede the cleanup at the end of this
+# script — it deletes that tree.
 #
 # After the provision chain:
 #   - Populate /opt/arlowe/runtime + /opt/arlowe/config + /opt/arlowe/third_party
@@ -110,6 +122,30 @@ echo "[00-run-chroot] step 6: install-arlowe-cli.sh"
 bash "${PROVISION}/install-arlowe-cli.sh"
 
 # ---------------------------------------------------------------------------
+# Populate /opt/arlowe/venvs/{voice,llm,stt}.
+#
+# Four shipping units name a venv interpreter in their Exec* stanzas
+# (arlowe-voice, arlowe-face, whisper-stt, qwen-tokenizer) and until this call
+# existed nothing in the image pipeline created one. install-arlowe-fs.sh makes
+# the directory; this fills it.
+#
+# POSITION IS LOAD-BEARING, in both directions:
+#   - AFTER the runtime rsync and the CLI symlinks above, so the step order reads
+#     in the direction the dependencies point.
+#   - BEFORE the reproducibility-cleanup block at the end of this script, which
+#     does `rm -rf /root/arlowe-build`, `apt-get clean` and `rm -rf
+#     /var/lib/apt/lists/*`. The pinned requirement files live under the staged
+#     tree, so a call placed after the cleanup fails on its input gate.
+#
+# The cleanup's `find /opt/arlowe -name __pycache__ -exec rm -rf` will strip the
+# venvs' bytecode caches. That is INTENDED — .pyc files embed timestamps and
+# would break the SC5 input-reproducibility property — and it costs only
+# first-start latency, once, while CPython regenerates them. Do not "fix" it.
+# ---------------------------------------------------------------------------
+echo "[00-run-chroot] step 7: build-venvs.sh"
+bash "${REPO_ROOT}/pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh"
+
+# ---------------------------------------------------------------------------
 # Install the axcl deb.
 # The deb path inside the chroot was written by the host-side 00-run.sh into
 # /root/arlowe-build/repo/.axcl-deb-path. Fall back to scanning third_party/axcl/.
@@ -191,8 +227,8 @@ EOF
             exit "${_axcl_rc}"
         fi
     fi
-    # 7. Run the axcl udev extraction diagnostic to confirm no rule conflict.
-    echo "[00-run-chroot] step 7: extract-axcl-udev-from-deb.sh (diagnostic)"
+    # 8. Run the axcl udev extraction diagnostic to confirm no rule conflict.
+    echo "[00-run-chroot] step 8: extract-axcl-udev-from-deb.sh (diagnostic)"
     bash "${PROVISION}/extract-axcl-udev-from-deb.sh" "${AXCL_DEB}" || true
     # install-arlowe-udev-polkit.sh (step 5) already removes the broken deb rule;
     # re-run the removal guard in case dpkg postinst re-created it.

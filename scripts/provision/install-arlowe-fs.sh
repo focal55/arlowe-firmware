@@ -48,7 +48,13 @@ install -d -o root -g arlowe -m 0755 /opt/arlowe/runtime/wake-word
 install -d -o root -g arlowe -m 0755 /opt/arlowe/runtime/cli
 install -d -o root -g arlowe -m 0755 /opt/arlowe/third_party
 install -d -o root -g arlowe -m 0755 /opt/arlowe/models
-# venvs/ is empty in Phase 3; Phase 6 populates from runtime/*/requirements.txt
+# venvs/ is created EMPTY here and populated in the chroot by
+# pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh, from the pinned files in
+# pi-gen/stage-arlowe/01-runtime/files/venv-requirements/ — NOT from
+# runtime/*/requirements.txt, which govern a developer checkout and not the image
+# (ADR-0008). This comment previously deferred to "Phase 6", which never did it;
+# the stale deferral is how four units shipped naming interpreters that no build
+# step created. If you change where the venvs come from, change this line too.
 install -d -o root -g arlowe -m 0755 /opt/arlowe/venvs
 # config/ directory reserved; defaults.yml NOT created — Phase 4 owns file content
 install -d -o root -g arlowe -m 0755 /opt/arlowe/config
