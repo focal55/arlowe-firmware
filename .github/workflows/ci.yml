@@ -2,11 +2,7 @@ name: CI
 
 on:
   push:
-    # TEMPORARY, REVERTED IN THE NEXT COMMIT. Second and final round trip: the
-    # first observed run predates 3ace570, and a gate reported green against code
-    # that is not the code being shipped is exactly the claim this phase exists to
-    # stop making.
-    branches: [main, worktree-agent-a3f5ff7975edc9456]
+    branches: [main]
   pull_request:
     branches: [main]
 
