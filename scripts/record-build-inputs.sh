@@ -211,6 +211,17 @@ MODULE_DIRS="$(as_reader ls -1 "${ROOTFS}/lib/modules" 2>/dev/null | LC_ALL=C so
 KERNEL_VERSION="$(printf '%s\n' "${MODULE_DIRS}" | sed 's/+.*$//' | LC_ALL=C sort -u | paste -sd, -)"
 
 # --- pin rows (DECLARED) ----------------------------------------------------
+# python3 + PyYAML, checked explicitly rather than left to fail mid-pipeline.
+# build-image.sh already names python3-yaml as a build-host requirement and uses
+# it for the kernel gate, so this adds no new dependency to a real build -- but a
+# stock debian:bookworm container ships no python3 at all, and without this the
+# failure surfaces as a bare "python3: command not found" followed by an
+# unrelated-looking die about missing pins.
+command -v python3 >/dev/null 2>&1 \
+    || die "python3 is required to read third_party/*/manifest.yml (apt: python3 python3-yaml)"
+python3 -c 'import yaml' >/dev/null 2>&1 \
+    || die "python3 PyYAML is required to read third_party/*/manifest.yml (apt: python3-yaml)"
+
 # Walked generically out of every third_party/*/manifest.yml rather than naming
 # four files here, so a new pinned dependency is recorded without editing this
 # script -- the same reason the shellcheck file list uses find.

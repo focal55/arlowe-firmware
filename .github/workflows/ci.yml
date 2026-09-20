@@ -108,6 +108,51 @@ jobs:
       - name: Resolve every unit-reachable import against the image's packages
         run: bash tests/phase-07.1/run-import-check.sh
 
+  # This job is the enforcement authority for Phase 7.2 SC5: two independent
+  # resolutions from the same commit produce byte-identical package version sets.
+  #
+  # What it catches that nothing else does. Every other gate on the build inputs
+  # lives in build-image.sh and therefore only runs when an image is built, which
+  # is a tag/dispatch event on a 30-minute job. An edit that unpins the Debian
+  # snapshot -- changing the overlay's sources.list, or reintroducing a kernel
+  # meta package into overlays/pi-gen/stage0/02-firmware/01-packages -- would
+  # otherwise sit on main until the next image build. This notices on the PR.
+  #
+  # It deliberately does NOT build an image. The claim under test is that two
+  # builds RESOLVE the same versions, and resolution is separable from
+  # installation, so two apt resolutions answer it in minutes rather than an hour.
+  #
+  # arm64, and not as a preference: the pinned packages include arm64-only ones
+  # (python3-rpi.gpio, python3-spidev, raspi-firmware) and the kernel controls
+  # query an arm64 index. Apt-resolution evidence must also never come from the
+  # trixie build host, which is why the probe runs in a debian:bookworm container.
+  #
+  # No build cache and no container-layer cache, for the same reason
+  # unit-import-bookworm states: a cache is the one thing that could hide an input
+  # change from the job whose entire purpose is to notice one.
+  #
+  # The probe runs in a PRISTINE container via docker run rather than as a job
+  # `container:`, and that separation is load-bearing. It measures what a fresh
+  # rootfs would resolve, and `apt-get install --print-uris` omits anything already
+  # installed -- so installing python3-yaml for the recorder self-test in the same
+  # filesystem would silently shrink the set being measured, because python3 is
+  # itself in the package list under test.
+  build-inputs-resolve:
+    name: Build input pinning (arm64 bookworm resolution)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the recorder's manifest-reading dependency
+        run: sudo apt-get install -y --no-install-recommends python3-yaml
+      - name: pi-gen overlay applier self-test
+        run: bash tests/phase-07.2/test-pigen-overlay.sh
+      - name: Build input recorder self-test
+        run: bash tests/phase-07.2/test-record-build-inputs.sh
+      - name: Two resolutions from this commit must agree
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w debian:bookworm \
+            bash tests/phase-07.2/resolve-twice.sh
+
   detect:
     name: Detect Node project
     runs-on: ubuntu-latest
