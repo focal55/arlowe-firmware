@@ -29,6 +29,25 @@ if [[ "${CHANGED}" == "1" ]]; then
     fi
 fi
 
+# Enable each unit by hand-linking it into its WantedBy= target.
+#
+# `systemctl enable` is not usable here: this script runs inside the pi-gen
+# chroot and in the Docker testbed, where systemd is not PID 1. Copying a unit
+# into /etc/systemd/system does NOT enable it -- without the .wants symlink
+# systemd never pulls it into the boot transaction, so the units are installed,
+# inert, and silent. That is exactly how six runtime units shipped disabled on
+# a flashed image while every unit-file test passed.
+for unit in "$UNIT_SRC_DIR"/*.service; do
+    name=$(basename "$unit")
+    # One unit may declare several targets, and several per line.
+    while read -r target; do
+        [[ -n "$target" ]] || continue
+        install -d -m 0755 "$TARGET/${target}.wants"
+        ln -sfn "$TARGET/$name" "$TARGET/${target}.wants/$name"
+        echo "[install-units] enabled ${name} -> ${target}"
+    done < <(sed -n 's/^WantedBy=//p' "$unit" | tr ' ' '\n')
+done
+
 # shellcheck disable=SC2012
 count=$(ls "$UNIT_SRC_DIR"/*.service 2>/dev/null | wc -l)
 echo "[install-units] ${count} units present in ${TARGET}"
