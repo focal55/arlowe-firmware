@@ -25,9 +25,11 @@
 #                   on the build host is a gate that can false-PASS as easily as
 #                   it false-failed.
 #
-# The fixture rootfs used to be synthetic in a way that hid that: every unit was a
-# regular file, so the alias-symlink shape had nothing to act on here and the
-# escape only surfaced on a real build.
+# The fixture rootfs used to be synthetic in a way that hid both: no apt-installed
+# units and no dpkg database, so neither the alias-symlink shape nor the ownership
+# split had anything to act on. [apt-owned-scope] and its two companions carry a
+# real (if minimal) dpkg database for that reason — the ownership lookup under test
+# runs against dpkg itself, not a stub.
 #
 # No assertion here depends on a COUNT of failures. An earlier draft of this phase
 # said "five venv-python lines", which is wrong on both readings — three distinct
@@ -109,6 +111,18 @@ write_unit_at() {
     { printf '[Unit]\nDescription=fixture %s\n\n[Service]\n' "${n}"
       printf '%s\n' "$@"
     } > "${p}"
+}
+
+# A minimal but REAL dpkg database, so the ownership lookup under test runs
+# against dpkg itself rather than a stub. dpkg -S needs both an info/<pkg>.list
+# and a status stanza marking the package installed; a .list alone finds
+# nothing. add_dpkg_pkg <rootfs> <pkg> <owned-path>...
+add_dpkg_pkg() {
+    local r="$1" pkg="$2"; shift 2
+    mkdir -p "${r}/var/lib/dpkg/info"
+    printf 'Package: %s\nStatus: install ok installed\nMaintainer: fixture <fixture@invalid>\nArchitecture: all\nVersion: 1.0\nDescription: fixture\n\n' \
+        "${pkg}" >> "${r}/var/lib/dpkg/status"
+    printf '%s\n' "$@" > "${r}/var/lib/dpkg/info/${pkg}.list"
 }
 
 # ---------------------------------------------------------------------------
@@ -406,6 +420,117 @@ assert_out "${OUT}" '/opt/arlowe/runtime/cli/rootfs-only-target' \
     "[unit-read-escape] names the target the ROOTFS unit declares"
 assert_out "${OUT}" 'dbus-org.fixture.Aliased' \
     "[unit-read-escape] reports it under the INSTALLED alias name, which is what systemd loads"
+
+# ===========================================================================
+# [apt-owned-scope] — version floors are a claim about software WE chose.
+#
+# Built to the real rootfs's shape: usrmerged (/lib -> usr/lib, /bin -> usr/bin),
+# the unit reached through an absolute alias symlink, and dpkg recording the
+# target under its pre-merge /lib spelling while the rootfs resolves it to
+# /usr/lib. The usrmerge twin lookup is load-bearing here — without it the
+# ownership query misses every apt unit on a bookworm rootfs and the scoping
+# silently does nothing.
+#
+# /bin/kill has no floor and never will: it is sshd's, not ours. Before this
+# fix that was a FAIL, one of six on the 07.2 build.
+# ===========================================================================
+OWNED="$(new_rootfs apt-owned-scope)"
+ln -s usr/lib "${OWNED}/lib"
+ln -s usr/bin "${OWNED}/bin"
+mkexec "${OWNED}/usr/sbin/arlowe-fixture-daemon"
+mkexec "${OWNED}/usr/bin/kill"
+# shellcheck disable=SC2016  # $MAINPID is systemd's, and must reach the unit file unexpanded
+write_unit_at "${OWNED}/usr/lib/systemd/system/arlowe-fixture-daemon.service" arlowe-fixture-daemon \
+    'ExecStart=/usr/sbin/arlowe-fixture-daemon' \
+    'ExecReload=/bin/kill -HUP $MAINPID'
+ln -s /lib/systemd/system/arlowe-fixture-daemon.service \
+    "${OWNED}/etc/systemd/system/dbus-org.fixture.Daemon.service"
+add_dpkg_pkg "${OWNED}" arlowe-fixture-daemon \
+    '/lib/systemd/system/arlowe-fixture-daemon.service' \
+    '/usr/sbin/arlowe-fixture-daemon'
+
+# A SECOND apt unit, shipped as a REGULAR FILE straight into /etc/systemd/system.
+# Two reasons it is here rather than left implicit:
+#
+#   * It isolates this defect from the alias-read one. The alias above is
+#     dangling from the build host's point of view, so the pre-fix gate dropped
+#     it from the glob entirely and "failed" with an empty unit set — a fixture
+#     that fails for the wrong reason proves nothing about the right one. This
+#     unit is enumerated by the old code and the new alike, so the only thing
+#     that changes between them is the scoping.
+#   * It is the case that rules out the cheaper signal. On the real rootfs every
+#     repo unit is a regular file and every apt unit is a symlink, so file type
+#     separates them today — and would separate them wrongly the first time an
+#     apt package ships a unit exactly like this one. Ownership is asked of
+#     dpkg, so this unit is apt's no matter what shape it arrives in.
+mkexec "${OWNED}/usr/sbin/arlowe-fixture-plain"
+# shellcheck disable=SC2016  # $MAINPID is systemd's, and must reach the unit file unexpanded
+write_unit "${OWNED}" arlowe-fixture-plain \
+    'ExecStart=/usr/sbin/arlowe-fixture-plain' \
+    'ExecReload=/bin/kill -HUP $MAINPID'
+add_dpkg_pkg "${OWNED}" arlowe-fixture-plain \
+    '/etc/systemd/system/arlowe-fixture-plain.service' \
+    '/usr/sbin/arlowe-fixture-plain'
+
+run_gate verify_unit_runtime_versions "${OWNED}" apt-owned-scope
+evidence "apt-owned-scope / verify_unit_runtime_versions" "${OUT}"
+assert_rc 0 "${RC}" "[apt-owned-scope] an apt-owned unit naming an unfloored interpreter PASSES"
+assert_out "${OUT}" 'SKIP dbus-org.fixture.Daemon: shipped by arlowe-fixture-daemon' \
+    "[apt-owned-scope] the alias unit is skipped, named with its owning package"
+assert_out "${OUT}" 'SKIP arlowe-fixture-plain: shipped by arlowe-fixture-plain' \
+    "[apt-owned-scope] so is the regular-file apt unit — ownership is dpkg's answer, not the file type"
+assert_no_out "${OUT}" 'undeclared interpreter' \
+    "[apt-owned-scope] /bin/kill is not demanded of a daemon we did not choose"
+assert_no_out "${OUT}" 'no dpkg database' \
+    "[apt-owned-scope] ownership was derived, not degraded to the fail-closed default"
+
+run_gate verify_unit_execstart "${OWNED}" apt-owned-paths
+assert_rc 0 "${RC}" "[apt-owned-scope] the path gate still reads the apt unit and finds its targets"
+
+# ===========================================================================
+# [repo-owned-still-gated] — the anti-slip half, and the reason scoping is not
+# loosening. Scoping the version gate must not give OUR units a way through it:
+# an arlowe unit naming an undeclared interpreter still FAILs, in a rootfs where
+# the dpkg database is present and working.
+# ===========================================================================
+MIXED="$(new_rootfs repo-owned-still-gated)"
+cp -a "${OWNED}/." "${MIXED}/"
+mkexec "${MIXED}/usr/bin/perl"
+mkfile "${MIXED}/opt/arlowe/runtime/x.pl"
+write_unit "${MIXED}" arlowe-perl 'ExecStart=/usr/bin/perl /opt/arlowe/runtime/x.pl'
+
+run_gate verify_unit_runtime_versions "${MIXED}" repo-owned-still-gated
+evidence "repo-owned-still-gated / verify_unit_runtime_versions" "${OUT}"
+assert_rc 1 "${RC}" "[repo-owned-still-gated] an undeclared interpreter in a unit WE ship still FAILS"
+assert_out "${OUT}" 'FAIL arlowe-perl' "[repo-owned-still-gated] names our unit"
+assert_out "${OUT}" '/usr/bin/perl'    "[repo-owned-still-gated] names the interpreter"
+assert_no_out "${OUT}" 'FAIL dbus-org.fixture.Daemon' \
+    "[repo-owned-still-gated] and does not implicate the apt alias unit in the same rootfs"
+assert_no_out "${OUT}" 'FAIL arlowe-fixture-plain' \
+    "[repo-owned-still-gated] nor the apt regular-file unit beside it"
+
+# ===========================================================================
+# [path-gate-stays-universal] — a unit naming a binary the rootfs does not carry
+# is a real defect whoever shipped it. Both directions asserted: narrowing the
+# PATH gate to repo units the way the version gate was narrowed would let an apt
+# unit's missing binary through, and that is a bricked service on the device.
+# ===========================================================================
+MISSING="$(new_rootfs path-gate-stays-universal)"
+cp -a "${OWNED}/." "${MISSING}/"
+rm -f "${MISSING}/usr/sbin/arlowe-fixture-daemon"
+write_unit "${MISSING}" arlowe-ours 'ExecStart=/opt/arlowe/runtime/cli/absent'
+
+run_gate verify_unit_execstart "${MISSING}" path-gate-stays-universal
+evidence "path-gate-stays-universal / verify_unit_execstart" "${OUT}"
+assert_rc 1 "${RC}" "[path-gate-stays-universal] a missing Exec* target FAILS"
+assert_out "${OUT}" 'FAIL arlowe-ours' \
+    "[path-gate-stays-universal] our unit's missing binary is named"
+assert_out "${OUT}" '/opt/arlowe/runtime/cli/absent' \
+    "[path-gate-stays-universal] with the target it declares"
+assert_out "${OUT}" 'FAIL dbus-org.fixture.Daemon' \
+    "[path-gate-stays-universal] the apt unit's missing binary is named too — ownership does not excuse it"
+assert_out "${OUT}" '/usr/sbin/arlowe-fixture-daemon' \
+    "[path-gate-stays-universal] with the target it declares"
 
 echo "------------------------------------------------------------"
 if (( FAILURES != 0 )); then

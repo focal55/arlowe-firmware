@@ -8,6 +8,16 @@
 #   verify_unit_execstart      <rootfs>  every Exec* target resolves inside the rootfs
 #   verify_unit_runtime_versions <rootfs>  every named interpreter meets a version floor
 #
+# THE TWO HAVE DIFFERENT SCOPES, on purpose.
+#   * The PATH gate is universal. A unit naming a binary the rootfs does not
+#     carry is a real defect whether we wrote the unit or apt did, so every unit
+#     in /etc/systemd/system is checked.
+#   * The VERSION gate covers units THIS REPO SHIPS. A floor is a claim about
+#     software we chose — node from next@16.1.6's engines.node, the venv pythons
+#     we create — and we did not choose sshd's /bin/kill. Ownership is derived
+#     per unit from the rootfs's dpkg database (see _vue_unit_owner), never from
+#     a list here.
+#
 # NOTHING IN EITHER GATE MAY READ THE BUILD HOST. Seven of the fifteen units on
 # a real rootfs are `systemctl enable` aliases — symlinks with absolute targets
 # into /lib/systemd/system — so both the executable paths AND the unit files
@@ -114,17 +124,27 @@ declare -A ARLOWE_RUNTIME_FLOOR=(
 # interpreter must not be able to arrive as one more line in a passing list.
 # ---------------------------------------------------------------------------
 #
-# NOT EVERY UNIT IN THE GLOB IS OURS. The expectation set is globbed from the
-# rootfs's own /etc/systemd/system, which is deliberate — a seventh arlowe unit
-# extends the gate with no edit here — but apt puts units there too. bookworm's
-# network-manager (declared in 00-packages-nr for Phase 8 wifi provisioning)
-# installs dbus-org.freedesktop.nm-dispatcher.service, so the glob is 9 units on
-# a real rootfs, not the 8 the unit source directory would suggest.
-# Found by plan 07.1-04's integration run; the fixture self-test never saw it
-# because its rootfs is synthetic and has no apt-installed units.
+# THIS LIST COVERS REPO-SHIPPED UNITS ONLY. The glob is over the rootfs's own
+# /etc/systemd/system, which is deliberate — a seventh arlowe unit extends the
+# gate with no edit here — but apt puts units there too: `systemctl enable`
+# installs dbus alias symlinks, and a real rootfs carries seven of them
+# (sshd, wpa_supplicant, bluetooth, avahi-daemon, ModemManager,
+# NetworkManager-dispatcher, systemd-timesyncd) beside our eight.
+#
+# Those seven named interpreters we never chose — sshd's /bin/kill,
+# ModemManager's own binary — and the version gate demanded a floor for each,
+# producing failures that were real output about nothing. The fix is NOT to
+# paste every OS interpreter in here: that converts a guard derived from the
+# rootfs into a hand-maintained list, and a hand-maintained list rots into an
+# already-green category that the next genuine entry hides inside. It is the
+# 00-packages-nr shape that produced F7 #18 one layer up.
+#
+# Instead _vue_unit_owner derives ownership from the rootfs's dpkg database and
+# verify_unit_runtime_versions skips apt-owned units outright. What remains
+# below is only what OUR units name, and an undeclared interpreter in one of
+# ours is still a FAIL.
 ARLOWE_EXPECTED_UNDECLARED=(
     '/bin/touch'                                     # coreutils; firstboot ExecStartPost marker
-    '/usr/lib/NetworkManager/nm-dispatcher'          # bookworm network-manager's own unit, not ours — apt owns its version
     '/opt/arlowe/runtime/cli/arlowe-grow-models'     # first-party grow script, firstboot ExecStartPre
     '/opt/arlowe/runtime/cli/boot-check'             # first-party entry point
     '/opt/arlowe/runtime/cli/identity'               # first-party entry point
@@ -325,6 +345,82 @@ _vue_unit_files() {
 _vue_unit_resolve() {
     local rootfs="$1" unit="$2"
     _vue_resolve "${rootfs}" "${unit#"${rootfs}"}"
+}
+
+# ---------------------------------------------------------------------------
+# OWNERSHIP — did apt ship this unit, or do we?
+#
+# Derived from the rootfs's OWN dpkg database, deliberately not from a list in
+# this file. A hit means a Debian package shipped the file and apt owns its
+# version; a miss means it arrived some other way, which for this image means
+# install-arlowe-fs.sh or pi-gen's stage-arlowe wrote it.
+#
+# QUERY THE RESOLVED TARGET, NOT THE GLOB ENTRY. Verified against the real built
+# rootfs: `dpkg -S /etc/systemd/system/sshd.service` finds nothing, and neither
+# does the same query for one of ours — those dbus aliases are created by
+# `systemctl enable` in a postinst and are shipped in no .deb at all, so the
+# glob entry separates nothing. The alias's TARGET is shipped, and
+# `dpkg -S /lib/systemd/system/ssh.service` answers openssh-server. On the real
+# rootfs this splits all fifteen units correctly: eight ours, seven apt's.
+#
+# USRMERGE TWIN. Bookworm's dpkg records openssh-server's unit as
+# /lib/systemd/system/ssh.service, while _vue_resolve — traversing the rootfs's
+# own /lib -> usr/lib symlink — produces /usr/lib/systemd/system/ssh.service.
+# Both spellings name one file; the database records whichever the package was
+# built with, so every candidate is queried in both. Without this the lookup
+# misses every apt unit on a bookworm rootfs and the scoping silently does
+# nothing.
+#
+# FAILURE MODE, stated rather than discovered later. UNOWNED IS THE DEFAULT:
+# anything dpkg cannot account for is treated as ours and gets the full version
+# gate. So a future apt package whose unit dpkg does not record would be held to
+# our floors and could FAIL as an undeclared interpreter. That is the
+# fail-closed direction and it is the one to be wrong in — it costs a human one
+# look, where the opposite default would let a repo-shipped unit slip the floor
+# gate with no sound at all. A rootfs carrying no dpkg database degrades to
+# "every unit is ours", announced once on stderr rather than assumed.
+#
+#   0  a Debian package owns this unit (package name on stdout)
+#   1  no package owns it — this repo ships it
+# ---------------------------------------------------------------------------
+_vue_usrmerge_twin() {
+    case "$1" in
+        /usr/bin/*|/usr/sbin/*|/usr/lib/*) printf '%s\n' "${1#/usr}" ;;
+        /bin/*|/sbin/*|/lib/*)             printf '/usr%s\n' "$1" ;;
+    esac
+}
+
+_vue_dpkg_owner() {
+    local admindir="$1" path="$2" line owned
+    # dpkg-query reads * ? [ as glob metacharacters, so a unit path carrying one
+    # would match more than it names. Refuse the query rather than trust it.
+    case "${path}" in *'*'*|*'?'*|*'['*) return 1 ;; esac
+    # Exact-match the returned path too: dpkg prints "<pkg>: <path>", and a
+    # diversion line or a partial match must not be read as ownership.
+    while IFS= read -r line; do
+        owned="${line##*: }"
+        if [[ "${owned}" == "${path}" ]]; then
+            printf '%s\n' "${line%%:*}"
+            return 0
+        fi
+    done < <(dpkg --admindir="${admindir}" -S "${path}" 2>/dev/null)
+    return 1
+}
+
+# _vue_unit_owner <rootfs> <literal-unit-path> <resolved-unit-path>
+_vue_unit_owner() {
+    local rootfs="$1" lit="$2" res="$3"
+    local admindir="${rootfs}/var/lib/dpkg" cand owner
+    [[ -d "${admindir}" ]] || return 1
+    for cand in "${lit}" "$(_vue_usrmerge_twin "${lit}")" \
+                "${res}" "$(_vue_usrmerge_twin "${res}")"; do
+        [[ -n "${cand}" ]] || continue
+        if owner="$(_vue_dpkg_owner "${admindir}" "${cand}")"; then
+            printf '%s\n' "${owner}"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # _vue_hard_permission <tag> <unit> <token> <blocked-path>
@@ -627,7 +723,7 @@ verify_unit_runtime_versions() {
     local tag='unit-versions'
     local rc=0 fails=0 skips=0 probes=0 undeclared=0 hard=0
     local unit name directive value stripped exe resolved rrc base lit_base
-    local unit_rel urc
+    local unit_rel urc owner_pkg
     local floor raw got allowed entry
     local -a tokens unit_files=()
     local -A seen_version=()
@@ -648,6 +744,10 @@ verify_unit_runtime_versions() {
     if ! _vue_unit_dir_readable "${rootfs}" "${tag}"; then
         _vue_shield_off
         return 2
+    fi
+
+    if [[ ! -d "${rootfs}/var/lib/dpkg" ]]; then
+        _vue_warn "${tag}" "${rootfs} carries no dpkg database, so unit ownership cannot be derived — every unit is held to the version floors as if this repo shipped it. That is the fail-closed direction, and it is said here rather than assumed."
     fi
 
     while IFS= read -r unit; do
@@ -675,6 +775,19 @@ verify_unit_runtime_versions() {
             # double-count one defect. Say it and move on.
             printf '[%s] SKIP %s: unit file does not resolve to a readable file inside the rootfs (chain ends at %s) — see the unit-execstart gate\n' \
                 "${tag}" "${name}" "${unit_rel}"
+            skips=$(( skips + 1 ))
+            continue
+        fi
+
+        # SCOPE. Version floors are a claim about software WE chose: node from
+        # next@16.1.6's engines.node, the venv pythons we create. apt chose
+        # sshd's /bin/kill and ModemManager's binary, and holding those to our
+        # table produced six failures about nothing on the 07.2 build. The path
+        # gate above stays universal — a unit naming a binary the rootfs lacks
+        # is a real defect whoever shipped it — but the floors stop here.
+        if owner_pkg="$(_vue_unit_owner "${rootfs}" "${unit#"${rootfs}"}" "${unit_rel}")"; then
+            printf '[%s] SKIP %s: shipped by %s — apt owns its interpreter versions, not ARLOWE_RUNTIME_FLOOR\n' \
+                "${tag}" "${name}" "${owner_pkg}"
             skips=$(( skips + 1 ))
             continue
         fi
