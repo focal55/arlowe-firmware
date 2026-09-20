@@ -1,0 +1,54 @@
+# IMAGE-ONLY. This file governs the device; runtime/voice/requirements.txt does not.
+#
+# Installed by pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh (plan 07.1-04) into
+# /opt/arlowe/venvs/voice, the interpreter BOTH arlowe-voice.service and arlowe-face.service
+# name. The venv is created with --system-site-packages, so numpy, scipy, scikit-learn,
+# joblib, Pillow, PyAudio and requests are NOT listed here: they come from the apt layer in
+# pi-gen/stage-arlowe/00-packages/00-packages-nr and are shared in. Listing them would put a
+# second copy of each compiled module in the image.
+#
+# TWO-STEP INSTALL — build-venvs.sh MUST run both, in this order:
+#   pip install -r voice.txt          -c constraints.txt
+#   pip install -r voice-nodeps.txt   -c constraints.txt --no-deps
+#
+# The second step exists because noisereduce declares matplotlib. See voice-nodeps.txt for
+# the measurement. `--no-deps` cannot be expressed inside a requirements file — pip rejects
+# it with "no such option: --no-deps" — so it has to be a separate file with a separate
+# invocation. Running only the first step yields a venv where `import noisereduce` fails.
+#
+# Every version is pinned with ==. Versions below are not hand-picked: they were resolved in
+# a debian:bookworm arm64 container against the apt layer and read back with
+# `pip freeze --local`.
+#
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md
+
+# voice_client.py: `import openwakeword` / `from openwakeword.model import Model`.
+# Pulls scipy from the apt layer, which is why python3-scipy is declared there even though
+# no runtime/ module imports scipy directly.
+openwakeword==0.4.0
+
+# onnxruntime — the inference backend openwakeword runs the wake-word model on.
+# 1.30.0 is the newest release that accepts the apt numpy 1.24.2 without pulling its own;
+# verified by `numpy.__file__` resolving under /usr/lib/python3/dist-packages in the built venv.
+onnxruntime==1.30.0
+
+# llm/router.py: `from filelock import FileLock`. Declared here as well as in llm.txt
+# because voice_client.py:27 does `from llm.router import route` at MODULE SCOPE, so
+# arlowe-voice reaches filelock at start-up even though the module lives under
+# runtime/llm and the qwen-tokenizer unit is the obvious consumer. Without this line
+# arlowe-voice dies with ModuleNotFoundError: No module named 'filelock' on the first
+# boot of every device, and every path gate in the build still passes.
+#
+# Found by the unit-import-bookworm CI job (tests/phase-07.1/import-graph.py), which is
+# the only thing in the pipeline that walks from a unit entry point through a first-party
+# module in ANOTHER service's directory. Keep the version identical to llm.txt's: the
+# same source file is imported under both interpreters and should behave the same.
+filelock==3.32.6
+
+# --- transitive closure, pinned so it cannot float ---
+flatbuffers==25.12.19
+packaging==26.3
+protobuf==7.36.1
+# tqdm is also noisereduce's real (non-matplotlib) dependency — installing it here is what
+# makes the --no-deps step in voice-nodeps.txt safe.
+tqdm==4.70.1

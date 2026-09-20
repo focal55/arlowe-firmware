@@ -1,0 +1,32 @@
+# Overlay of upstream pi-gen stage0/02-firmware/01-packages.
+#
+# Upstream requests six packages here. The four kernel META packages --
+# linux-image-rpi-v8, linux-image-rpi-2712, linux-headers-rpi-v8 and
+# linux-headers-rpi-2712 -- are deliberately absent from this list.
+#
+# The kernel now comes from third_party/kernel/manifest.yml and is installed by
+# 00-run.sh in this same sub-stage, which runs BEFORE this file (pi-gen's
+# run_sub_stage finishes every handler at index 00 before starting index 01).
+#
+# Why removed rather than version-pinned: a meta package carries exactly one
+# version. `apt-cache madison linux-headers-rpi-2712` returns a single line,
+# 1:6.12.109-1+rpt1 -- there is no older candidate to constrain it to. The
+# versioned packages DO exist in the Pi index (6.12.19 through 6.12.109); the
+# metas are the part that cannot be pinned.
+#
+# Why prevention rather than install-then-downgrade: leaving these metas here
+# would install 6.12.109 alongside the pinned 6.12.96, and stage-arlowe's
+# 01-runtime/00-run-chroot.sh picks the kernel to build the axcl module against
+# with `find /lib/modules -name '*-rpi-2712' | sort -V | tail -1`. That selects
+# the HIGHEST version present, so a rootfs carrying both kernels re-breaks the
+# axcl compile exactly as before.
+#
+# Removing them is safe and this was checked, not assumed: parsing the Pi
+# archive's binary-arm64 Packages index for any Depends, Pre-Depends or
+# Recommends naming these four returns zero results. Nothing in the archive
+# depends on them.
+#
+# initramfs-tools stays (the pinned linux-image debs depend on it anyway, so apt
+# pulls it in regardless) and raspi-firmware stays untouched.
+initramfs-tools
+raspi-firmware

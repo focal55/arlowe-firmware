@@ -17,6 +17,8 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 5: Audio device auto-detection** - USB audio enumerated at boot; owner override via dashboard; loopback verification in boot-check (complete 2026-06-13, passed-with-notes — 7 plans merged via PRs #95-#101/#104; SC2 reframed Pi-5-has-no-3.5mm → wm8960 codec; on-Pi SC1-SC4 run deferred to a hardware checkpoint per Phase 1/3/4 precedent, procedure in docs/operations/phase-5-audio.md)
 - [x] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition (complete in code 2026-06-14, 6 plans merged via PRs #112/#113/#114/#115/#116. HARDWARE CHECKPOINT IN PROGRESS — started 2026-06-19 on arlowe-1 (first-ever build), paused mid-setup pending SD-card-size decision + WhisPlay-driver staging; see STATE.md Session Continuity for the resume checklist. Runbook docs/operations/phase-6-build-flash-deploy.md)
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls — 10/11 plans merged to main (PR #122, `e7dff4f`); SC4 unverified, 07-09 parked on an AWS staging account
+- [x] **Phase 7.1: Runtime substrate repair (INSERTED)** - Populate `/opt/arlowe/venvs`, build the dashboard to `server.js`, declare the missing apt packages, guard the wake-word verifier; a build gate asserts every unit's ExecStart interpreter exists in the rootfs **(complete in code; SC6 hardware checkpoint UNPROVEN)**
+- [ ] **Phase 7.2: Build input pinning (INSERTED)** - Make IMAGE-03 true: pin the kernel by checksum from the pool, resolve Debian packages from a snapshot, implement SOURCE_DATE_EPOCH, and assert the pins survive pi-gen's re-clone
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
 - [ ] **Phase 10: Owner-consented support access** - Dashboard "Support Mode" toggle provisions a time-bound founder SSH key; auto-revokes; full audit log
@@ -209,11 +211,117 @@ Plans:
 - [x] 07-08b-PLAN.md — first-boot unit (`UMask=0077`, `RequiresMountsFor`) + image wiring
 - [ ] 07-09-PLAN.md — SC4 end-to-end revocation verification against staging; ADR-0007 -> Accepted **(PARKED — needs a staging AWS account with `iot:*` + `iam:CreateRole/AttachRolePolicy/PassRole`; SC4 is the only unverified criterion and ADR-0007 stays Proposed until it runs)**
 
+### Phase 7.1: Runtime substrate repair (INSERTED)
+
+**Goal**: Make the six shipping runtime units actually startable on a factory image. **Four** of them — `arlowe-voice`, `arlowe-face`, `whisper-stt`, `qwen-tokenizer` — invoke one of three venv interpreters under `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` across **seven** `Exec*` stanzas, and the image build never creates any of them. A fifth, `arlowe-dashboard`, invokes `dashboard/server.js`, which no build step produces and which bookworm's Node 18 could not run even if it existed. Only `qwen-api` is unaffected: it execs the ax-llm binary through `run_api.sh` and touches no Python. Close those gaps and put a build-time gate behind them so the class cannot recur.
+
+**Correction (plan 07.1-06, after execution): "six" is the count of shipping runtime *service* units, not the count of units in the image.** The distinction matters because `verify_unit_execstart` globs the built rootfs's own `/etc/systemd/system` rather than the repo's unit source directory, so the number it reports is larger and is supposed to be. A real rootfs carries **nine**: the six above, plus `arlowe-identity-init` (the seventh file in `units/`), plus `arlowe-firstboot` (from `pi-gen/stage-arlowe/03-firstboot/files/`), plus whatever apt installs there — today exactly one, `dbus-org.freedesktop.nm-dispatcher.service` from `network-manager`. The gate FAILed on that ninth unit on its first real rootfs run and it is now in `EXPECTED_UNDECLARED` with a reason. Enumeration and coverage boundary: `docs/operations/phase-7.1-substrate.md` §Part A.
+
+**Depends on**: Phase 6 (image build), Phase 3 (unit definitions), Phase 1 (the runtime requirements.txt files)
+
+**Requirements**: No new REQ-IDs. Closes latent gaps in USER-04, USER-05 (units must actually run as specified) and IMAGE-02 (the runtime stage must produce a runnable runtime).
+
+**Why inserted**: Found during Phase 8 research (`.planning/phases/08-first-boot-pairing-and-wake-word/08-RESEARCH.md`). Phase 8 SC2 requires the pairing daemon to "start the runtime services"; that criterion is unreachable while the services cannot start at all. `scripts/provision/install-arlowe-fs.sh:51` records the original deferral in its own comment — *"venvs/ is empty in Phase 3; Phase 6 populates from runtime/*/requirements.txt"* — and Phase 6 never did. Kept out of Phase 8 so that a Phase 8 SC2 failure means "pairing is broken", not "the substrate was never there".
+
+**Success Criteria** (what must be TRUE):
+  1. A build-time gate parses every shipping unit's `ExecStart=` and `ExecStartPre=` and fails the build if the named interpreter or script is absent from the built rootfs. This is the durable fix; the venvs are one instance of it. Same shape as the `00-packages-nr` guard that caught F7 #18.
+  2. All three venv interpreters — `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` — exist in the built image and can import the module each of the seven `Exec*` stanzas invokes.
+  3. `runtime/dashboard` produces `server.js`, `arlowe-dashboard.service`'s `ExecStart` target resolves in the built rootfs, **and the interpreter that unit actually names reports a version `next` will run** (>= 20.9.0; bookworm ships 18.20.4). Path existence alone does not satisfy this criterion — see SC1's stated limitation.
+  4. Every Python import reachable from a unit entry point resolves under the image's own package set — verified in a `debian:bookworm` container built from `pi-gen/stage-arlowe/00-packages/00-packages-nr`, not from the host and not from `pip install -r`. **Delivered coverage is five units, not the four this line anticipated** (plan 07.1-05): `arlowe-identity-init` runs `/opt/arlowe/runtime/cli/identity`, which is `#!/usr/bin/env python3` and deliberately carries no `.py` extension so the CLI symlink installer produces `arlowe-identity`. An entry-point rule keyed on `-m` or `.py` skips it — and it is the single consumer whose missing `yaml`/`jsonschema` were this phase's original motivating defect (F7 #18), so that rule would have skipped the gate's own motivating case. The checker keys on the shebang as well, and checks it under system `python3` rather than a venv.
+  5. `arlowe-voice` starts with no wake-word verifier pickle present (the factory state). `runtime/voice/voice_client.py:349` currently opens it unguarded while `runtime/wake-word/README.md` documents a verifier-absent path that the code does not implement. A test exercises the absent-verifier path.
+  6. On a freshly flashed image, all six units reach `active` — hardware checkpoint, deferrable per Phase 1/3/4/5 precedent, but recorded as unproven until it runs.
+     **STATUS: UNPROVEN.** Not run. No unit in this repo has been observed reaching `active` on a device. Procedure: `docs/operations/phase-7.1-substrate.md` §Part B. Everything SC1–SC5 rests on was verified in arm64 `debian:bookworm` containers, which on the build host were *emulated* — the version gate's `chroot` probe has never executed a real arm64 binary on real silicon. Tracked alongside the Phase 6 hardware checkpoint; both want the same card and the same bench session.
+
+**Plans**: 6 plans in 4 waves — Wave 1: 07.1-01, 07.1-02, 07.1-03 · Wave 2: 07.1-04 · Wave 3: 07.1-05 · Wave 4: 07.1-06
+
+Plans:
+- [x] 07.1-01-PLAN.md — Dependency ledger: apt layer for the Debian-packaged compiled deps, **five** pinned venv requirement files + shared constraints (the voice set splits because `--no-deps` is not a valid requirements-file directive), **Node 24 decision**, ADR-0008 (Wave 1, foundational)
+- [x] 07.1-02-PLAN.md — SC5: stdlib-only `voice/wake_gate.py`, unguarded pickle load removed, absent/corrupt-verifier tests, wake-word README reconciled with the code (Wave 1)
+- [x] 07.1-03-PLAN.md — SC1: `verify_unit_execstart` (path) + `verify_unit_runtime_versions` (interpreter version floor) gates deriving expectations from the rootfs's own units, fixture self-test whose negative cases reproduce the pre-fix image AND the bookworm-Node-18 trap, wired into build-image.sh beside the packages guard (Wave 1)
+- [x] 07.1-04-PLAN.md — SC2+SC3: `build-venvs.sh` + `build-dashboard.sh` in the chroot, `output: "standalone"`, **vendored Node 24** named explicitly by the dashboard unit's ExecStart, pnpm pinned via `packageManager`, stale install-arlowe-fs.sh comment corrected (Wave 2, depends on 07.1-01, 07.1-03)
+- [x] 07.1-05-PLAN.md — SC4: unit-derived import-graph checker using `find_spec` with version-drift WARNs, debian:bookworm container that invokes the real `build-venvs.sh`, `unit-import-bookworm` CI job on arm64 (Wave 3, depends on 07.1-01, 07.1-02, 07.1-04 — 04 owns the venv builder the container reuses)
+- [x] 07.1-06-PLAN.md — SC6: substrate runbook (`docs/operations/phase-7.1-substrate.md`) + ROADMAP/REQUIREMENTS traceability delivered; **the SC6 hardware checkpoint itself is NOT run — SC6 is UNPROVEN** (Wave 4; non-autonomous, deferrable per Phase 1/3/4/5 precedent, depends on 07.1-01..05)
+
+**Node correction (plan 07.1-06):** the two lines above read "Node-20 floor decision" and "vendored Node 20" as written at plan time. Both predate ADR-0008 and are corrected above. The image ships **Node 24.21.0 "Krypton"**, SHA-256 pinned in `third_party/node/manifest.yml`. Node 20 "Iron" reached end of life on **2026-04-30**, so shipping it would bake a permanently unpatched JS runtime into v1. **The floor is unchanged at `>= 20.9.0`** — that number comes from `next@16.1.6`'s own `engines` metadata, not from the chosen runtime, and 24 clears it.
+
+**Findings added during planning** (not in the original insertion brief, both verified in an arm64 `debian:bookworm` container):
+  - Debian bookworm's `nodejs` is **18.20.4**; `next@16.1.6` declares `engines.node >= 20.9.0`. Even once `server.js` exists, `/usr/bin/node` cannot execute it. The SC1 gate cannot catch this — it proves a path resolves, never that the binary there can run what it is handed. Resolved in ADR-0008 (plan 07.1-01) and asserted in plan 07.1-04.
+  - `runtime/dashboard` uses **pnpm** (`pnpm-lock.yaml`, `pnpm-workspace.yaml`, no `package-lock.json`), so the image build cannot use `npm ci`. CI already pins pnpm 10 for this reason.
+  - The dev pins in `runtime/*/requirements.txt` (`numpy==2.3.5`, `Pillow==11.1.0`) are not installable against bookworm's system layer (numpy 1.24.2, Pillow 9.4.0). A naive resolve shadows the apt numpy and floats onnxruntime/matplotlib to latest, breaking Phase 6 SC5 input reproducibility. Hence the separate pinned image-only requirement files.
+
+### Phase 7.2: Build input pinning (INSERTED)
+
+**Goal**: Make IMAGE-03 true. It claims build inputs are pinned; three of its four components are not implemented. Two clean builds from the same commit resolve different package versions, so Phase 6 SC5 has never held, and a kernel bump from 6.12.96 to 6.12.109 broke the vendored axcl driver compile with no change on our side (issue #137).
+
+**Depends on**: Phase 6 (the build pipeline this corrects)
+
+**Requirements**: No new REQ-IDs. Makes IMAGE-03 true and Phase 6 SC5 checkable. Unblocks Phase 7.1 SC6.
+
+**Why inserted**: Found when the Phase 7.1 SC6 checkpoint build failed at `ax_pcie_dev_host.c:220` — the kernel gained an `exclude_bars` argument to `pci_resize_resource` between 6.12.96 and 6.12.109. Nothing in this repo changed; an unpinned input did. The failure was the lucky case: a compile error is loud, and the same drift could have shipped a quietly different kernel instead.
+
+**Success Criteria** (what must be TRUE):
+  1. The kernel is pinned to an explicit version and verified by sha256. It must be fetched by **pool URL**, not apt version pinning — for three reasons: the digest is the pin (an index entry is whatever the archive serves today; a recorded digest is a claim that can be falsified), the local cache makes a rebuild independent of the archive, and **no Raspberry Pi snapshot service exists** (`snapshot.raspberrypi.com` and `.org` both return HTTP 000), so the Debian-side snapshot mechanism is simply unavailable on this side. **Not** because the index retains one version — that premise was measured and refuted in plan 07.2-02: `dists/bookworm/main/binary-arm64/Packages.gz` carries eleven `linux-image-*-rpt-rpi-2712` versions, 6.12.19 through 6.12.109, including every version pinned here. What carries exactly one version is the **meta** package (`apt-cache madison linux-headers-rpi-2712` → `1:6.12.109-1+rpt1`), which is why the four meta packages are *removed* from `stage0/02-firmware/01-packages` rather than version-constrained. The thing that can actually change, and therefore the risk to watch, is **pool RETENTION of 6.12.96**: the pool retains 6.12.19 through 6.12.109 today, but that is Raspberry Pi's retention policy and not a guarantee to us — mirror the six pinned debs somewhere the project controls. `6.12.96` is the known-good reference, proven booting on the current test card.
+  2. Debian-side packages resolve from a snapshot so a later rebuild resolves the same versions. `snapshot.debian.org` is reachable; **no Raspberry Pi snapshot service exists** (`snapshot.raspberrypi.com` and `.org` are both unreachable), so the Pi archive needs the pool-plus-checksum treatment rather than a snapshot URL.
+  3. `SOURCE_DATE_EPOCH` is derived from the commit and actually honored by the build, rather than named in a requirement and implemented nowhere.
+  4. **The pins survive pi-gen's re-clone.** The kernel enters via `pi-gen/stage0/02-firmware/01-packages`, an upstream file; `build-image.sh` re-clones pi-gen at its tag every build and restores only `config` + `stage-arlowe`, so an edit to `stage0/` is erased. The mechanism must be idempotent and asserted, or it silently stops applying — the F7 #18 shape.
+  5. Two builds from the same commit resolve an identical set of package versions, evidenced by a recorded manifest that a gate diffs. Input reproducibility only; image-hash equality stays out of scope per ADR (ext4 nondeterminism).
+  6. The axcl driver compiles against the pinned kernel, restoring the Phase 7.1 SC6 path.
+
+**Plans**: 4 plans in 4 waves — Wave 1: 07.2-01 · Wave 2: 07.2-02 · Wave 3: 07.2-03 · Wave 4: 07.2-04
+
+Sequential by necessity, not by omission: all four plans own `scripts/build-image.sh`, and 02/03 build on the overlay mechanism 01 delivers. Only plan 04 runs a full image build.
+
+Plans:
+- [x] 07.2-01-PLAN.md — The pi-gen overlay mechanism (SC4) plus the Debian snapshot pin (SC2): a tracked `pi-gen/overlay/` tree and an applier that asserts upstream drift, failed application, unexpected pre-existing files, and lost exec bits; `20260915T000000Z` for debootstrap and apt; ADR-0009 (Wave 1)
+- [x] 07.2-02-PLAN.md — Kernel pinned to 6.12.96 (SC1): `third_party/kernel/manifest.yml` with six pool-fetched debs by sha256, a `verify-third-party.sh` stanza inheriting the node cache fallback, the four meta packages removed from `stage0/02-firmware/01-packages`, and a build-time assertion that the rootfs carries exactly one kernel version (Wave 2)
+- [x] 07.2-03-PLAN.md — `SOURCE_DATE_EPOCH` with a falsifiable consumer (SC3) and the recorded-input manifest plus diff gate (SC5); CI job proving two resolutions agree without building an image (Wave 3)
+- [ ] 07.2-04-PLAN.md — The one full build: axcl compiles against 6.12.96 (SC6), the reference input manifest committed from real build output, pin-bump runbook, IMAGE-03 and Phase 6 SC5 records closed (Wave 4, checkpoint)
+
+**Build outcome (plan 07.2-04, commit `2d57b8b`, arm64 build host, 2026-09-20).** One full
+build, against a work dir destroyed first so debootstrap actually ran (`stage0/prerun.sh`
+08:08:53 → 08:12:28, resolving from
+`http://snapshot.debian.org/archive/debian/20260915T000000Z`).
+
+| SC | Verdict | Evidence |
+|---|---|---|
+| SC1 kernel pinned by pool URL + sha256 | **MET** | All six debs verified by digest pre-build; rootfs carries exactly `6.12.96+rpt-rpi-2712` and `6.12.96+rpt-rpi-v8`; `/usr/src` holds only 6.12.96 headers; **zero** hits for `linux-(image\|headers)-rpi-(v8\|2712)` in the build log, so no meta package resolved. |
+| SC2 Debian from a snapshot | **MET** | In-build gate: `Debian resolution pinned: 29 snapshot list files, 0 off-pin`; 7 snapshot lines in the rootfs `sources.list`. |
+| SC3 `SOURCE_DATE_EPOCH` honoured | **MET** | `clamped 9935 path(s) to SOURCE_DATE_EPOCH=1789888361`; `asserted: 0 arlowe-authored paths newer than the epoch`; independently re-checked against the rootfs. |
+| SC4 pins survive pi-gen's re-clone | **MET** | All 6 overlay entries applied and mode-asserted on a cached pi-gen tree before the build. |
+| SC5 recorded manifest + diff gate | **MET** | `docs/operations/phase-07.2-inputs.reference`, 658 pkg rows + 10 pin rows, generated from this build's rootfs. First build correctly took the exit-2 warn path. |
+| SC6 axcl compiles against the pin | **MET** | `axcl driver build targeting image kernel 6.12.96+rpt-rpi-2712`; five `.ko` built, `vermagic: 6.12.96+rpt-rpi-2712 SMP preempt mod_unload modversions aarch64`; **zero** `too few arguments to function` and zero `pci_resize_resource` hits. The failure that caused this phase is gone. |
+
+**Phase 6 SC5 is now checkable** — not by assertion but by a mechanism that exists: the
+recorded input manifest plus the diff gate in `scripts/build-image.sh`, backed by the
+`build-inputs-resolve` CI job that proves two resolutions from one commit agree.
+
+**Phase 7.1 SC6 is unblocked in the sense this phase owns — the driver COMPILES — but its
+hardware checkpoint cannot run yet.** This build did **not** emit a `.img`: it aborted
+after all six criteria above were satisfied, at the Phase 7.1 unit substrate gates.
+
+**That abort is a Phase 7.1 gate defect, not a rootfs defect.** `verify_unit_execstart` and
+`verify_unit_runtime_versions` glob `/etc/systemd/system/*.service` and read the results
+**without chroot**. Seven of those entries are dbus alias symlinks whose targets are
+*absolute* (`/lib/systemd/system/...`), so the read escapes the rootfs and lands on the
+**build host's** unit files. Proven: the rootfs's own
+`NetworkManager-dispatcher.service` declares `ExecStart=/usr/lib/NetworkManager/nm-dispatcher`
+(present, 68024 bytes), while the gate reported the trixie host's
+`ExecStart=/usr/libexec/nm-dispatcher` (absent from the rootfs). The remaining 11 failures are
+OS daemons (`sshd`, `wpa_supplicant`, `bluetoothd`, `avahi-daemon`, `ModemManager`,
+`systemd-timesyncd`) being demanded an interpreter version floor they cannot have. **Every
+arlowe unit passed** — node 24.21.0 against a 20.9.0 floor, and four venv pythons at 3.11.2
+against a 3.11.0 floor. The severity is that a gate reading the host instead of the rootfs can
+produce a false PASS as readily as this false FAIL. Needs a Phase 7.1 gap-closure plan; not
+patched here, because loosening a gate from inside a verification plan is the move this phase
+exists to distrust.
+
 ### Phase 8: First-boot pairing and wake word
 
 **Goal**: A factory-fresh image boots into a pairing daemon, captures Wi-Fi + owner account + device name, requests a device cert, writes the config overlay, and starts the runtime services. The generic "Hey Arlowe" model ships in the image. Factory reset returns the unit to the pairing state.
 
-**Depends on**: Phase 4 (config overlay), Phase 6 (image), Phase 7 (PKI for cert request)
+**Depends on**: Phase 4 (config overlay), Phase 6 (image), Phase 7 (PKI for cert request), Phase 7.1 (runtime substrate)
+
+**Phase 7.1 closed the substrate, which is what this phase's SC2 was blocked on.** SC2 requires the pairing daemon to "start the runtime services". Before 7.1 that criterion was unreachable: `/opt/arlowe/venvs` was empty, `dashboard/server.js` did not exist, and no build step produced either — so a failing SC2 would have been ambiguous between "pairing is broken" and "the services were never startable". That ambiguity is the stated reason 7.1 was inserted rather than folded into this phase. **A Phase 8 SC2 failure now means pairing is broken.** One caveat before relying on it: 7.1's SC6 is UNPROVEN — the six units have been shown startable in containers, not on a device. If Phase 8 runs on hardware before that checkpoint does, Phase 8 inherits it, and `docs/operations/phase-7.1-substrate.md` §Part B should be run first so a failure can still be attributed.
 
 **Requirements**: PAIR-01, PAIR-02, PAIR-03, PAIR-04, PAIR-05, PAIR-06, PAIR-07, WAKE-01, WAKE-02, WAKE-03, DASH-01, DASH-02
 
@@ -298,7 +406,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -309,6 +417,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
 | 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
 | 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
+| 7.1 Runtime substrate repair (INSERTED) | 6/6 | Complete in code (passed-with-notes; SC1–SC5 verified in arm64 bookworm containers). **SC6 deferred to a hardware checkpoint, procedure in `docs/operations/phase-7.1-substrate.md`** — UNPROVEN until run | 2026-09-12 |
+| 7.2 Build input pinning (INSERTED) | 0/TBD | Not started — blocks Phase 7.1 SC6 (#137) | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |

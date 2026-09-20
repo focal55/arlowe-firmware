@@ -1,6 +1,19 @@
 # runtime/voice — Python deps for the voice orchestrator
 # Pinned from arlowe-1 ~/venvs/voice/ on 2026-05-02
-# Update procedure: regenerate from pip freeze on the dev unit; bump in a follow-up PR.
+#
+# IMAGE NOTE: this file is for CI and local development only. It does NOT govern the
+# device. The firmware installs pi-gen/stage-arlowe/01-runtime/files/venv-requirements/voice.txt
+# into /opt/arlowe/venvs/voice, which is the interpreter arlowe-voice.service names.
+# The compiled deps (numpy, scipy, scikit-learn, joblib, PyAudio) come from the apt layer
+# in pi-gen/stage-arlowe/00-packages/00-packages-nr and are shared into that venv via
+# --system-site-packages. Several pins below are NOT installable against bookworm's
+# system layer at all — numpy 2.3.5 vs apt's 1.24.2, scipy 1.17.0 vs 1.10.1,
+# scikit-learn 1.8.0 vs 1.2.1 — which is precisely why the image-side file is separate.
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md.
+#
+# Drift is reported, not hand-synced: plan 07.1-05's `unit-import-bookworm` CI job
+# resolves every import reachable from a unit entry point inside a debian:bookworm
+# container, prints the version it resolved, and WARNs when it differs from these pins.
 
 # Wake word detection
 openwakeword==0.4.0

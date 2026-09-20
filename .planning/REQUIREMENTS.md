@@ -84,7 +84,7 @@
 
 - [ ] **IMAGE-01**: pi-gen pipeline produces a flashable `.img` file from repo contents + pinned dependencies
 - [ ] **IMAGE-02**: Image stages: base (Pi OS), hardware deps (`axcl_host.deb`, ALSA, NetworkManager, Python), runtime (`/opt/arlowe/runtime/`), models (single shared read-only `models` partition mounted at `/opt/arlowe/models` in both slots — see ADR-0004), first-boot (first-boot hook armed — ready-to-pair state; the pairing daemon itself is Phase 8)
-- [ ] **IMAGE-03**: Image build is reproducible — build inputs are pinned (Debian snapshot, debs, submodule, SOURCE_DATE_EPOCH); image-hash equality is NOT gated (ext4 nondeterminism); documented exception list (see ADR / docs/operations/phase-6 repro notes)
+- [x] **IMAGE-03**: Image build is reproducible — build **inputs** are pinned; image-hash equality is **NOT** gated (ext4 nondeterminism), per ADR-0009's scope boundary. Closed by Phase 7.2 against a real build, not by assertion. What is now true: the kernel is installed from six digest-pinned debs rather than resolved (`third_party/kernel/manifest.yml`); Debian debootstraps and resolves from snapshot `20260915T000000Z` (`overlays/pi-gen/stage0/`); `SOURCE_DATE_EPOCH` is derived from the commit and has a consumer that fails rather than skips (`pi-gen/stage-arlowe/04-reproducibility/`); the ax-llm submodule and axcl/node/model artifacts are digest-pinned. Evidence, each named rather than claimed: the reference manifest `docs/operations/phase-07.2-inputs.reference` (658 pkg rows, generated from the built rootfs); the diff gate in `scripts/build-image.sh`; the `build-inputs-resolve` CI job proving two resolutions from one commit agree; and the bump procedures in `docs/operations/phase-07.2-build-pinning.md`. What is deliberately **not** claimed: two builds are not expected to produce byte-identical images, and nothing asserts that they do.
 - [ ] **IMAGE-04**: Image size verified ≤ 16 GB viable (single shared model set + fixed overhead fits a 16 GB card; 32 GB recommended for larger-model headroom — see ADR-0004); flash time documented
 - [ ] **IMAGE-05**: `scripts/build-image.sh` runs the full pipeline; `scripts/flash-sd.sh` writes to a connected SD card
 - [ ] **IMAGE-06**: `scripts/dev-deploy.sh` rsyncs `runtime/` to a connected Pi for fast iteration without re-flashing
@@ -195,7 +195,7 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
+Every v1 requirement is mapped to exactly one **owning** phase in `.planning/ROADMAP.md`. A `(+ N)` suffix marks a later phase that closed a latent gap in that requirement without introducing a new REQ-ID; see the note below the table.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
@@ -222,8 +222,8 @@ Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
 | USER-01 | Phase 3 | Pending |
 | USER-02 | Phase 3 | Pending |
 | USER-03 | Phase 3 | Pending |
-| USER-04 | Phase 3 | Pending |
-| USER-05 | Phase 3 | Pending |
+| USER-04 | Phase 3 (+ 7.1) | Pending |
+| USER-05 | Phase 3 (+ 7.1) | Pending |
 | AUDIO-01 | Phase 5 | Pending |
 | AUDIO-02 | Phase 5 | Pending |
 | AUDIO-03 | Phase 5 | Pending |
@@ -251,8 +251,8 @@ Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
 | WAKE-02 | Phase 8 | Pending |
 | WAKE-03 | Phase 8 | Pending |
 | IMAGE-01 | Phase 6 | Pending |
-| IMAGE-02 | Phase 6 | Pending |
-| IMAGE-03 | Phase 6 | Pending |
+| IMAGE-02 | Phase 6 (+ 7.1) | Pending |
+| IMAGE-03 | Phase 6 (+ 7.2) | Met — inputs pinned + gated; see `docs/operations/phase-07.2-inputs.reference`, ADR-0009 |
 | IMAGE-04 | Phase 6 | Pending |
 | IMAGE-05 | Phase 6 | Pending |
 | IMAGE-06 | Phase 6 | Pending |
@@ -293,6 +293,32 @@ Every v1 requirement is mapped to exactly one phase in `.planning/ROADMAP.md`.
 | LOG-03 | Phase 11 | Pending |
 
 **Phase 12 (First-flash integration on real hardware) does not introduce new REQ-IDs; it verifies the integration of all prior requirements end-to-end on real hardware as the v1 ship gate.**
+
+**Phase 7.1 (Runtime substrate repair) introduces no new REQ-IDs either, by design. It closed a latent gap in three existing ones:**
+
+- **USER-04** ("all systemd units are system-level, running as `arlowe`") and **USER-05**
+  ("service capabilities/sandboxing applied per unit") were both marked against Phase 3, which
+  wrote the unit files. The unit files were correct. What nothing checked was whether the
+  interpreter each `ExecStart=` named existed in the built rootfs — and for seven `Exec*` stanzas
+  across four units, it did not: `/opt/arlowe/venvs/{voice,llm,stt}/bin/python` were never created
+  by any build step. **A unit that cannot start satisfies neither requirement in practice.** It
+  runs as nobody and is sandboxed from nothing. `verify_unit_execstart` now enforces the path at
+  build time, and `verify_unit_runtime_versions` enforces that the binary there clears a declared
+  version floor — because path existence is not capability, which is how `arlowe-dashboard`
+  passed an existence check while pointing at a Node 18 that could not run `next@16`.
+  Both gates run from `scripts/build-image.sh`.
+
+- **IMAGE-02** requires the runtime stage to produce `/opt/arlowe/runtime/`. It did — an empty
+  tree satisfies a literal reading. **"Produce" now means "produce something that can start",**
+  enforced by the same two gates plus `unit-import-bookworm`, which resolves every Python import
+  reachable from a unit entry point under that unit's own interpreter in a `debian:bookworm`
+  container built from the image's own package set. That job's first run found `arlowe-voice`
+  would have died at import on every factory device.
+
+Coverage boundary of all three gates — including what they do **not** prove:
+`docs/operations/phase-7.1-substrate.md` §Part A. SC6 (units reaching `active` on real hardware)
+is **UNPROVEN**; until that checkpoint runs, none of these three requirements has been confirmed
+on a device.
 
 **Coverage:**
 - v1 requirements: 92 total

@@ -37,6 +37,13 @@ PI_GEN_DIR="${REPO_ROOT}/pi-gen"
 # shellcheck source=scripts/lib/identity-store-check.sh
 source "${SCRIPT_DIR}/lib/identity-store-check.sh"
 
+SUBSTRATE_LIB="${SCRIPT_DIR}/lib/verify-unit-execstart.sh"
+# shellcheck source=scripts/lib/verify-unit-execstart.sh
+source "${SUBSTRATE_LIB}"
+
+# shellcheck source=scripts/lib/pigen-overlay.sh
+source "${SCRIPT_DIR}/lib/pigen-overlay.sh"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -48,6 +55,53 @@ warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$*"; }
 fail() { printf "${RED}[FAIL]${NC} %s\n" "$*" >&2; }
 
 # ---------------------------------------------------------------------------
+# SOURCE_DATE_EPOCH — derived from the commit being built (ADR-0009).
+#
+# The commit timestamp, not `date`: the point of the variable is that two builds
+# of the same tree agree, and `date` guarantees they never do.
+#
+# This has exactly one consumer, stage-arlowe/04-reproducibility/00-run.sh, and
+# that is deliberate. Exporting the variable and declaring the requirement met is
+# the state Phase 7.2 exists to correct — SOURCE_DATE_EPOCH appeared nowhere in
+# this repo except a comment deferring it to a plan that never happened. pi-gen
+# reads it nowhere itself. A variable with no consumer cannot be falsified; the
+# clamp sub-stage makes "no arlowe-authored file is newer than the epoch" a claim
+# a test can disprove.
+#
+# A dirty worktree WARNs rather than fails. The epoch then does not identify what
+# is being built, which is a real inaccuracy and is recorded as worktree_clean in
+# the input manifest — but failing outright would make every iterative build on
+# the build host impossible, and a labelled inaccuracy beats that.
+# ---------------------------------------------------------------------------
+if ! SOURCE_DATE_EPOCH="$(git -C "${REPO_ROOT}" log -1 --format=%ct 2>/dev/null)" \
+        || [[ ! "${SOURCE_DATE_EPOCH}" =~ ^[0-9]+$ ]]; then
+    fail "Cannot derive SOURCE_DATE_EPOCH from ${REPO_ROOT}."
+    fail "'git log -1 --format=%ct' produced no commit timestamp. A build whose"
+    fail "inputs are pinned but whose timestamps are not is not reproducible, so"
+    fail "this is a hard failure rather than a fallback to the wall clock."
+    exit 1
+fi
+export SOURCE_DATE_EPOCH
+
+ARLOWE_WORKTREE_CLEAN=true
+if [[ -n "$(git -C "${REPO_ROOT}" status --porcelain --untracked-files=no)" ]]; then
+    ARLOWE_WORKTREE_CLEAN=false
+fi
+export ARLOWE_WORKTREE_CLEAN
+
+# date -u -d @N is GNU (the build host); -r N is BSD. Neither is load-bearing —
+# this is a log line — so a failure to render it must not abort the build.
+SOURCE_DATE_HUMAN="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -r "${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || echo unrendered)"
+log "SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH} (${SOURCE_DATE_HUMAN}, commit $(git -C "${REPO_ROOT}" rev-parse --short HEAD))"
+if [[ "${ARLOWE_WORKTREE_CLEAN}" == "false" ]]; then
+    warn "Worktree has uncommitted changes to tracked files."
+    warn "SOURCE_DATE_EPOCH identifies HEAD, NOT the tree being built."
+    warn "The recorded input manifest will carry worktree_clean=false."
+fi
+
+# ---------------------------------------------------------------------------
 # Step 1: verify-third-party — fail the build early if deps missing/mismatched
 # ---------------------------------------------------------------------------
 log "=== Step 1: verify third-party deps ==="
@@ -56,6 +110,28 @@ if ! "${SCRIPT_DIR}/verify-third-party.sh"; then
     exit 1
 fi
 ok "Third-party deps verified."
+
+# The kernel is installed from six pinned debs rather than resolved by apt
+# (ADR-0009). verify-third-party.sh check 7 verifies them and writes the single
+# directory holding them here; a file rather than an env var because that script
+# is a CHILD process and cannot mutate this one's environment.
+KERNEL_CACHE_FILE="${REPO_ROOT}/build/.arlowe-kernel-cache"
+KERNEL_MANIFEST="${REPO_ROOT}/third_party/kernel/manifest.yml"
+if [[ ! -f "${KERNEL_CACHE_FILE}" ]]; then
+    fail "Kernel cache pointer missing: ${KERNEL_CACHE_FILE}"
+    fail "verify-third-party.sh writes it once all six pinned kernel debs verify,"
+    fail "and removes it whenever they do not. Run:"
+    fail "  ARLOWE_KERNEL_FETCH=1 scripts/verify-third-party.sh"
+    exit 1
+fi
+export ARLOWE_KERNEL_CACHE
+ARLOWE_KERNEL_CACHE="$(cat "${KERNEL_CACHE_FILE}")"
+export ARLOWE_KERNEL_MANIFEST="${KERNEL_MANIFEST}"
+if [[ ! -d "${ARLOWE_KERNEL_CACHE}" ]]; then
+    fail "Kernel cache directory does not exist: ${ARLOWE_KERNEL_CACHE}"
+    exit 1
+fi
+ok "Pinned kernel cache: ${ARLOWE_KERNEL_CACHE}"
 
 # ---------------------------------------------------------------------------
 # Step 2: drive pi-gen to produce the model-free rootfs + models staging tree
@@ -69,6 +145,14 @@ log "=== Step 2: pi-gen build ==="
 # packages -- both break a RELEASE=bookworm build (F6).
 PIGEN_REF="2026-06-18-raspios-bookworm-arm64"
 PIGEN_MARKER="${PI_GEN_DIR}/.arlowe-pigen-ref"
+
+# Debian snapshot timestamp the rootfs must resolve from. The overlay under
+# overlays/pi-gen/ declares it; this constant is what the post-build gate below
+# expects to OBSERVE in the built rootfs. The two are deliberately independent
+# copies: if they drift, the gate fails and a human reconciles them. Deriving
+# this from the overlay would make the gate agree with whatever the overlay
+# happens to say, which is not a measurement.
+PIGEN_SNAPSHOT="20260915T000000Z"
 
 if [[ -f "${PIGEN_MARKER}" && "$(cat "${PIGEN_MARKER}")" == "${PIGEN_REF}" ]]; then
     ok "pi-gen pinned at ${PIGEN_REF}"
@@ -94,6 +178,25 @@ else
     ok "pi-gen provisioned at ${PIGEN_REF}"
 fi
 
+# Apply the tracked arlowe overlay onto the pi-gen tree.
+#
+# This call sits OUTSIDE the branch above, and that placement is the entire
+# point. The cached-pi-gen branch short-circuits to an `ok` line and does no
+# work, so an overlay applied only inside the clone branch would stop applying
+# the moment a build reuses a cached tree -- which is the common case, not the
+# rare one. A pin that quietly stops applying is the F7 #18 shape.
+#
+# The overlay source is ${REPO_ROOT}/overlays/pi-gen, entirely outside
+# ${PI_GEN_DIR}. That is why the `sudo rm -rf "${PI_GEN_DIR}"` above cannot
+# destroy it and why git can track it at all -- .gitignore's /pi-gen/* rule
+# would otherwise make the whole overlay an untracked no-op in CI.
+apply_pigen_overlay "${PI_GEN_DIR}" "${REPO_ROOT}/overlays/pi-gen" || {
+    fail "pi-gen overlay did not apply cleanly — aborting before the build."
+    fail "The build inputs this overlay pins would otherwise float; see"
+    fail "docs/architecture/0009-build-input-pinning.md."
+    exit 1
+}
+
 # pi-gen sets WORK_DIR; default to a canonical build-local path so the
 # models marker file (written by stage-arlowe/02-models/00-run.sh) is
 # locatable even outside pi-gen's environment.
@@ -115,9 +218,16 @@ log "models stage:    ${ARLOWE_MODELS_STAGE}"
 # need the rootfs work directory, not pi-gen's 2-partition .img output.
 (
     cd "${PI_GEN_DIR}"
+    # Every variable stage0/stage-arlowe needs must be named HERE. sudo builds a
+    # fresh environment, so an exported-but-unlisted variable simply does not
+    # cross this boundary -- and stage0/02-firmware/00-run.sh hard-fails rather
+    # than silently building a rootfs with no kernel.
     sudo SKIP_IMAGES=1 \
         WORK_DIR="${WORK_DIR}" \
         AXCL_DEB="${AXCL_DEB}" \
+        SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
+        ARLOWE_KERNEL_CACHE="${ARLOWE_KERNEL_CACHE}" \
+        ARLOWE_KERNEL_MANIFEST="${ARLOWE_KERNEL_MANIFEST}" \
         ARLOWE_MODELS_CACHE="${ARLOWE_MODELS_CACHE}" \
         ARLOWE_MODELS_STAGE="${ARLOWE_MODELS_STAGE}" \
         ./build.sh
@@ -137,6 +247,84 @@ if [[ ! -d "${PIGEN_ROOTFS}" ]]; then
     exit 1
 fi
 ok "Model-free rootfs at: ${PIGEN_ROOTFS}"
+
+# ---------------------------------------------------------------------------
+# SNAPSHOT PIN OBSERVATION GATE
+#
+# Reads nothing from overlays/. Reading the timestamp back out of the overlay
+# would prove only that we wrote what we wrote; the rootfs is where the pin
+# either happened or did not.
+#
+# Three assertions, in increasing order of how much they actually catch:
+#   1. the pin reached the rootfs as an ACTIVE deb line (not just a comment),
+#      and nothing under sources.list.d/ declares the rolling mirror -- a
+#      deb822 .sources file there would bypass sources.list entirely;
+#   2. at least one apt list file names the snapshot host, i.e. packages really
+#      did resolve from it;
+#   3. ZERO apt list files name the rolling mirror. This is the real check. A
+#      rolling-mirror list file present means something resolved off-pin, and
+#      it is the only one of the three that catches a partially-applied
+#      overlay.
+#
+# These read ${WORK_DIR}/stage-arlowe/rootfs and need its /var/lib/apt/lists to
+# still be populated at this point. pi-gen itself only empties that directory in
+# export-image/02-set-sources, which operates on its own copied rootfs and is
+# skipped entirely under SKIP_IMAGES=1 -- but stage-arlowe/01-runtime used to
+# empty it in-chroot, long before this gate ran. That is why the deletion now
+# happens BELOW, once the evidence has been read.
+# ---------------------------------------------------------------------------
+log "=== Snapshot pin observation (built rootfs) ==="
+
+if ! sudo grep -Eq "^deb[[:space:]]+http://snapshot\.debian\.org/archive/debian/${PIGEN_SNAPSHOT}[[:space:]]" \
+        "${PIGEN_ROOTFS}/etc/apt/sources.list"; then
+    fail "Built rootfs does not resolve Debian from snapshot ${PIGEN_SNAPSHOT}."
+    fail "No active deb line in ${PIGEN_ROOTFS}/etc/apt/sources.list names it:"
+    sudo grep -vE '^[[:space:]]*(#|$)' "${PIGEN_ROOTFS}/etc/apt/sources.list" >&2 || true
+    fail "The stage0 overlay did not reach the rootfs, or PIGEN_SNAPSHOT here"
+    fail "disagrees with overlays/pi-gen/stage0/00-configure-apt/files/sources.list."
+    exit 1
+fi
+
+ROLLING_DECL="$(sudo grep -rhvE '^[[:space:]]*(#|$)' \
+    "${PIGEN_ROOTFS}/etc/apt/sources.list" \
+    "${PIGEN_ROOTFS}/etc/apt/sources.list.d/" 2>/dev/null \
+    | grep -F 'deb.debian.org' || true)"
+if [[ -n "${ROLLING_DECL}" ]]; then
+    fail "Built rootfs still declares the rolling Debian mirror:"
+    printf '%s\n' "${ROLLING_DECL}" >&2
+    fail "Every Debian source must name snapshot.debian.org, including any"
+    fail "deb822 .sources file under sources.list.d/."
+    exit 1
+fi
+
+APT_LISTS="$(sudo ls -1 "${PIGEN_ROOTFS}/var/lib/apt/lists/" 2>/dev/null || true)"
+SNAPSHOT_LISTS="$(printf '%s\n' "${APT_LISTS}" | grep -c '^snapshot\.debian\.org_' || true)"
+ROLLING_LISTS="$(printf '%s\n' "${APT_LISTS}" | grep -c '^deb\.debian\.org_' || true)"
+
+if (( SNAPSHOT_LISTS == 0 )); then
+    fail "No apt list file in the built rootfs names snapshot.debian.org."
+    fail "sources.list declares the pin but nothing resolved from it."
+    printf '%s\n' "${APT_LISTS}" >&2
+    exit 1
+fi
+
+if (( ROLLING_LISTS > 0 )); then
+    fail "${ROLLING_LISTS} apt list file(s) in the built rootfs name the rolling mirror:"
+    printf '%s\n' "${APT_LISTS}" | grep '^deb\.debian\.org_' >&2
+    fail "Something resolved packages off-pin. The overlay applied only partially,"
+    fail "or a stage re-added a Debian source after stage0 configured apt."
+    exit 1
+fi
+
+ok "Debian resolution pinned: ${SNAPSHOT_LISTS} snapshot list files, 0 off-pin."
+
+# The apt index is ~136 MB and must not ship, but it is also the ONLY evidence
+# the gate above has. stage-arlowe/01-runtime/00-run-chroot.sh used to delete it
+# in-chroot, which is strictly earlier than every gate in this file; the deletion
+# lives here instead so the order is observe-then-remove. Anything that needs the
+# index must read it above this line.
+sudo rm -rf "${PIGEN_ROOTFS:?}/var/lib/apt/lists/"*
+ok "apt index removed from the rootfs (${SNAPSHOT_LISTS} list files) after observation."
 
 # Assert the packages stage-arlowe declares actually landed in the rootfs.
 # An unread package list is invisible at build time: pi-gen reads NN-packages-nr
@@ -165,6 +353,189 @@ if (( ${#MISSING_PKGS[@]} > 0 )); then
     exit 1
 fi
 ok "All ${#DECLARED_PKGS[@]} declared packages present in rootfs."
+
+# ---------------------------------------------------------------------------
+# KERNEL PIN OBSERVATION GATE (ADR-0009)
+#
+# The declared-packages guard above cannot see this: it only checks packages
+# stage-arlowe declared, and the kernel is installed by stage0 from pinned deb
+# files that appear in no package list at all.
+#
+# What this catches that nothing else does: a rootfs carrying MORE than the
+# pinned kernels. stage-arlowe/01-runtime/00-run-chroot.sh selects the kernel to
+# build the axcl module against with
+#   find /lib/modules -maxdepth 1 -name '*-rpi-2712' | sort -V | tail -1
+# i.e. the HIGHEST version present. A second kernel sneaking back in -- a
+# re-added meta package, an apt upgrade, a stale overlay -- therefore does not
+# announce itself; it just silently builds against the wrong headers and fails
+# at compile time, or worse, boots the wrong kernel. This is the one check that
+# would have caught the original drift at BUILD time instead of at compile time.
+#
+# Expectations are read from the manifest, not repeated here: the manifest is
+# the pin, and a second copy of the version string is how a pin half-applies.
+# ---------------------------------------------------------------------------
+log "=== Kernel pin observation (built rootfs) ==="
+
+EXPECTED_KVERS="$(python3 -c "
+import yaml
+with open('${KERNEL_MANIFEST}') as f:
+    k = yaml.safe_load(f)['kernel']
+print('\n'.join(sorted(k['expected_module_dirs'])))
+")"
+ACTUAL_KVERS="$(sudo ls -1 "${PIGEN_ROOTFS}/lib/modules" 2>/dev/null | LC_ALL=C sort || true)"
+
+if [[ "${EXPECTED_KVERS}" != "${ACTUAL_KVERS}" ]]; then
+    fail "Built rootfs does not carry exactly the pinned kernel module directories."
+    fail "Expected (third_party/kernel/manifest.yml):"
+    printf '%s\n' "${EXPECTED_KVERS}" | sed 's/^/         /' >&2
+    fail "Actual (${PIGEN_ROOTFS}/lib/modules):"
+    printf '%s\n' "${ACTUAL_KVERS:-<empty>}" | sed 's/^/         /' >&2
+    fail "An EXTRA directory means a second kernel resolved despite the pin, and"
+    fail "stage-arlowe builds the axcl module against the highest version present."
+    fail "A MISSING one means stage0/02-firmware/00-run.sh did not run or did not"
+    fail "install what the manifest names."
+    exit 1
+fi
+
+ok "Kernel pinned: rootfs carries exactly $(printf '%s' "${ACTUAL_KVERS}" | tr '\n' ' ')"
+
+# ---------------------------------------------------------------------------
+# BUILD INPUT RECORD AND DRIFT GATE (ADR-0009, Phase 7.2 SC5)
+#
+# The gates above assert the things we PINNED are what landed. This records
+# everything that RESOLVED -- roughly 400 Debian packages nobody individually
+# chose -- and diffs it against a committed reference. The pins cover what we
+# control; the record covers what we merely accepted; the gate notices when the
+# second set moves without the first.
+#
+# PLACEMENT, same reasoning as the substrate gates: after the rootfs is fully
+# provisioned and before anything is measured or partitioned, so an input drift
+# costs a rootfs build rather than a full partition-and-image cycle.
+#
+# Exit 2 (no reference committed yet) warns and continues -- the first build
+# legitimately has no baseline. Exit 1 aborts with the diff already printed.
+# ---------------------------------------------------------------------------
+log "=== Build input record (built rootfs) ==="
+
+INPUTS_MANIFEST="${REPO_ROOT}/build/arlowe-inputs.manifest"
+INPUTS_REFERENCE="${REPO_ROOT}/docs/operations/phase-07.2-inputs.reference"
+
+if ! "${SCRIPT_DIR}/record-build-inputs.sh" --rootfs "${PIGEN_ROOTFS}" --out "${INPUTS_MANIFEST}"; then
+    fail "Could not record the build inputs for this rootfs."
+    fail "This is a hard failure, not a skip: an unrecorded build cannot be"
+    fail "compared against the reference, and a gate that silently records"
+    fail "nothing is the defect Phase 7.2 exists to remove."
+    exit 1
+fi
+
+set +e
+"${SCRIPT_DIR}/record-build-inputs.sh" --diff "${INPUTS_MANIFEST}" --reference "${INPUTS_REFERENCE}"
+INPUTS_RC=$?
+set -e
+
+case "${INPUTS_RC}" in
+    0)
+        ok "Build inputs identical to ${INPUTS_REFERENCE#"${REPO_ROOT}/"}"
+        ;;
+    2)
+        warn "No input reference committed yet at ${INPUTS_REFERENCE#"${REPO_ROOT}/"}."
+        warn "Commit ${INPUTS_MANIFEST#"${REPO_ROOT}/"} there to make later builds gated."
+        ;;
+    *)
+        fail "Build inputs differ from the recorded reference (diff above)."
+        fail "Something that is not pinned moved. If the bump is deliberate:"
+        fail "  ARLOWE_INPUTS_ACCEPT=1 scripts/record-build-inputs.sh \\"
+        fail "      --diff ${INPUTS_MANIFEST#"${REPO_ROOT}/"} \\"
+        fail "      --reference ${INPUTS_REFERENCE#"${REPO_ROOT}/"}"
+        fail "and commit the re-recorded reference alongside the change that caused it."
+        exit 1
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
+# UNIT SUBSTRATE GATES — the inverse of the packages guard directly above.
+#
+# That guard proves DECLARED packages landed, so by construction it cannot see a
+# dependency nobody declared. These two derive their expectations from the
+# rootfs's own /etc/systemd/system/*.service glob instead of from any maintained
+# list, so they cover exactly the things nobody remembered to declare. Adding an
+# eighth unit extends them with no edit here or in the library.
+#
+#   verify_unit_execstart          every Exec* executable and script argument
+#                                  named by a unit resolves inside the rootfs.
+#   verify_unit_runtime_versions   the interpreter each unit names meets a
+#                                  declared version floor. The path gate cannot
+#                                  tell a Node 20 from a Node 18, and the
+#                                  dashboard unit names /usr/bin/node, where
+#                                  00-packages-nr puts bookworm's 18.20.4:
+#                                  existence-only, that unit passes and the
+#                                  dashboard still never starts.
+#
+# Order is load-bearing, not cosmetic: probing a path is only meaningful once it
+# resolves. Both run even when the first fails, so one rootfs build reports every
+# substrate defect rather than revealing them one per build.
+#
+# Neither covers module-import resolution — that is `unit-import-bookworm`, plan
+# 07.1-05 — nor end-to-end runtime behaviour, which is SC6. See ADR-0008.
+#
+# PLACEMENT is deliberate: adjacent to the packages guard, after the rootfs is
+# fully provisioned and before anything is measured or partitioned. A substrate
+# defect therefore costs one rootfs build, not a full partition-and-image cycle.
+#
+# SUDO for the same reason `du` uses it at step 3: install-arlowe-fs.sh creates
+# /opt/arlowe as 0750 root:arlowe, and this user is neither root nor in the
+# image's arlowe group, so unprivileged existence tests on the whole tree return
+# false. The library detects an unsearchable directory and hard-errors (exit 2)
+# rather than reporting the target as missing, so a privilege mistake can never
+# masquerade as a substrate defect.
+#
+# SLOT-B COVERAGE IS A KNOWN GAP. The slot-B recovery rootfs also carries a unit
+# (arlowe-recovery.service), but it does not exist yet at this point — it is
+# written in step 4b, after partitioning. Running these gates there would also
+# be wrong as things stand: recovery-stub.sh clones slot A and prunes
+# /opt/arlowe/runtime/{voice,llm,stt,tts,dashboard,wake-word,face,lib} while
+# leaving every slot-A unit in /etc/systemd/system, so a CORRECT slot B names
+# targets that are deliberately absent and would FAIL. That mismatch is a real
+# finding and is recorded in this plan's SUMMARY; it needs the prune to drop the
+# units too, which is not this plan's change to make.
+# ---------------------------------------------------------------------------
+
+# ARLOWE_VERSION_PROBE replaces the version gate's chroot probe with a stub. It
+# exists for tests/phase-07.1/test-verify-unit-execstart.sh and nothing else.
+# This ASSERTS rather than `unset`s: unsetting normalises the anomaly into
+# silence, whereas an inherited value means someone is either running the
+# self-test's plumbing against a real build or trying to make the gate lie, and
+# both are events a build should announce. A gate that can be silently disabled
+# by an environment variable is not a gate.
+# (CI is already covered — build-image.yml's `sudo --preserve-env=...` strips it.
+# The residual exposure is a local run on the build host.)
+if [[ -n "${ARLOWE_VERSION_PROBE+x}" ]]; then
+    fail "ARLOWE_VERSION_PROBE is set in the build environment (value: '${ARLOWE_VERSION_PROBE}')."
+    fail "That variable stubs out the interpreter version probe and exists only for"
+    fail "tests/phase-07.1/test-verify-unit-execstart.sh. A real build must measure."
+    fail "Unset it and re-run; the build will not proceed with a gate that can be faked."
+    exit 1
+fi
+
+log "Running unit substrate gates over the built rootfs..."
+EXECSTART_RC=0
+sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_execstart "$2"' \
+    _ "${SUBSTRATE_LIB}" "${PIGEN_ROOTFS}" || EXECSTART_RC=$?
+VERSIONS_RC=0
+sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_runtime_versions "$2"' \
+    _ "${SUBSTRATE_LIB}" "${PIGEN_ROOTFS}" || VERSIONS_RC=$?
+
+if (( EXECSTART_RC == 2 || VERSIONS_RC == 2 )); then
+    fail "A unit substrate gate could not perform its test (see the ERROR above)."
+    fail "That is neither a pass nor a failure — the build stops rather than guess."
+    exit 1
+fi
+if (( EXECSTART_RC != 0 || VERSIONS_RC != 0 )); then
+    fail "Unit substrate gates FAILED — the rootfs names runtime artifacts it does not contain,"
+    fail "or ships an interpreter below its declared floor. Every failure is listed above."
+    exit 1
+fi
+ok "Unit substrate gates passed: every Exec* target resolves and every interpreter meets its floor."
 
 # Locate the models staging tree (written by 02-models/00-run.sh).
 MODELS_STAGE_MARKER="${WORK_DIR}/arlowe-models-stage-path"

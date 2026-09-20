@@ -1,3 +1,17 @@
+# runtime/stt -- Python deps for the whisper STT server
+#
+# IMAGE NOTE: this file is for CI and local development only. It does NOT govern the
+# device. The firmware installs pi-gen/stage-arlowe/01-runtime/files/venv-requirements/stt.txt
+# into /opt/arlowe/venvs/stt, which is the interpreter whisper-stt.service names.
+# numpy comes from the apt layer in pi-gen/stage-arlowe/00-packages/00-packages-nr via
+# --system-site-packages. Note that the stt venv and the llm venv deliberately carry
+# DIFFERENT huggingface_hub and tokenizers versions — transformers<5 caps
+# huggingface_hub below 1.0 while faster-whisper wants 1.x — so those two packages are
+# excluded from the shared constraints file on purpose.
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md.
+#
+# Drift is reported by plan 07.1-05's `unit-import-bookworm` CI job, not hand-synced.
+
 faster-whisper==1.2.1
 ctranslate2==4.6.3
 tokenizers==0.22.2

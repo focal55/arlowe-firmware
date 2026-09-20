@@ -56,6 +56,12 @@ RestrictNamespaces=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
+# @system-service permits mbind, but the ~@resources deny above removes it.
+# Raspberry Pi 5 boots with numa=fake=8 numa_policy=interleave, so glibc and
+# native extensions call mbind(2) during import to honour the interleave
+# policy; seccomp then kills the process with SIGSYS before it reaches main.
+# Re-admit only mbind rather than dropping the whole @resources deny.
+SystemCallFilter=mbind
 # `init` is entirely offline. AF_UNIX is the journal socket and nothing else.
 # If someone later makes init phone home, the unit fails rather than silently
 # acquiring a network dependency at boot.

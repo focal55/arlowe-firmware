@@ -1,0 +1,57 @@
+# IMAGE-ONLY pip constraints, shared by all three venvs.
+#
+#   pip install -r <venv>.txt -c constraints.txt
+#
+# A constraint pins the version of a package IF it gets installed. It never causes an
+# install by itself. This file exists so the three venvs cannot drift from each other or,
+# more importantly, from the apt layer underneath them.
+#
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md
+
+# ---------------------------------------------------------------------------
+# The one that matters: numpy.
+#
+# All three venvs are created with --system-site-packages and sit on top of apt's
+# python3-numpy 1.24.2. Without this line, pip resolves its own numpy over the top —
+# measured, a naive resolve of openwakeword + noisereduce produced:
+#     Would install ... numpy-1.26.4 ... onnxruntime-1.30.0 ... matplotlib-3.11.2
+# That is two numpy builds in one image: the system-python consumers
+# (arlowe-identity-init, boot-check) on apt's, the unit consumers on pip's, disagreeing
+# about array layout. With this constraint, numpy drops out of the install set entirely
+# and every venv resolves it to the shared copy. Verified in an arm64 bookworm container:
+#     voice: 1.24.2 /usr/lib/python3/dist-packages/numpy/__init__.py
+#     llm:   1.24.2 /usr/lib/python3/dist-packages/numpy/__init__.py
+#     stt:   1.24.2 /usr/lib/python3/dist-packages/numpy/__init__.py
+#
+# If you bump Debian's base, bump this to match the new apt candidate in the same commit.
+numpy==1.24.2
+
+# ---------------------------------------------------------------------------
+# Shared transitive deps that appear in more than one venv. Pinned identically so a
+# resolver improvement in one venv cannot silently move a package the others also use.
+# ---------------------------------------------------------------------------
+filelock==3.32.6          # llm, stt
+flatbuffers==25.12.19     # voice, stt (onnxruntime)
+fsspec==2026.7.0          # llm, stt
+hf-xet==1.6.0             # llm, stt
+onnxruntime==1.30.0       # voice, stt
+packaging==26.3           # voice, llm, stt
+protobuf==7.36.1          # voice, stt (onnxruntime)
+tqdm==4.70.1              # voice, llm, stt
+typing_extensions==4.16.0 # llm, stt
+
+# ---------------------------------------------------------------------------
+# DELIBERATELY ABSENT: huggingface_hub and tokenizers.
+#
+# The phase plan assumed these belonged here. They do not — measured, the two venvs cannot
+# agree on either:
+#
+#     package          llm venv    stt venv    why
+#     huggingface_hub  0.36.2      1.31.0      transformers<5 caps it below 1.0;
+#                                              faster-whisper wants 1.x
+#     tokenizers       0.22.2      0.23.2      pulled by the respective parent
+#
+# Constraining either to a single version would make one of the two units uninstallable.
+# They are pinned per-venv in llm.txt and stt.txt instead. Separate venvs exist precisely so
+# this disagreement is allowed to stand; constraints are for what must NOT drift — the numpy
+# ABI floor and the shared leaves above — not for everything that happens to appear twice.

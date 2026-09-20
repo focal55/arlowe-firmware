@@ -95,7 +95,18 @@ Source of truth: `.planning/phases/03-service-user-and-filesystem-layout/03-RESE
    when support mode activates. Its absence in the factory image is the Phase 10 baseline.
 
 4. Does NOT populate venv contents. `/opt/arlowe/venvs/` is an empty directory in Phase 3.
-   Phase 6 bakes Python venvs from per-service `requirements.txt` during image build.
+
+   **Correction (Phase 7.1).** This item previously said *"Phase 6 bakes Python venvs from
+   per-service `requirements.txt` during image build."* Phase 6 did not — the directory
+   shipped empty, which is why four of the six units could not start and Phase 7.1 was
+   inserted. When the venvs are baked they are built by
+   `pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh` (plan 07.1-04), and NOT from
+   `runtime/*/requirements.txt`: those are dev/CI pins that are not installable against
+   bookworm's system layer. The files that govern the device are
+   `pi-gen/stage-arlowe/01-runtime/files/venv-requirements/{voice,llm,stt}.txt` plus the apt
+   layer in `pi-gen/stage-arlowe/00-packages/00-packages-nr`. Each venv is created with
+   `--system-site-packages` so it shares the apt compiled modules rather than shadowing them.
+   Rationale: `docs/architecture/0008-image-runtime-dependency-strategy.md`.
 
 5. Does NOT stage model files. `/opt/arlowe/models/` is an empty directory. Phase 6 stages
    Qwen, Piper, and wake-word models during image build.
