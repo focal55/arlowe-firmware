@@ -80,6 +80,10 @@ install -d -o arlowe -g arlowe -m 0750 /var/lib/arlowe/wake-word
 # dashboard/cache is NEXT_PRIVATE_CACHE_DIR target (Next.js runtime cache)
 install -d -o arlowe -g arlowe -m 0750 /var/lib/arlowe/dashboard
 install -d -o arlowe -g arlowe -m 0750 /var/lib/arlowe/dashboard/cache
+# cache/ backs HF_HOME for whisper-stt: huggingface_hub would otherwise write to
+# the arlowe home dir, which ProtectSystem=strict keeps read-only.
+install -d -o arlowe -g arlowe -m 0750 /var/lib/arlowe/cache
+install -d -o arlowe -g arlowe -m 0750 /var/lib/arlowe/cache/huggingface
 
 # ---------------------------------------------------------------------------
 # /etc/arlowe/ — config overlay dir; root:arlowe 0770 (ADR-0003)
