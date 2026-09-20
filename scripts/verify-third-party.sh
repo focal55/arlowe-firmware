@@ -11,6 +11,8 @@ set -euo pipefail
 #   3. Model artifacts (Qwen LLM, Whisper STT, Piper TTS) in third_party/models/manifest.yml
 #   4. WhisPlay driver source (WhisPlay.py + LICENSE) is locatable
 #   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
+#   6. WM8960 audio HAT redistribution rights (non-blocking warning)
+#   7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
 #
 # Usage: scripts/verify-third-party.sh [--help]
 
@@ -20,7 +22,15 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MANIFEST="${REPO_ROOT}/third_party/axcl/manifest.yml"
 MODELS_MANIFEST="${REPO_ROOT}/third_party/models/manifest.yml"
 NODE_MANIFEST="${REPO_ROOT}/third_party/node/manifest.yml"
+KERNEL_MANIFEST="${REPO_ROOT}/third_party/kernel/manifest.yml"
 AX_LLM_DIR="${REPO_ROOT}/third_party/ax-llm"
+
+# Written by check 7 once all pinned kernel debs verify: the single directory
+# holding them. scripts/build-image.sh reads this, exports it as
+# ARLOWE_KERNEL_CACHE and forwards it across the sudo boundary into pi-gen.
+# A file rather than an environment export because this script runs as a CHILD
+# of build-image.sh and cannot mutate its parent's environment.
+KERNEL_CACHE_FILE="${REPO_ROOT}/build/.arlowe-kernel-cache"
 PINNED_AXLLM_COMMIT="df75c34ca2ed8fe55e7576204e4da9c5b5f88ad8"
 
 # install_to paths in the manifest are image-absolute: /opt/arlowe/models/<subpath>.
@@ -44,6 +54,23 @@ Checks:
   3. Model artifacts (Qwen LLM, Whisper STT, Piper TTS) per third_party/models/manifest.yml
   4. WhisPlay driver source (WhisPlay.py + LICENSE) is locatable
   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
+  6. WM8960 audio HAT redistribution rights (non-blocking warning)
+  7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
+
+Kernel deb search order (per deb, six of them):
+  - \$ARLOWE_KERNEL_DIR/<filename>
+  - third_party/kernel/<filename>
+  - /var/cache/arlowe-build/kernel/<filename>
+  - ${XDG_CACHE_HOME:-$HOME/.cache}/arlowe-build/kernel/<filename>
+
+The kernel is installed from these debs instead of resolved by apt: the meta
+packages carry exactly one version (the newest), and the newest broke the axcl
+module compile. Set ARLOWE_KERNEL_FETCH=1 to download them (~75 MiB) -- to
+/var/cache/arlowe-build/kernel/ if writable, otherwise to
+${XDG_CACHE_HOME:-$HOME/.cache}/arlowe-build/kernel/ so an unprivileged build
+user can fetch. The SHA-256 is asserted either way. Once all six verify, the
+directory holding them is written to build/.arlowe-kernel-cache for
+scripts/build-image.sh to forward into pi-gen.
 
 Node tarball search order:
   - \$ARLOWE_NODE_TARBALL
@@ -73,6 +100,8 @@ WhisPlay driver search order:
   - /var/cache/arlowe-build/whisplay-driver/WhisPlay.py
 
 See also:
+  third_party/kernel/INSTALL.md
+  third_party/kernel/manifest.yml
   third_party/axcl/INSTALL.md
   third_party/axcl/manifest.yml
   third_party/axcl/DISTRIBUTION-RIGHTS.md
@@ -467,6 +496,204 @@ printf "${YELLOW}[WARN]${NC}  %-50s redistribution rights unresolved\n" "WM8960 
 echo "         The Waveshare WM8960 HAT driver bundle in the Whisplay repo has no"
 echo "         standalone license file. Treated as fetch-at-build (not bundled)."
 echo "         Resolve before distributing a production image."
+
+# ---------------------------------------------------------------------------
+# Check 7: pinned kernel debs (ADR-0009)
+#
+# The kernel is the input that actually broke: 6.12.109 gave
+# pci_resize_resource a fourth exclude_bars parameter, the vendored axcl 3.10.2
+# driver passes three, and the module stopped compiling at
+# ax_pcie_dev_host.c:220. Nothing in this repo changed.
+#
+# The four kernel META packages carry exactly one version each
+# (apt-cache madison linux-headers-rpi-2712 -> 1:6.12.109-1+rpt1), so there is
+# no older candidate to constrain them to. They are removed from the overlay's
+# stage0/02-firmware/01-packages and these six versioned debs are installed
+# instead -- see overlays/pi-gen/stage0/02-firmware/00-run.sh.
+#
+# HARD FAIL on absence or mismatch, like Node and axcl -- no degradation to
+# WARN. One [OK]/[FAIL] line per deb so a partially populated cache is
+# diagnosable at a glance rather than as one opaque failure.
+# ---------------------------------------------------------------------------
+if [[ ! -f "${KERNEL_MANIFEST}" ]]; then
+  printf "${RED}[FAIL]${NC} third_party/kernel/manifest.yml  not found\n"
+  echo >&2 "  Expected at: ${KERNEL_MANIFEST}"
+  all_ok=false
+  rm -f "${KERNEL_CACHE_FILE}" 2>/dev/null || true
+else
+  kernel_debs=$(python3 -c "
+import yaml
+with open('${KERNEL_MANIFEST}') as f:
+    m = yaml.safe_load(f)
+for d in m['kernel']['debs']:
+    print('\t'.join([d['filename'], d['sha256'], d['url'] or '']))
+" 2>/dev/null) || {
+    echo >&2 "ERROR: failed to parse ${KERNEL_MANIFEST} (is python3-yaml installed?)"
+    exit 1
+  }
+
+  kernel_expected=$(printf '%s\n' "${kernel_debs}" | grep -c . || true)
+
+  _kernel_shared_cache="/var/cache/arlowe-build/kernel"
+  _kernel_user_cache="${XDG_CACHE_HOME:-${HOME}/.cache}/arlowe-build/kernel"
+
+  # Resolve the fetch destination ONCE, up front. The equivalent Node defect
+  # surfaced a bare "mkdir: Permission denied" three lines above an
+  # unrelated-looking "not found" and cost a build cycle; here it would have
+  # done so six times. /var/cache is not writable by an unprivileged build
+  # user, so falling back to the XDG cache is the normal path, not an edge case.
+  kernel_fetch_dir=""
+  if [[ "${ARLOWE_KERNEL_FETCH:-}" == "1" ]]; then
+    if mkdir -p "${_kernel_shared_cache}" 2>/dev/null; then
+      kernel_fetch_dir="${_kernel_shared_cache}"
+    elif mkdir -p "${_kernel_user_cache}" 2>/dev/null; then
+      kernel_fetch_dir="${_kernel_user_cache}"
+      echo "         ${_kernel_shared_cache} not writable; caching in ${kernel_fetch_dir}"
+    else
+      echo >&2 "  ARLOWE_KERNEL_FETCH=1 set but no cache directory is writable."
+      echo >&2 "  Tried ${_kernel_shared_cache} and ${_kernel_user_cache}."
+    fi
+  fi
+
+  kernel_ok=true
+  kernel_names=()
+  kernel_shas=()
+  kernel_paths=()
+
+  while IFS=$'\t' read -r k_file k_sha k_url; do
+    [[ -z "${k_file}" ]] && continue
+
+    k_path=""
+    for k_cand in \
+      "${ARLOWE_KERNEL_DIR:+${ARLOWE_KERNEL_DIR}/${k_file}}" \
+      "${REPO_ROOT}/third_party/kernel/${k_file}" \
+      "${_kernel_shared_cache}/${k_file}" \
+      "${_kernel_user_cache}/${k_file}"; do
+      if [[ -n "${k_cand}" && -f "${k_cand}" ]]; then
+        k_path="${k_cand}"
+        break
+      fi
+    done
+
+    # Opt-in fetch. The kernel is GPL-2.0 and publicly downloadable, so url is
+    # populated (unlike axcl). Fetching still lands in the hash assertion below.
+    if [[ -z "${k_path}" && -n "${kernel_fetch_dir}" && -n "${k_url}" ]]; then
+      if curl -fsSL "${k_url}" -o "${kernel_fetch_dir}/${k_file}.part"; then
+        mv "${kernel_fetch_dir}/${k_file}.part" "${kernel_fetch_dir}/${k_file}"
+        k_path="${kernel_fetch_dir}/${k_file}"
+      else
+        rm -f "${kernel_fetch_dir}/${k_file}.part"
+        echo >&2 "  download failed: ${k_url}"
+      fi
+    fi
+
+    if [[ -z "${k_path}" ]]; then
+      printf "${RED}[FAIL]${NC} %-58s not found\n" "${k_file}"
+      echo >&2 "  Obtain all six with:"
+      echo >&2 "    ARLOWE_KERNEL_FETCH=1 scripts/verify-third-party.sh"
+      echo >&2 "  or set ARLOWE_KERNEL_DIR=<dir>, or stage at:"
+      echo >&2 "    third_party/kernel/${k_file}"
+      echo >&2 "  See third_party/kernel/INSTALL.md."
+      kernel_ok=false
+      all_ok=false
+      continue
+    fi
+
+    k_actual=$(sha256sum "${k_path}" | awk '{print $1}')
+    if [[ "${k_actual}" == "${k_sha}" ]]; then
+      printf "${GREEN}[OK]${NC}   %-58s sha256 matches\n" "${k_file}"
+      kernel_names+=("${k_file}")
+      kernel_shas+=("${k_sha}")
+      kernel_paths+=("${k_path}")
+    else
+      printf "${RED}[FAIL]${NC} %-58s sha256 mismatch\n" "${k_file}"
+      echo >&2 "  Expected: ${k_sha}"
+      echo >&2 "  Actual:   ${k_actual}"
+      echo >&2 "  Path:     ${k_path}"
+      kernel_ok=false
+      all_ok=false
+    fi
+  done <<< "${kernel_debs}"
+
+  # Downstream contract: ONE directory containing exactly these six files.
+  # stage0/02-firmware/00-run.sh copies from a single ARLOWE_KERNEL_CACHE, so a
+  # set resolved across several directories has to be consolidated here rather
+  # than handed over as a list.
+  kernel_cache_dir=""
+  if [[ "${kernel_ok}" == "true" ]] && (( ${#kernel_paths[@]} == kernel_expected )); then
+    kernel_dirs=$(printf '%s\n' "${kernel_paths[@]}" | xargs -n1 dirname | LC_ALL=C sort -u)
+    if [[ "$(printf '%s\n' "${kernel_dirs}" | wc -l | tr -d ' ')" == "1" ]]; then
+      kernel_cache_dir="${kernel_dirs}"
+    else
+      kernel_stage_dir=""
+      if mkdir -p "${_kernel_shared_cache}" 2>/dev/null; then
+        kernel_stage_dir="${_kernel_shared_cache}"
+      elif mkdir -p "${_kernel_user_cache}" 2>/dev/null; then
+        kernel_stage_dir="${_kernel_user_cache}"
+      fi
+
+      if [[ -z "${kernel_stage_dir}" ]]; then
+        printf "${RED}[FAIL]${NC} %-58s cannot consolidate kernel cache\n" "third_party/kernel"
+        echo >&2 "  The six debs resolved from more than one directory and neither"
+        echo >&2 "  ${_kernel_shared_cache} nor ${_kernel_user_cache} is writable."
+        echo >&2 "  Put all six in one directory and point ARLOWE_KERNEL_DIR at it."
+        kernel_ok=false
+        all_ok=false
+      else
+        echo "         kernel debs resolved from multiple directories; staging into ${kernel_stage_dir}"
+        for k_i in "${!kernel_paths[@]}"; do
+          if [[ "$(dirname "${kernel_paths[${k_i}]}")" != "${kernel_stage_dir}" ]]; then
+            cp -f "${kernel_paths[${k_i}]}" "${kernel_stage_dir}/${kernel_names[${k_i}]}.part"
+            mv "${kernel_stage_dir}/${kernel_names[${k_i}]}.part" "${kernel_stage_dir}/${kernel_names[${k_i}]}"
+          fi
+        done
+        kernel_cache_dir="${kernel_stage_dir}"
+      fi
+    fi
+  fi
+
+  # Re-assert against the single directory actually being handed downstream.
+  # Verifying the paths we resolved and then exporting a different directory
+  # would be a check that measures something other than what the build uses --
+  # and a copy that silently did not land is exactly what 00-run.sh would then
+  # fail on, 25 minutes into a build.
+  if [[ -n "${kernel_cache_dir}" ]]; then
+    for k_i in "${!kernel_names[@]}"; do
+      k_final="${kernel_cache_dir}/${kernel_names[${k_i}]}"
+      if [[ ! -f "${k_final}" ]]; then
+        printf "${RED}[FAIL]${NC} %-58s missing from resolved cache dir\n" "${kernel_names[${k_i}]}"
+        echo >&2 "  Expected at: ${k_final}"
+        kernel_ok=false
+        all_ok=false
+      elif [[ "$(sha256sum "${k_final}" | awk '{print $1}')" != "${kernel_shas[${k_i}]}" ]]; then
+        printf "${RED}[FAIL]${NC} %-58s sha256 mismatch in resolved cache dir\n" "${kernel_names[${k_i}]}"
+        echo >&2 "  Path: ${k_final}"
+        kernel_ok=false
+        all_ok=false
+      fi
+    done
+  fi
+
+  if [[ "${kernel_ok}" == "true" && -n "${kernel_cache_dir}" ]]; then
+    if mkdir -p "$(dirname "${KERNEL_CACHE_FILE}")" 2>/dev/null &&
+       printf '%s\n' "${kernel_cache_dir}" > "${KERNEL_CACHE_FILE}" 2>/dev/null; then
+      printf "${GREEN}[OK]${NC}   %-58s cache: %s\n" \
+        "third_party/kernel: ${kernel_expected} debs, kernel pinned" "${kernel_cache_dir}"
+    else
+      printf "${RED}[FAIL]${NC} %-58s cannot write %s\n" "third_party/kernel" "${KERNEL_CACHE_FILE}"
+      echo >&2 "  scripts/build-image.sh reads this file to forward ARLOWE_KERNEL_CACHE"
+      echo >&2 "  into pi-gen. Without it the kernel install stage has nothing to copy."
+      echo >&2 "  Check ownership of $(dirname "${KERNEL_CACHE_FILE}") -- a previous sudo"
+      echo >&2 "  build may have left it root-owned."
+      all_ok=false
+    fi
+  else
+    # Never leave a stale pointer behind. build-image.sh forwards this path into
+    # the chroot installer; a path naming a directory that just failed
+    # verification is worse than no path at all.
+    rm -f "${KERNEL_CACHE_FILE}" 2>/dev/null || true
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Summary
