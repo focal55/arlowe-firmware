@@ -97,14 +97,36 @@ jobs:
         run: sudo apt-get install -y shellcheck
       - name: Run shellcheck
         run: |
+          # `**` is NOT recursive here. Actions runs this step with bash, where
+          # globstar is off by default, so `**` degrades to a plain `*` and
+          # matches exactly one directory level. `overlays/pi-gen/**/*.sh`
+          # therefore expanded to the single file overlays/pi-gen/stage0/prerun.sh
+          # -- the kernel installer at overlays/pi-gen/stage0/02-firmware/00-run.sh,
+          # which that glob was added specifically to cover, was never linted.
+          # pi-gen/stage-arlowe/prerun.sh and the three scripts under */files/
+          # were missed the same way.
+          #
+          # `find` over the two trees is what the `**` was meant to say, and it
+          # keeps covering scripts added later without an edit here. The count is
+          # printed because a glob silently matching less than intended is the
+          # defect this replaced, and a bare invocation cannot show it.
+          # read loop rather than `mapfile`: this exact command is re-run by hand
+          # on the Mac when verifying a change, and macOS ships bash 3.2, which
+          # has no mapfile. A lint command that only runs on the runner is one
+          # nobody checks before pushing.
+          STAGE_SCRIPTS=()
+          while IFS= read -r f; do STAGE_SCRIPTS+=("$f"); done < <(
+            find pi-gen/stage-arlowe overlays/pi-gen -type f -name '*.sh' | sort
+          )
+          echo "Linting ${#STAGE_SCRIPTS[@]} stage/overlay scripts:"
+          printf '  %s\n' "${STAGE_SCRIPTS[@]}"
           shellcheck \
             scripts/*.sh \
             scripts/provision/*.sh \
             scripts/sanitize/*.sh \
             scripts/lib/*.sh \
             scripts/pki/*.sh \
-            pi-gen/stage-arlowe/**/*.sh \
-            overlays/pi-gen/**/*.sh \
+            "${STAGE_SCRIPTS[@]}" \
             tests/phase-*/*.sh \
             units/install-units.sh \
             runtime/cli/ab \
