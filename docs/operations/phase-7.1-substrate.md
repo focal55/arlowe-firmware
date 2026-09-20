@@ -53,16 +53,39 @@ correct in its own frame:
 | **6** | shipping runtime *service* units — the six above, the SC6 subject |
 | **7** | first-party units in `units/*.service` — the six plus `arlowe-identity-init` |
 | **8** | first-party units installed into slot A's `/etc/systemd/system` — the seven plus `arlowe-firstboot` from `pi-gen/stage-arlowe/03-firstboot/files/` |
-| **9** | units a *real built rootfs* actually contains — the eight plus whatever apt installs there. Today that is exactly one: `network-manager` (declared in `00-packages-nr` for Phase 8 Wi-Fi provisioning) installs `dbus-org.freedesktop.nm-dispatcher.service` |
+| **15** | units a *real built rootfs* actually contains — the eight plus **seven** `systemctl enable` dbus aliases apt leaves in `/etc/systemd/system`: `sshd`, `dbus-fi.w1.wpa_supplicant1`, `dbus-org.bluez`, `dbus-org.freedesktop.Avahi`, `dbus-org.freedesktop.ModemManager1`, `dbus-org.freedesktop.nm-dispatcher`, `dbus-org.freedesktop.timesync1`. This row said **9** until the 07.2 build was measured; it was a prediction from one apt unit, and the real number is seven |
 | **5** | units with a Python entry point, which is what `unit-import-bookworm` covers — `arlowe-voice`, `arlowe-face`, `qwen-tokenizer`, `whisper-stt`, and `arlowe-identity-init` |
 
-The 8-vs-9 gap is not cosmetic. `verify_unit_execstart` globs the **rootfs's
-own** `/etc/systemd/system` rather than the repo's unit source directory, which
-is the design — a gate that only checks what the repo ships cannot see what apt
-adds. The first real rootfs run FAILed on `nm-dispatcher` for exactly this
-reason, and it is now in `EXPECTED_UNDECLARED` with a stated reason. A future
-apt package that installs a unit will do the same thing again, and that is the
-gate working.
+The 8-vs-15 gap is not cosmetic, and it is where the gates were wrong until the
+07.2 build. Both gates glob the **rootfs's own** `/etc/systemd/system` rather
+than the repo's unit source directory, which is the design — a gate that only
+checks what the repo ships cannot see what apt adds. But the seven apt entries
+are **symlinks with absolute targets**
+(`sshd.service -> /lib/systemd/system/ssh.service`), and two things followed:
+
+- **The gate read the build host.** Handing that absolute target to the kernel
+  follows it outside the rootfs. The gate parsed the host's trixie unit files
+  and failed the bookworm rootfs by them — it reported the host's
+  `ExecStart=/usr/libexec/nm-dispatcher` (NetworkManager 1.52.1) missing, while
+  the rootfs's own unit correctly names `/usr/lib/NetworkManager/nm-dispatcher`
+  (1.42.4), present at 68024 bytes. The false FAIL was the visible half; a host
+  that happens to carry what the image lacks would have produced a false **PASS**
+  from the same bug, which is the class the gate exists to catch. Unit files now
+  resolve through `_vue_resolve` exactly as executable paths always did.
+- **The two gates need different scopes.** The path gate stays universal: a unit
+  naming a binary the rootfs lacks is a real defect whoever shipped it. The
+  version gate does not — a floor is a claim about software *we* chose, and
+  demanding one of `sshd`'s `/bin/kill` produced six failures about nothing.
+  Ownership is now derived per unit from the rootfs's own dpkg database
+  (`_vue_unit_owner`), so apt-owned units are skipped by name and package. The
+  alternative — pasting every OS interpreter into `EXPECTED_UNDECLARED` — would
+  have converted a derived guard into a hand-maintained list, which is the F7 #18
+  shape one layer up.
+
+`EXPECTED_UNDECLARED` therefore covers **repo-shipped units only**, and an
+undeclared interpreter in one of ours is still a FAIL. `nm-dispatcher` was
+removed from it: the scoping makes the entry dead, and a dead allowlist entry is
+the start of a list nobody can justify.
 
 The 5 is the one the roadmap originally under-counted at four.
 `arlowe-identity-init` runs `/opt/arlowe/runtime/cli/identity`, which is
@@ -160,8 +183,8 @@ This is the section to read before assuming you are covered.
 
 | Gate | Where | Proves |
 |---|---|---|
-| `verify_unit_execstart` | `scripts/lib/verify-unit-execstart.sh`, run from `scripts/build-image.sh` | Every `Exec*` executable and script argument named by a unit **resolves and is executable inside the rootfs** |
-| `verify_unit_runtime_versions` | same file, same call site | The interpreter at that path **reports a version at or above a declared floor**, measured by a real `chroot ... --version` |
+| `verify_unit_execstart` | `scripts/lib/verify-unit-execstart.sh`, run from `scripts/build-image.sh` | Every `Exec*` executable and script argument named by **any** unit in the rootfs — apt's and ours alike — **resolves and is executable inside the rootfs** |
+| `verify_unit_runtime_versions` | same file, same call site | For units **this repo ships** (ownership derived from the rootfs's dpkg database), the interpreter at that path **reports a version at or above a declared floor**, measured by a real `chroot ... --version`. apt-owned units are skipped by name and package: we did not choose their interpreters |
 | `unit-import-bookworm` | `.github/workflows/ci.yml`, `tests/phase-07.1/` | Every Python import **reachable from a unit entry point resolves** under that unit's own interpreter, in an arm64 `debian:bookworm` container whose apt layer is derived from `00-packages-nr` |
 
 **None of them proves the service does its job.** State that plainly, because
@@ -355,13 +378,21 @@ grep -n "\[unit-execstart\]\|\[unit-versions\]" build/sc6-build.log
 PASS for `verify_unit_execstart` looks like:
 
 ```
-[unit-execstart] 9 unit(s), 17 target(s) checked, 0 failure(s), 0 warning(s), 0 skip(s)
+[unit-execstart] SKIP dbus-fi.w1.wpa_supplicant1: $MAINPID (env/specifier interpolation)
+[unit-execstart] SKIP sshd: $SSHD_OPTS (env/specifier interpolation)
+[unit-execstart] SKIP sshd: $MAINPID (env/specifier interpolation)
+[unit-execstart] 15 unit(s), 28 target(s) checked, 0 failure(s), 0 warning(s), 3 skip(s)
 [unit-execstart] OK   every Exec* target named by a unit resolves inside <rootfs>
 ```
 
-The unit count should be **9** on a real rootfs, not 8 — see Part A. It must
+That block is the measured 07.2 output, not an illustration. The unit count
+should be **15** on a real rootfs, not 8 — see Part A — and this gate stays
+universal, so all 28 targets across apt's units and ours are checked. It must
 name all three venv interpreter paths across their seven stanzas and
 `/opt/arlowe/runtime/dashboard/server.js`.
+
+If the unit count reads 8, the apt aliases are being dropped rather than
+checked, and the gate is measuring less than it claims.
 
 PASS for `verify_unit_runtime_versions` looks like:
 
@@ -369,15 +400,21 @@ PASS for `verify_unit_runtime_versions` looks like:
 [unit-versions] OK   arlowe-dashboard: /opt/arlowe/node/bin/node reports 24.21.0 (floor 20.9.0)
 [unit-versions] OK   arlowe-face: /opt/arlowe/venvs/voice/bin/python reports 3.11.2 (floor 3.11.0)
 ...
+[unit-versions] SKIP dbus-fi.w1.wpa_supplicant1: shipped by wpasupplicant — apt owns its interpreter versions, not ARLOWE_RUNTIME_FLOOR
+[unit-versions] SKIP sshd: shipped by openssh-server — apt owns its interpreter versions, not ARLOWE_RUNTIME_FLOOR
 [unit-versions] UNDECLARED qwen-api: /opt/arlowe/runtime/llm/run_api.sh
-[unit-versions] 2 interpreter(s) probed, 6 allowlisted undeclared, 0 failure(s), 0 skip(s)
+[unit-versions] 2 interpreter(s) probed, 5 allowlisted undeclared, 0 failure(s), 7 skip(s)
 [unit-versions] OK   every interpreter named by a unit meets its declared floor in <rootfs>
 ```
 
-Two things to confirm rather than skim: the dashboard interpreter reports
-**>= 20.9.0**, and `qwen-api`'s `run_api.sh` appears as **UNDECLARED** rather
-than being absent from the report. A target that silently drops out of a report
-is this phase's own defect class.
+Three things to confirm rather than skim: the dashboard interpreter reports
+**>= 20.9.0**; `qwen-api`'s `run_api.sh` appears as **UNDECLARED** rather than
+being absent from the report; and each of the **7** apt units appears as a SKIP
+**naming its owning package**. A target that silently drops out of a report is
+this phase's own defect class, and a scope narrowing that cannot be seen in the
+output is the same defect wearing a fix's clothes — so the skip prints the
+package dpkg named, and a unit dpkg cannot account for is treated as ours and
+gated in full.
 
 ## Step 2 — record the rootfs size for issue #135
 
