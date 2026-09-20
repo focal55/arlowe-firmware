@@ -267,7 +267,15 @@ Plans:
   5. Two builds from the same commit resolve an identical set of package versions, evidenced by a recorded manifest that a gate diffs. Input reproducibility only; image-hash equality stays out of scope per ADR (ext4 nondeterminism).
   6. The axcl driver compiles against the pinned kernel, restoring the Phase 7.1 SC6 path.
 
-**Plans**: TBD
+**Plans**: 4 plans in 4 waves — Wave 1: 07.2-01 · Wave 2: 07.2-02 · Wave 3: 07.2-03 · Wave 4: 07.2-04
+
+Sequential by necessity, not by omission: all four plans own `scripts/build-image.sh`, and 02/03 build on the overlay mechanism 01 delivers. Only plan 04 runs a full image build.
+
+Plans:
+- [ ] 07.2-01-PLAN.md — The pi-gen overlay mechanism (SC4) plus the Debian snapshot pin (SC2): a tracked `pi-gen/overlay/` tree and an applier that asserts upstream drift, failed application, unexpected pre-existing files, and lost exec bits; `20260915T000000Z` for debootstrap and apt; ADR-0009 (Wave 1)
+- [ ] 07.2-02-PLAN.md — Kernel pinned to 6.12.96 (SC1): `third_party/kernel/manifest.yml` with six pool-fetched debs by sha256, a `verify-third-party.sh` stanza inheriting the node cache fallback, the four meta packages removed from `stage0/02-firmware/01-packages`, and a build-time assertion that the rootfs carries exactly one kernel version (Wave 2)
+- [ ] 07.2-03-PLAN.md — `SOURCE_DATE_EPOCH` with a falsifiable consumer (SC3) and the recorded-input manifest plus diff gate (SC5); CI job proving two resolutions agree without building an image (Wave 3)
+- [ ] 07.2-04-PLAN.md — The one full build: axcl compiles against 6.12.96 (SC6), the reference input manifest committed from real build output, pin-bump runbook, IMAGE-03 and Phase 6 SC5 records closed (Wave 4, checkpoint)
 
 ### Phase 8: First-boot pairing and wake word
 
