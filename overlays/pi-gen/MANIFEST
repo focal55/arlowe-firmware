@@ -1,0 +1,32 @@
+# overlays/pi-gen/MANIFEST
+#
+# Entries applied onto the provisioned upstream pi-gen tree by
+# apply_pigen_overlay (scripts/lib/pigen-overlay.sh) on EVERY build.
+#
+# Format -- one tab-separated record per entry, `#` lines are comments:
+#
+#   path<TAB>mode<TAB>upstream_sha256<TAB>overlay_sha256
+#
+#   path             relative to the pi-gen root
+#   mode             octal; asserted after the copy. pi-gen guards run scripts
+#                    with `[ -x ]` and skips a non-executable one in silence.
+#   upstream_sha256  digest of the upstream file at PIGEN_REF
+#                    (2026-06-18-raspios-bookworm-arm64), computed from a
+#                    PRISTINE clone -- never from a working pi-gen tree, which
+#                    already carries this overlay. `NEW` when upstream ships no
+#                    such file.
+#   overlay_sha256   digest of the file under overlays/pi-gen/
+#
+# Recording upstream_sha256 is what turns a PIGEN_REF bump into a build failure
+# that names the file, rather than our overlay silently reverting whatever
+# upstream changed. It is a re-clone-path alarm: on a cached tree the applier
+# sees overlay_sha256 and accepts it.
+#
+# To add an entry: copy the upstream file into overlays/pi-gen/<path>, make the
+# minimum change, and record both digests here by hand. There is deliberately no
+# regenerate-the-digests helper -- one would be used to silence the drift alarm
+# rather than to investigate it.
+stage0/prerun.sh	755	c82188c568eba90c59721bf6f3c0334aded9427c0eeac3e64448fd69e6f2548d	PENDING
+stage0/00-configure-apt/00-run.sh	755	3b22cbeb3b69ec3679b21e24d62afb0e37ec55e6a5892a8390e855c4b41d8e71	PENDING
+stage0/00-configure-apt/files/sources.list	644	bfbba7ccd0e1caafdd71c813371dcdb3249aa4ac399a36449cec68cf49c67673	PENDING
+stage0/00-configure-apt/files/99arlowe-pinned	644	NEW	PENDING
