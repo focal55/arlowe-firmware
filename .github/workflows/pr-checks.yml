@@ -97,16 +97,57 @@ jobs:
         run: sudo apt-get install -y shellcheck
       - name: Run shellcheck
         run: |
+          # `**` is NOT recursive here. Actions runs this step with bash, where
+          # globstar is off by default, so `**` degrades to a plain `*` and
+          # matches exactly one directory level. `overlays/pi-gen/**/*.sh`
+          # therefore expanded to the single file overlays/pi-gen/stage0/prerun.sh
+          # -- the kernel installer at overlays/pi-gen/stage0/02-firmware/00-run.sh,
+          # which that glob was added specifically to cover, was never linted.
+          # pi-gen/stage-arlowe/prerun.sh and the three scripts under */files/
+          # were missed the same way.
+          #
+          # `find` over the two trees is what the `**` was meant to say, and it
+          # keeps covering scripts added later without an edit here. The count is
+          # printed because a glob silently matching less than intended is the
+          # defect this replaced, and a bare invocation cannot show it.
+          # read loop rather than `mapfile`: this exact command is re-run by hand
+          # on the Mac when verifying a change, and macOS ships bash 3.2, which
+          # has no mapfile. A lint command that only runs on the runner is one
+          # nobody checks before pushing.
+          STAGE_SCRIPTS=()
+          while IFS= read -r f; do STAGE_SCRIPTS+=("$f"); done < <(
+            find pi-gen/stage-arlowe overlays/pi-gen -type f -name '*.sh' | sort
+          )
+          echo "Linting ${#STAGE_SCRIPTS[@]} stage/overlay scripts:"
+          printf '  %s\n' "${STAGE_SCRIPTS[@]}"
           shellcheck \
             scripts/*.sh \
             scripts/provision/*.sh \
             scripts/sanitize/*.sh \
             scripts/lib/*.sh \
             scripts/pki/*.sh \
-            pi-gen/stage-arlowe/**/*.sh \
+            "${STAGE_SCRIPTS[@]}" \
+            tests/phase-*/*.sh \
             units/install-units.sh \
             runtime/cli/ab \
             runtime/recovery/*.sh
+
+  unit-substrate-gate-self-test:
+    name: Unit substrate gate self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # scripts/lib/verify-unit-execstart.sh runs per image build, but
+      # build-image.sh only runs from the tag/dispatch-triggered build-image.yml.
+      # Without this job the gate's negative cases would execute once, at the time
+      # they were written, and never again — a later edit turning a FAIL into a
+      # SKIP or a PASS would emit no signal until the next hardware checkpoint.
+      # Same shape as sanitize.yml's self-test job.
+      #
+      # No arm64 runner and no chroot are needed: the version cases go through
+      # ARLOWE_VERSION_PROBE stubs and the path cases are pure filesystem.
+      - name: Run the deliberate-failure self-test
+        run: bash tests/phase-07.1/test-verify-unit-execstart.sh
 
   linked-issue:
     name: Linked issue

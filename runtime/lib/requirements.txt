@@ -2,9 +2,11 @@ jsonschema==4.23.0
 PyYAML==6.0.3
 
 # Phase 7 (ADR-0007): P-256 keypair + CSR generation.
-# IMAGE NOTE: the firmware does NOT pip-install this. /opt/arlowe/venvs is empty on the
-# built image; the identity CLI runs under system python3 with the Debian packages
-# declared in pi-gen/stage-arlowe/00-packages/00-packages-nr. Bookworm ships
+# IMAGE NOTE: the firmware does NOT pip-install this. The identity CLI runs under
+# system python3 with the Debian packages declared in
+# pi-gen/stage-arlowe/00-packages/00-packages-nr. (Phase 7.1 does populate
+# /opt/arlowe/venvs for the four service units, but arlowe-identity-init and
+# boot-check still name /usr/bin/python3 — see ADR-0008.) Bookworm ships
 # cryptography 38.0.4 and requests 2.28.1 -- code in runtime/lib must stay within
 # those APIs, enforced by the python-floor-bookworm CI job. This pin is for CI and
 # local development only.

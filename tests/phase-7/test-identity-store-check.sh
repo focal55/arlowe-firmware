@@ -109,6 +109,37 @@ chmod 0600 "${R}/var/lib/arlowe/identity/device-id"
 expect 1 "provisioned device-id fails --factory" "$R" --factory
 expect 0 "provisioned device-id passes in device mode" "$R"
 
+# --- public trust anchors vs identity material ------------------------------
+# pip vendors Mozilla's CA bundle into every venv, so Phase 7.1 put three copies
+# of a `*.pem` under /opt/arlowe. Matching on filename alone failed the build on
+# a file that is public by definition. These cases pin the distinction, and the
+# first one is the security property: a private key is never waved through, no
+# matter where it sits.
+
+CERT_ONLY=$'-----BEGIN CERTIFICATE-----\nMIIBpublicpublicpublic\n-----END CERTIFICATE-----\n'
+WITH_KEY=$'-----BEGIN CERTIFICATE-----\nMIIBpublic\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nMIIBsecret\n-----END PRIVATE KEY-----\n'
+
+R="$(new_root trust_key_on_trust_path)"
+mkdir -p "${R}/opt/arlowe/venvs/llm/lib/python3.11/site-packages/pip/_vendor/certifi"
+printf '%s' "$WITH_KEY" > "${R}/opt/arlowe/venvs/llm/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem"
+expect 1 "a PRIVATE KEY on a trust-store path still fails" "$R"
+
+R="$(new_root trust_certs_only)"
+mkdir -p "${R}/opt/arlowe/venvs/llm/lib/python3.11/site-packages/pip/_vendor/certifi"
+printf '%s' "$CERT_ONLY" > "${R}/opt/arlowe/venvs/llm/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem"
+expect 0 "pip's vendored CA bundle is not identity material" "$R"
+
+R="$(new_root cert_off_trust_path)"
+mkdir -p "${R}/opt/arlowe"
+printf '%s' "$CERT_ONLY" > "${R}/opt/arlowe/device.crt"
+expect 1 "a certificate-only file off a trust-store path still fails" "$R"
+
+R="$(new_root key_no_extension)"
+mkdir -p "${R}/opt/arlowe/venvs/llm/lib/python3.11/site-packages/pip/_vendor/certifi"
+printf '%s' "$WITH_KEY" > "${R}/opt/arlowe/venvs/llm/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem"
+chmod 0644 "${R}/opt/arlowe/venvs/llm/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem"
+expect 1 "mode does not launder a private key" "$R"
+
 # --- argument handling ------------------------------------------------------
 
 R="$(new_root badflag)"

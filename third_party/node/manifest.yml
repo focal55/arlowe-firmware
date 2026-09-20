@@ -1,0 +1,48 @@
+# Node.js runtime pinning for arlowe-dashboard.
+# Decision recorded in docs/architecture/0008-image-runtime-dependency-strategy.md.
+#
+# Why this is not an apt package:
+#   runtime/dashboard depends on next@16.1.6, whose engines.node is ">= 20.9.0".
+#   Debian bookworm's nodejs candidate is 18.20.4, and bookworm-backports carries
+#   no nodejs at all (verified in an arm64 debian:bookworm container -- the
+#   backports version table for nodejs is empty). apt cannot satisfy the floor.
+#
+# Why 24.x and not the 20.x the phase brief suggested:
+#   Node 20 "Iron" reached end-of-life on 2026-04-30 and receives no further
+#   security patches. Shipping it on a consumer device would bake an unpatched
+#   runtime into v1 for the life of the product. Node 24 "Krypton" is the Active
+#   LTS line (LTS since 2025-10-28, maintenance from 2026-10-20, end 2028-04-30)
+#   and satisfies the same >= 20.9.0 floor. Dates read from
+#   https://raw.githubusercontent.com/nodejs/Release/main/schedule.json.
+#
+# Strategy: fetch-at-build. Unlike third_party/axcl (Strategy C, url null because
+# redistribution rights are unresolved), Node is MIT-licensed and publicly
+# downloadable, so the url is populated and the tarball is NEVER committed to the
+# repo. scripts/verify-third-party.sh asserts the sha256 of whatever is resolved.
+
+node:
+  version: "24.21.0"
+  filename: "node-v24.21.0-linux-arm64.tar.xz"
+  sha256: "6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2"
+  url: "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.xz"
+  install_to_image: true
+
+  # Extracted-path contract. The chroot step (plan 07.1-04's build-dashboard.sh)
+  # unpacks the tarball with --strip-components=1 into install_to, so the
+  # interpreter lands at exactly node_bin. units/arlowe-dashboard.service names
+  # node_bin in its ExecStart, and plan 07.1-03's interpreter-floor gate asserts
+  # that `node_bin --version` is >= version_floor. Changing any one of these four
+  # fields without the others breaks the dashboard unit.
+  tarball_root: "node-v24.21.0-linux-arm64"
+  install_to: "/opt/arlowe/node"
+  node_bin: "/opt/arlowe/node/bin/node"
+  version_floor: "20.9.0"
+
+  notes: >
+    MIT licensed (Node.js core; bundled deps under third-party licenses shipped in
+    the tarball's LICENSE file). The apt nodejs/npm packages are deliberately absent
+    from pi-gen/stage-arlowe/00-packages/00-packages-nr so the image contains exactly
+    one Node -- leaving bookworm's 18.20.4 at /usr/bin/node while the unit points
+    elsewhere is a trap the SC1 path gate passes by construction.
+    npm is not needed: runtime/dashboard uses pnpm (pnpm-lock.yaml, no package-lock.json).
+    See third_party/node/INSTALL.md for offline/air-gapped sourcing.

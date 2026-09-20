@@ -8,6 +8,13 @@ User=arlowe
 Group=arlowe
 WorkingDirectory=/opt/arlowe/runtime/stt
 Environment=PYTHONUNBUFFERED=1
+# faster-whisper resolves its model through huggingface_hub, which defaults to
+# $HOME/.cache/huggingface. The arlowe user's home is /var/lib/arlowe, and
+# ProtectSystem=strict makes that read-only unless it is in ReadWritePaths --
+# the service died with EROFS on /var/lib/arlowe/.cache. Point the cache at an
+# explicit directory on the owner-state partition instead of granting write
+# access to the home directory itself.
+Environment=HF_HOME=/var/lib/arlowe/cache/huggingface
 ExecStart=/opt/arlowe/venvs/stt/bin/python /opt/arlowe/runtime/stt/stt_server.py
 Restart=on-failure
 RestartSec=5
@@ -31,9 +38,15 @@ RestrictSUIDSGID=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
+# @system-service permits mbind, but the ~@resources deny above removes it.
+# Raspberry Pi 5 boots with numa=fake=8 numa_policy=interleave, so glibc and
+# native extensions call mbind(2) during import to honour the interleave
+# policy; seccomp then kills the process with SIGSYS before it reaches main.
+# Re-admit only mbind rather than dropping the whole @resources deny.
+SystemCallFilter=mbind
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
-ReadWritePaths=/var/lib/arlowe/logs/stt
+ReadWritePaths=/var/lib/arlowe/logs/stt /var/lib/arlowe/cache
 
 [Install]
 WantedBy=multi-user.target

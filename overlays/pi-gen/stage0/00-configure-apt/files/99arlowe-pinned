@@ -1,0 +1,23 @@
+// arlowe overlay -- NEW file, no upstream pi-gen counterpart.
+//
+// Installed into the rootfs at /etc/apt/apt.conf.d/99arlowe-pinned by
+// stage0/00-configure-apt/00-run.sh. Ships in the same change as the
+// snapshot.debian.org pin, because the pin does not work without it.
+//
+// Check-Valid-Until "false" is mandatory, not hygiene. A snapshot's Release
+// file carries a Valid-Until in the past by construction -- it is a frozen copy
+// of an archive from a fixed date. Without this, the build works today and
+// starts failing roughly a week after the snapshot date with
+//   "Release file ... is expired"
+// which reads like a network fault rather than a consequence of pinning, and
+// sends whoever hits it looking in the wrong place. Content authenticity is
+// still enforced: the gpg signature on Release/InRelease is checked as usual.
+Acquire::Check-Valid-Until "false";
+
+// snapshot.debian.org is a single archival host, not a CDN. It is slower and
+// less redundant than the rolling Debian mirror, so a bootstrap that pulls
+// thousands of index and pool files needs more patience than apt's defaults
+// allow.
+Acquire::Retries "5";
+Acquire::http::Timeout "60";
+Acquire::https::Timeout "60";

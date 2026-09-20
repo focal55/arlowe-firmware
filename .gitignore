@@ -52,6 +52,13 @@ third_party/whisplay-driver/LICENSE
 third_party/whisplay-driver/install_wm8960_drive.sh
 third_party/whisplay-driver/WM8960-Audio-HAT*
 third_party/axcl/*.deb
+# Node runtime tarball (ADR-0008). third_party/node/INSTALL.md tells the builder to place
+# it here, so without this rule a ~30 MB binary lands in a commit. Keep manifest.yml + docs.
+third_party/node/*.tar.xz
+third_party/node/*.tar.gz
+# Pinned kernel debs (ADR-0009). third_party/kernel/INSTALL.md names this directory as a
+# staging location, and the six debs total ~75 MiB. Keep manifest.yml + INSTALL.md.
+third_party/kernel/*.deb
 
 # Standard Python / Next.js noise that will accumulate in runtime/ subtrees.
 __pycache__/

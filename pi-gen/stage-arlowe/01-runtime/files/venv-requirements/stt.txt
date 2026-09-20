@@ -1,0 +1,51 @@
+# IMAGE-ONLY. This file governs the device; runtime/stt/requirements.txt does not.
+#
+# Installed by pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh (plan 07.1-04) into
+# /opt/arlowe/venvs/stt, the interpreter whisper-stt.service names. The venv is created with
+# --system-site-packages, so numpy, PyYAML, requests, certifi, idna and urllib3 are NOT
+# listed here: they come from the apt layer in
+# pi-gen/stage-arlowe/00-packages/00-packages-nr and are shared in.
+#
+# Install command (the -c is not optional):
+#   pip install -r stt.txt -c constraints.txt
+#
+# Every version is pinned with ==. Versions below are not hand-picked: they were resolved in
+# a debian:bookworm arm64 container against the apt layer and read back with
+# `pip freeze --local`.
+#
+# Rationale: docs/architecture/0008-image-runtime-dependency-strategy.md
+
+# stt_server.py: `from faster_whisper import WhisperModel`.
+faster-whisper==1.2.1
+
+# ctranslate2 — the inference engine faster-whisper runs the CTranslate2-converted
+# small.en model on (ADR-0006). Compiled; Debian does not package it, hence pip.
+ctranslate2==4.8.2
+
+# onnxruntime — faster-whisper's VAD backend. Same pin as the voice venv (constraints.txt
+# keeps them identical); 1.30.0 accepts the apt numpy 1.24.2 without pulling its own.
+onnxruntime==1.30.0
+
+# --- transitive closure, pinned so it cannot float ---
+anyio==4.15.1
+av==18.1.0
+click==8.5.0
+filelock==3.32.6
+flatbuffers==25.12.19
+fsspec==2026.7.0
+h11==0.16.0
+hf-xet==1.6.0
+httpcore==1.0.9
+httpx==0.28.1
+packaging==26.3
+protobuf==7.36.1
+tqdm==4.70.1
+typing_extensions==4.16.0
+
+# huggingface_hub and tokenizers are pinned HERE rather than in constraints.txt, and at
+# different versions from the llm venv (0.36.2 / 0.22.2 there). transformers<5 caps
+# huggingface_hub below 1.0; faster-whisper wants 1.x. The two cannot be reconciled, which
+# is one of the reasons these are separate venvs rather than one shared one. Putting either
+# in constraints.txt would break whichever unit lost the argument.
+huggingface_hub==1.31.0
+tokenizers==0.23.2

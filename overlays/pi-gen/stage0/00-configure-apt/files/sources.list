@@ -1,0 +1,33 @@
+# arlowe overlay -- replaces upstream pi-gen's
+# stage0/00-configure-apt/files/sources.list.
+#
+# Do NOT edit the copy under pi-gen/: that tree is rm -rf'd and re-cloned at
+# PIGEN_REF by scripts/build-image.sh, so an edit there is erased, silently, on
+# the next build. Edit overlays/pi-gen/ and re-record the digest in
+# overlays/pi-gen/MANIFEST.
+#
+# What changed from upstream: the three archive lines, and the three commented
+# deb-src lines, now name one fixed snapshot.debian.org timestamp instead of the
+# rolling Debian mirror. A rolling mirror serves a different package set on any
+# two days, which is how the kernel drifted underneath a vendored driver. The
+# deb-src lines are pinned too so that uncommenting one does not silently leave
+# the pin.
+#
+# The literal hostname of the rolling mirror is deliberately absent from this
+# file, comments included: the built rootfs is grepped for it as evidence that
+# nothing resolved off-pin, and a mention here would make that check pass on its
+# own comment.
+#
+# Note the security suite lives under a DIFFERENT archive root
+# (archive/debian-security/, not archive/debian/). Getting that wrong yields a
+# 404 mid-bootstrap. http:// rather than https:// is deliberate; see
+# docs/architecture/0009-build-input-pinning.md.
+#
+# The suite placeholder below is substituted by 00-run.sh. Leave it alone.
+deb http://snapshot.debian.org/archive/debian/20260915T000000Z RELEASE main contrib non-free non-free-firmware
+deb http://snapshot.debian.org/archive/debian-security/20260915T000000Z RELEASE-security main contrib non-free non-free-firmware
+deb http://snapshot.debian.org/archive/debian/20260915T000000Z RELEASE-updates main contrib non-free non-free-firmware
+# Uncomment deb-src lines below then 'apt-get update' to enable 'apt-get source'
+#deb-src http://snapshot.debian.org/archive/debian/20260915T000000Z RELEASE main contrib non-free non-free-firmware
+#deb-src http://snapshot.debian.org/archive/debian-security/20260915T000000Z RELEASE-security main contrib non-free non-free-firmware
+#deb-src http://snapshot.debian.org/archive/debian/20260915T000000Z RELEASE-updates main contrib non-free non-free-firmware

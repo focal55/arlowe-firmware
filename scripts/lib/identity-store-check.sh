@@ -37,6 +37,42 @@ _identity_mode() {
   stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null
 }
 
+# A public trust anchor is not identity material. pip vendors Mozilla's CA
+# bundle as site-packages/pip/_vendor/certifi/cacert.pem — 137 public
+# certificates and zero private keys — and the venvs Phase 7.1 added put three
+# copies of it under /opt/arlowe. Matching on `*.pem` alone cannot tell a public
+# trust store from a device key, so it failed the build on a file that is public
+# by definition.
+#
+# The rule is content, not filename:
+#   - contains a PRIVATE KEY block  -> identity material, always, everywhere
+#   - certificates only             -> identity material UNLESS it sits on a
+#                                      recognised vendored trust-store path
+# A device certificate is also certificate-only, so certificate-only files are
+# NOT waved through generally; only these paths are, and they are package-manager
+# territory that our provisioning never writes to.
+_IDENTITY_TRUST_STORE_PATHS=(
+  '*/site-packages/pip/_vendor/certifi/cacert.pem'
+  '*/site-packages/certifi/cacert.pem'
+  '*/share/ca-certificates/*'
+  '*/ssl/certs/*'
+)
+
+_identity_is_public_trust_store() {
+  local f="$1" pat
+  # A private key is never a trust anchor, wherever it lives.
+  if grep -qE 'BEGIN ([A-Z ]+ )?PRIVATE KEY' "$f" 2>/dev/null; then
+    return 1
+  fi
+  # Certificate-only, and only on a vendored trust-store path.
+  grep -q 'BEGIN CERTIFICATE' "$f" 2>/dev/null || return 1
+  for pat in "${_IDENTITY_TRUST_STORE_PATHS[@]}"; do
+    # shellcheck disable=SC2053  # pattern match is intended, not string equality
+    [[ "$f" == $pat ]] && return 0
+  done
+  return 1
+}
+
 # Symlinks are matched by name and reported, never dereferenced — a link out of
 # the tree is itself the violation.
 _identity_find_material() {
@@ -68,6 +104,11 @@ check_identity_store() {
   for scan in "${root}/opt/arlowe" "${root}/etc/arlowe" "${root}/boot"; do
     while IFS= read -r hit; do
       [[ -n "$hit" ]] || continue
+      # Never dereference a symlink to inspect it; a link out of the tree is
+      # itself the violation, so only regular files are content-checked.
+      if [[ -f "$hit" && ! -L "$hit" ]] && _identity_is_public_trust_store "$hit"; then
+        continue
+      fi
       _identity_err "identity material outside the identity store: ${hit#"$root"}"
       violations=$((violations + 1))
     done < <(_identity_find_material "$scan")

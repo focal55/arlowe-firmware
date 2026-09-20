@@ -1,0 +1,144 @@
+# Raspberry Pi kernel pinning.
+# Decision recorded in docs/architecture/0009-build-input-pinning.md.
+#
+# Why this pin exists at all:
+#   Nothing in this repo changed. The build broke because an UNPINNED build input
+#   moved: the Pi archive's kernel meta packages started resolving to 6.12.109,
+#   whose `pci_resize_resource` gained a fourth `exclude_bars` parameter. The
+#   vendored axcl 3.10.2 driver passes three arguments, so the out-of-tree module
+#   failed to compile at ax_pcie_dev_host.c:220.
+#
+#   6.12.96 is known-good by measurement, not by preference: it is the kernel on
+#   the flashed card that boots (/lib/modules/6.12.96+rpt-rpi-2712).
+#
+# Why this is not an apt version pin:
+#   The kernel enters the image through an UPSTREAM pi-gen file,
+#   stage0/02-firmware/01-packages, which we do not own. That is why the overlay
+#   at overlays/pi-gen/ exists -- an edit inside pi-gen/ is erased, silently, on
+#   the next re-provision.
+#
+#   The Pi archive index DOES carry the versioned packages. As of the last check,
+#   dists/bookworm/main/binary-arm64/Packages.gz holds eleven linux-image
+#   versions, 6.12.19 through 6.12.109, including every package pinned below.
+#   What carries exactly ONE version is the META package:
+#
+#       apt-cache madison linux-headers-rpi-2712  ->  1:6.12.109-1+rpt1
+#
+#   There is no older candidate to pin a meta package to. That is why the four
+#   meta packages are REMOVED from the overlay's stage0/02-firmware/01-packages
+#   rather than version-constrained, and it is NOT the reason we fetch by pool
+#   URL.
+#
+#   An earlier draft justified the pool fetch by claiming the Pi index retains
+#   just one version per package. That was measured and refuted -- see the
+#   eleven-version count above -- so do not reintroduce it anywhere.
+#
+# Why pool URL plus sha256, three real reasons:
+#   1. The digest is the pin. An index entry is whatever the archive serves
+#      today; a recorded digest is a claim that can be falsified.
+#   2. The local cache makes a rebuild independent of the archive still being
+#      reachable, and of what it still retains.
+#   3. There is no Raspberry Pi snapshot service. snapshot.raspberrypi.com and
+#      snapshot.raspberrypi.org both return HTTP 000 from the build host, so the
+#      Debian-side mechanism (snapshot.debian.org, pinned in the stage0 overlay)
+#      is simply unavailable on the Pi side. That is why the two halves of this
+#      phase use different mechanisms.
+#
+# Pool retention is a fetch source, not an archive. The pool currently retains
+# 6.12.19 through 6.12.109, but that is Raspberry Pi's retention policy and not a
+# guarantee to us. `url` is how to obtain each deb the FIRST time; the sha256 is
+# the pin and the local cache is what makes a rebuild durable. See INSTALL.md for
+# mirroring guidance.
+#
+# The pin is loud by construction. `linux-image-6.12.96+rpt-rpi-2712` is a
+# distinct PACKAGE NAME, not a version constraint on `linux-image-rpi-2712`. apt
+# cannot upgrade a package to a differently-named one, so no later `apt-get
+# install` or `dist-upgrade` can drift it. The only way to change the kernel is
+# to edit this file, which changes a sha256, which the gate asserts.
+#
+# Bumping this version is NOT a number swap. A new kernel must be re-proven
+# against the axcl module compile (phase 7.2 SC6) before it can be trusted --
+# that compile is exactly what 6.12.109 broke.
+#
+# Strategy: fetch-at-build, like third_party/node (and unlike third_party/axcl,
+# whose url is null because redistribution rights are unresolved). The debs are
+# NEVER committed to this repo. scripts/verify-third-party.sh check 7 asserts the
+# sha256 of whatever is resolved.
+
+kernel:
+  version: "6.12.96"
+
+  # The version as it appears in deb FILENAMES. apt reports the epoch-bearing
+  # form, 1:6.12.96-1+rpt1; the epoch is absent from filenames by Debian
+  # convention. This field is the filename form because that is what the tooling
+  # matches on. Deliberately not duplicated as a second apt_version field -- two
+  # copies of a version number is how a pin half-applies.
+  deb_version: "6.12.96-1+rpt1"
+
+  # The kernel release string. Module directories are
+  # /lib/modules/<kernel_string>-<flavour>.
+  kernel_string: "6.12.96+rpt"
+
+  # Both flavours are pinned on purpose. Upstream's 01-packages requests v8
+  # (Pi 4, bcm2711) and 2712 (Pi 5). Pinning only 2712 would leave
+  # linux-headers-rpi-v8 resolving to 6.12.109 and dragging
+  # linux-headers-6.12.109+rpt-common-rpi back into /usr/src -- reintroducing the
+  # exact header that broke the compile.
+  flavours: ["rpi-2712", "rpi-v8"]
+
+  pool_base: "http://archive.raspberrypi.com/debian/pool/main/l/linux"
+
+  # Module directories the built rootfs must contain, and nothing else.
+  # scripts/build-image.sh asserts this against the rootfs after pi-gen runs.
+  expected_module_dirs:
+    - "6.12.96+rpt-rpi-2712"
+    - "6.12.96+rpt-rpi-v8"
+
+  # Header tree the axcl postinst compiles against. Asserted inside the chroot by
+  # overlays/pi-gen/stage0/02-firmware/00-run.sh.
+  expected_headers_dir: "linux-headers-6.12.96+rpt-common-rpi"
+
+  # This set is NOT dependency-self-closing, which is why the installer uses
+  # `apt-get install ./file.deb` and not `dpkg -i`:
+  #   linux-image-*      needs kmod, linux-base, initramfs-tools
+  #   linux-headers-*    needs gcc-12
+  #   linux-kbuild-*     needs libc6, libelf1, libssl3
+  # apt resolves those from the snapshot-pinned Debian archive; dpkg -i cannot,
+  # and would leave the chroot half-configured.
+  debs:
+    - filename: "linux-image-6.12.96+rpt-rpi-2712_6.12.96-1+rpt1_arm64.deb"
+      size: 32734444
+      sha256: "466e7f364686afcef177476fd8e1cc16b27b30a840a900fa143d467960523926"
+      url: "http://archive.raspberrypi.com/debian/pool/main/l/linux/linux-image-6.12.96+rpt-rpi-2712_6.12.96-1+rpt1_arm64.deb"
+
+    - filename: "linux-image-6.12.96+rpt-rpi-v8_6.12.96-1+rpt1_arm64.deb"
+      size: 32739088
+      sha256: "9d6046e827a03d3521116caa6694dd28ebc3ab325fded958abeb72dd2149c821"
+      url: "http://archive.raspberrypi.com/debian/pool/main/l/linux/linux-image-6.12.96+rpt-rpi-v8_6.12.96-1+rpt1_arm64.deb"
+
+    - filename: "linux-headers-6.12.96+rpt-rpi-2712_6.12.96-1+rpt1_arm64.deb"
+      size: 1347420
+      sha256: "ae92551945364ff1af569bd4d7c00e18a664db015956d417d0dafc885939db33"
+      url: "http://archive.raspberrypi.com/debian/pool/main/l/linux/linux-headers-6.12.96+rpt-rpi-2712_6.12.96-1+rpt1_arm64.deb"
+
+    - filename: "linux-headers-6.12.96+rpt-rpi-v8_6.12.96-1+rpt1_arm64.deb"
+      size: 1347400
+      sha256: "f094600b5be0689644d98e7cfa9a876c05bdbc0d8a3e7118660059ef6f3c9d1d"
+      url: "http://archive.raspberrypi.com/debian/pool/main/l/linux/linux-headers-6.12.96+rpt-rpi-v8_6.12.96-1+rpt1_arm64.deb"
+
+    - filename: "linux-headers-6.12.96+rpt-common-rpi_6.12.96-1+rpt1_all.deb"
+      size: 8771560
+      sha256: "158a7093cc6bf00b7845fe82661cfe759a7845ae43ca31b3aef60ca0fa71b26c"
+      url: "http://archive.raspberrypi.com/debian/pool/main/l/linux/linux-headers-6.12.96+rpt-common-rpi_6.12.96-1+rpt1_all.deb"
+
+    - filename: "linux-kbuild-6.12.96+rpt_6.12.96-1+rpt1_arm64.deb"
+      size: 1193816
+      sha256: "d02f3b15ae790a00e2a5a29c684469866e81908b7b04645a53d5698596532e04"
+      url: "http://archive.raspberrypi.com/debian/pool/main/l/linux/linux-kbuild-6.12.96+rpt_6.12.96-1+rpt1_arm64.deb"
+
+  notes: >
+    GPL-2.0 (Linux kernel, with the standard syscall-boundary exception). Freely
+    redistributable, which is why url is populated here and null in
+    third_party/axcl/manifest.yml. Total 78,133,728 bytes -- about 75 MiB.
+    See third_party/kernel/INSTALL.md for offline/air-gapped sourcing and for why
+    the pool must not be treated as durable storage.

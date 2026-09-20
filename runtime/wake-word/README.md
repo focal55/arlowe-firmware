@@ -23,33 +23,63 @@ This directory contains the wake-word training and verification scripts for "Hey
 | `test_verifier.py` | Evaluate a trained verifier against live audio | Diagnostics |
 | `quick_test.py` | One-shot wake-word test | Manual ops + smoke test |
 
-## Generic-model swap path
+## The wake decision: `runtime/voice/wake_gate.py`
 
-For a clean Pi without a trained verifier:
+The accept policy lives in one module, `runtime/voice/wake_gate.py`. It is stdlib-only on purpose
+(no numpy, no sklearn, no openwakeword) so the thresholds are testable without the voice venv, and
+so the shipping path has exactly one definition of each number. `voice_client.py` builds a
+`WakeGate` at startup and routes every base-model activation through `gate.evaluate(...)`.
 
-1. The voice orchestrator (`runtime/voice/voice_client.py`) loads the openwakeword base model
-   `hey_jarvis_v0.1`.
-2. Set `VERIFIER_MODEL` to None or skip the verifier-stage gate (the model file simply will not
-   exist at the default path).
-3. Raise the base activation threshold (default 0.5 -> 0.7) to compensate for the lack of
-   speaker-specific filtering.
-4. Accept higher false-positive rate as the v1 trade-off.
+| Mode | Selected when | Base gate | Verifier gate |
+|---|---|---|---|
+| **generic** (shipped in v1) | no readable verifier `.pkl` | `> 0.7` | none |
+| **personalized** (post-v1, opt-in) | verifier `.pkl` loads | `> 0.20` | `> 0.30` |
 
-Concretely, in `voice_client.py`:
+Generic is the factory state of every device: nothing writes the verifier until the owner opts into
+personalization (WAKE-03 / WAKE-04). The base threshold is raised to 0.7 in that mode to compensate
+for the missing speaker-specific filtering, and the higher false-positive rate is the accepted v1
+trade-off. Feature extraction is invoked only in personalized mode and only after the base score
+clears the pre-filter, so a generic device never pays for it.
 
-```python
-VERIFIER_MODEL = Path(os.environ.get("ARLOWE_WAKE_WORD_VERIFIER",
-                                     "/var/lib/arlowe/wake-word/verifier.pkl"))
-if not VERIFIER_MODEL.exists():
-    VERIFIER_MODEL = None
-    WAKE_THRESHOLD = 0.7
+A verifier file that exists but cannot be unpickled -- truncated, half-written, corrupt -- is
+treated as absent: `load_verifier` logs to stderr and returns `None`, and the device runs generic.
+A broken personalization file must not stop the unit booting.
+
+The startup journal line names the active mode explicitly:
+
+```
+[2/4] Wake gate: generic model, base threshold 0.7 (no verifier at ... - device not personalized)
+[2/4] Wake gate: personalized (verifier /var/lib/arlowe/wake-word/verifier.pkl)
 ```
 
-Plan 02 wired this via env override; the verifier-absent code path is the v1 generic-model
-behaviour.
+Proof: `runtime/voice/tests/test_wake_gate.py`, which covers the absent, present, corrupt and
+truncated cases and asserts that the feature callable is never invoked in generic mode. It runs
+under a bare `python3` plus `pytest`:
 
-`quick_test.py` also handles the missing-verifier case gracefully: if the `.pkl` is absent it
-runs in base-model-only mode at threshold 0.7.
+```
+PYTHONPATH=runtime python3 -m pytest runtime/voice/tests/test_wake_gate.py -q
+```
+
+> **Correction (Phase 7.1, 2026-09):** the version of this section before Phase 7.1 documented an
+> `if not VERIFIER_MODEL.exists(): WAKE_THRESHOLD = 0.7` branch and asserted that an earlier plan
+> had already wired it via env override. **No such branch existed in the code.** `voice_client.py`
+> opened the verifier
+> pickle unguarded, so `arlowe-voice` raised `FileNotFoundError` on every factory device and
+> `Restart=on-failure` looped it forever. The behaviour described above was implemented in plan
+> 07.1-02; this note stays here rather than quietly overwriting the false claim, because a document
+> asserting a fix that was never made is the failure mode that cost this repo seven weeks on
+> Phase 7.
+>
+> The same section also named the wrong environment variable. `voice_client.py` reads
+> **`ARLOWE_VERIFIER_MODEL`**; the training and diagnostic scripts in this directory read
+> `ARLOWE_WAKE_WORD_VERIFIER`. They are separate knobs and setting only one of them will not move
+> the orchestrator's path. `docs/operations/phase-1-smoke-test.md` records this exact mix-up
+> burning a debug cycle on the Phase 1 smoke test.
+
+The diagnostic scripts in this directory do **not** import `wake_gate` and carry their own
+hardcoded numbers: `quick_test.py` falls back to base-model-only at 0.7 / verifier 0.5, and
+`test_verifier.py` sweeps at base 0.3 / verifier 0.6. They are bench tools, deliberately tunable
+away from the shipping policy. Do not read their thresholds as the device's behaviour.
 
 ## Personalization training procedure (post-v1)
 
@@ -71,8 +101,9 @@ When personalization ships:
 | `/var/lib/arlowe/wake-word/negative/` | Negative samples (.wav) | Owner data; never leaves device |
 | `/var/lib/arlowe/wake-word/verifier.pkl` | Trained verifier | Owner-bound; never leaves device |
 
-All three paths default from `ARLOWE_WAKE_WORD_STATE` (base dir) and `ARLOWE_WAKE_WORD_VERIFIER`
-(explicit verifier path). See "Env knobs" below.
+For the scripts in this directory, all three paths default from `ARLOWE_WAKE_WORD_STATE` (base dir)
+and `ARLOWE_WAKE_WORD_VERIFIER` (explicit verifier path). The voice orchestrator resolves the
+verifier from `ARLOWE_VERIFIER_MODEL` instead. See "Env knobs" below.
 
 ## Why no founder data ships in this repo
 
@@ -103,6 +134,7 @@ were extracted here.
 |---|---|---|
 | `ARLOWE_VENV_SITE_PACKAGES` | unset | Extra `sys.path` entry for training scripts (set in dev or by image build at `/opt/arlowe/venv/lib/python3.X/site-packages`) |
 | `ARLOWE_WAKE_WORD_STATE` | `/var/lib/arlowe/wake-word` | Base dir for samples and verifier |
-| `ARLOWE_WAKE_WORD_VERIFIER` | `${ARLOWE_WAKE_WORD_STATE}/verifier.pkl` | Explicit verifier path |
+| `ARLOWE_WAKE_WORD_VERIFIER` | `${ARLOWE_WAKE_WORD_STATE}/verifier.pkl` | Explicit verifier path, read by the scripts **in this directory only** |
+| `ARLOWE_VERIFIER_MODEL` | `/var/lib/arlowe/wake-word/verifier.pkl` | Explicit verifier path, read by `runtime/voice/voice_client.py`. Set by `units/arlowe-voice.service`. This is the one the shipping orchestrator honours |
 | `ARLOWE_SPEAK_BIN` | `/usr/local/bin/speak` | Path to the speak CLI helper used by auto_collect and quick_test |
 | `ARLOWE_ALSA_DEVICE` | `plughw:2,0` | ALSA capture (and playback) device for auto_collect |
