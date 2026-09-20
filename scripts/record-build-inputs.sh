@@ -103,10 +103,30 @@ if [[ "${MODE}" == "diff" ]]; then
         exit 2
     fi
 
+    # source_date_epoch is excluded from the comparison. It is derived from the
+    # commit, so it changes on EVERY commit while nothing it is meant to protect
+    # has moved -- measured on the first two pinned builds, where it was the only
+    # differing line and all 400+ resolved package rows were byte-identical. A
+    # gate that fires on every commit is one people learn to re-accept without
+    # reading, and this gate's whole value is that a diff means something. It is
+    # still recorded in the manifest and reported below, just not a failure.
+    #
+    # Everything else stays in scope, including the pins (pigen_ref,
+    # debian_snapshot) and worktree_clean -- those changing IS the signal.
+    _rbi_strip() { grep -v '^source_date_epoch\b' "$1"; }
+
     DIFF_OUT="$(diff -u \
         --label "reference: ${REFERENCE}" \
         --label "this build: ${DIFF_FILE}" \
-        "${REFERENCE}" "${DIFF_FILE}" || true)"
+        <(_rbi_strip "${REFERENCE}") <(_rbi_strip "${DIFF_FILE}") || true)"
+
+    _ref_epoch="$(awk '$1=="source_date_epoch"{print $2}' "${REFERENCE}")"
+    _new_epoch="$(awk '$1=="source_date_epoch"{print $2}' "${DIFF_FILE}")"
+    if [[ "${_ref_epoch}" != "${_new_epoch}" ]]; then
+        printf '[record-build-inputs] source_date_epoch %s -> %s (derived from the commit; not a gate failure)\n' \
+            "${_ref_epoch:-unset}" "${_new_epoch:-unset}"
+    fi
+
     if [[ -z "${DIFF_OUT}" ]]; then
         printf '[record-build-inputs] inputs identical to the reference.\n'
         exit 0
