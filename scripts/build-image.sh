@@ -55,6 +55,53 @@ warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$*"; }
 fail() { printf "${RED}[FAIL]${NC} %s\n" "$*" >&2; }
 
 # ---------------------------------------------------------------------------
+# SOURCE_DATE_EPOCH — derived from the commit being built (ADR-0009).
+#
+# The commit timestamp, not `date`: the point of the variable is that two builds
+# of the same tree agree, and `date` guarantees they never do.
+#
+# This has exactly one consumer, stage-arlowe/04-reproducibility/00-run.sh, and
+# that is deliberate. Exporting the variable and declaring the requirement met is
+# the state Phase 7.2 exists to correct — SOURCE_DATE_EPOCH appeared nowhere in
+# this repo except a comment deferring it to a plan that never happened. pi-gen
+# reads it nowhere itself. A variable with no consumer cannot be falsified; the
+# clamp sub-stage makes "no arlowe-authored file is newer than the epoch" a claim
+# a test can disprove.
+#
+# A dirty worktree WARNs rather than fails. The epoch then does not identify what
+# is being built, which is a real inaccuracy and is recorded as worktree_clean in
+# the input manifest — but failing outright would make every iterative build on
+# the build host impossible, and a labelled inaccuracy beats that.
+# ---------------------------------------------------------------------------
+if ! SOURCE_DATE_EPOCH="$(git -C "${REPO_ROOT}" log -1 --format=%ct 2>/dev/null)" \
+        || [[ ! "${SOURCE_DATE_EPOCH}" =~ ^[0-9]+$ ]]; then
+    fail "Cannot derive SOURCE_DATE_EPOCH from ${REPO_ROOT}."
+    fail "'git log -1 --format=%ct' produced no commit timestamp. A build whose"
+    fail "inputs are pinned but whose timestamps are not is not reproducible, so"
+    fail "this is a hard failure rather than a fallback to the wall clock."
+    exit 1
+fi
+export SOURCE_DATE_EPOCH
+
+ARLOWE_WORKTREE_CLEAN=true
+if [[ -n "$(git -C "${REPO_ROOT}" status --porcelain --untracked-files=no)" ]]; then
+    ARLOWE_WORKTREE_CLEAN=false
+fi
+export ARLOWE_WORKTREE_CLEAN
+
+# date -u -d @N is GNU (the build host); -r N is BSD. Neither is load-bearing —
+# this is a log line — so a failure to render it must not abort the build.
+SOURCE_DATE_HUMAN="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -r "${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || echo unrendered)"
+log "SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH} (${SOURCE_DATE_HUMAN}, commit $(git -C "${REPO_ROOT}" rev-parse --short HEAD))"
+if [[ "${ARLOWE_WORKTREE_CLEAN}" == "false" ]]; then
+    warn "Worktree has uncommitted changes to tracked files."
+    warn "SOURCE_DATE_EPOCH identifies HEAD, NOT the tree being built."
+    warn "The recorded input manifest will carry worktree_clean=false."
+fi
+
+# ---------------------------------------------------------------------------
 # Step 1: verify-third-party — fail the build early if deps missing/mismatched
 # ---------------------------------------------------------------------------
 log "=== Step 1: verify third-party deps ==="
@@ -178,6 +225,7 @@ log "models stage:    ${ARLOWE_MODELS_STAGE}"
     sudo SKIP_IMAGES=1 \
         WORK_DIR="${WORK_DIR}" \
         AXCL_DEB="${AXCL_DEB}" \
+        SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
         ARLOWE_KERNEL_CACHE="${ARLOWE_KERNEL_CACHE}" \
         ARLOWE_KERNEL_MANIFEST="${ARLOWE_KERNEL_MANIFEST}" \
         ARLOWE_MODELS_CACHE="${ARLOWE_MODELS_CACHE}" \
