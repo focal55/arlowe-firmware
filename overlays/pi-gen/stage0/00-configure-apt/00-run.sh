@@ -40,6 +40,17 @@ else
 	rm -f "${ROOTFS_DIR}/etc/apt/sources.list.d/00-temp.list"
 fi
 
+# upstream pi-gen's line, kept verbatim for the same reason as the SC2001 above:
+# every unnecessary edit here erodes what this file's recorded upstream digest
+# means. Rewriting it as `gpg --dearmor < file` would be a behaviour-identical
+# change whose only effect is to make the overlay diverge from upstream in one
+# more place.
+#
+# Ubuntu's shellcheck 0.9.0 (what CI installs) reports SC2002 at default
+# severity; 0.11.0 does not report it at all, having made the check optional. So
+# a clean local run on a newer shellcheck is NOT evidence about CI -- the version
+# matters as much as the severity flag.
+# shellcheck disable=SC2002
 cat files/raspberrypi.gpg.key | gpg --dearmor > "${STAGE_WORK_DIR}/raspberrypi-archive-stable.gpg"
 install -m 644 "${STAGE_WORK_DIR}/raspberrypi-archive-stable.gpg" "${ROOTFS_DIR}/etc/apt/trusted.gpg.d/"
 on_chroot <<- \EOF
