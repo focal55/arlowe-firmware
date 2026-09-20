@@ -1,78 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 // import { verifyAuth } from '../../middleware/auth';
 
-const execAsync = promisify(exec);
+// execFile, never exec: an SSID is whatever a nearby access point broadcasts, so it
+// is attacker-supplied data that must never reach a shell. Arguments go as an array.
+const execFileAsync = promisify(execFile);
+
+const nmcli = (args: string[], timeout = 10000) =>
+  execFileAsync('nmcli', args, { timeout });
 
 export async function POST(request: NextRequest) {
   console.log('--- [arlowe-dashboard-backend] POST /api/connectivity/connect ---');
-  
+
   // TODO: Re-enable auth after adding UI flow for authentication
   // const authError = verifyAuth(request);
   // if (authError) return authError;
-  
+
   try {
     const body = await request.json();
     const { ssid, password } = body;
 
-    if (!ssid) {
+    if (typeof ssid !== 'string' || !ssid) {
       return NextResponse.json({ error: 'SSID is required' }, { status: 400 });
     }
+    if (password !== undefined && typeof password !== 'string') {
+      return NextResponse.json({ error: 'Password must be a string' }, { status: 400 });
+    }
 
-    let command: string;
-    
-    // Check if this is a saved network (has existing profile)
+    // Saved-network check: list profile names and compare in JS rather than piping
+    // the SSID into grep, which would reinterpret it as a pattern even without a shell.
     let isSavedNetwork = false;
     try {
-      const { stdout } = await execAsync(`nmcli -t -f NAME connection show | grep -x '${ssid}'`);
-      isSavedNetwork = stdout.trim() === ssid;
+      const { stdout } = await nmcli(['-t', '-f', 'NAME', 'connection', 'show']);
+      isSavedNetwork = stdout.split('\n').some((name) => name === ssid);
     } catch {
-      // Not a saved network
+      // nmcli unavailable or no profiles; treat as not saved.
     }
-    
+
+    let args: string[];
     if (isSavedNetwork && !password) {
-      // Use connection up for saved networks (credentials already stored)
-      command = `nmcli connection up '${ssid}'`;
-      console.log(`Connecting to saved network: ${ssid}`);
+      args = ['connection', 'up', ssid];
+      console.log('Connecting to saved network');
     } else if (password) {
-      // New network with password - delete any broken profile first
+      // Drop a stale profile so a changed password cannot be masked by an old one.
       try {
-        await execAsync(`nmcli connection delete '${ssid}' 2>/dev/null || true`);
+        await nmcli(['connection', 'delete', ssid]);
       } catch {
-        // Ignore
+        // No such profile — nothing to clear.
       }
-      const escapedPassword = password.replace(/'/g, "'\\''");
-      command = `nmcli device wifi connect '${ssid}' password '${escapedPassword}'`;
-      console.log(`Connecting to new network: ${ssid}`);
+      args = ['device', 'wifi', 'connect', ssid, 'password', password];
+      console.log('Connecting to new network');
     } else {
-      // Open network
-      command = `nmcli device wifi connect '${ssid}'`;
-      console.log(`Connecting to open network: ${ssid}`);
+      args = ['device', 'wifi', 'connect', ssid];
+      console.log('Connecting to open network');
     }
-    
-    console.log(`Executing connect command for SSID: ${ssid}`);
-    const { stdout, stderr } = await execAsync(command, { timeout: 30000 });
+
+    const { stdout, stderr } = await nmcli(args, 30000);
 
     if (stderr) {
-      console.error(`nmcli connect stderr for SSID "${ssid}":`, stderr);
-      // Check for common connection errors
+      console.error('nmcli connect stderr:', stderr);
       if (stderr.includes('Error: No network with SSID')) {
-        return NextResponse.json({ error: `Network not found: ${ssid}` }, { status: 404 });
+        return NextResponse.json({ error: 'Network not found' }, { status: 404 });
       }
       if (stderr.includes('Error: Connection activation failed')) {
-         return NextResponse.json({ error: 'Connection failed. Please check the password.' }, { status: 401 });
+        return NextResponse.json({ error: 'Connection failed. Please check the password.' }, { status: 401 });
       }
       return NextResponse.json({ error: 'Failed to connect to the network.', details: stderr }, { status: 500 });
     }
 
-    console.log(`Successfully connected to SSID: ${ssid}`);
     console.log('nmcli stdout:', stdout);
     return NextResponse.json({ message: `Successfully connected to ${ssid}` });
 
   } catch (error) {
     console.error('Failed to process connection request:', error);
-    // Handle cases where the request body is malformed
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
     }
