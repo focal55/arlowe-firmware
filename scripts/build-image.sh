@@ -218,9 +218,12 @@ ok "Model-free rootfs at: ${PIGEN_ROOTFS}"
 #      it is the only one of the three that catches a partially-applied
 #      overlay.
 #
-# These read ${WORK_DIR}/stage-arlowe/rootfs, which keeps its populated
-# /var/lib/apt/lists: the only place pi-gen deletes them is
-# export-image/02-set-sources, which operates on its own copied rootfs.
+# These read ${WORK_DIR}/stage-arlowe/rootfs and need its /var/lib/apt/lists to
+# still be populated at this point. pi-gen itself only empties that directory in
+# export-image/02-set-sources, which operates on its own copied rootfs and is
+# skipped entirely under SKIP_IMAGES=1 -- but stage-arlowe/01-runtime used to
+# empty it in-chroot, long before this gate ran. That is why the deletion now
+# happens BELOW, once the evidence has been read.
 # ---------------------------------------------------------------------------
 log "=== Snapshot pin observation (built rootfs) ==="
 
@@ -266,6 +269,14 @@ if (( ROLLING_LISTS > 0 )); then
 fi
 
 ok "Debian resolution pinned: ${SNAPSHOT_LISTS} snapshot list files, 0 off-pin."
+
+# The apt index is ~136 MB and must not ship, but it is also the ONLY evidence
+# the gate above has. stage-arlowe/01-runtime/00-run-chroot.sh used to delete it
+# in-chroot, which is strictly earlier than every gate in this file; the deletion
+# lives here instead so the order is observe-then-remove. Anything that needs the
+# index must read it above this line.
+sudo rm -rf "${PIGEN_ROOTFS:?}/var/lib/apt/lists/"*
+ok "apt index removed from the rootfs (${SNAPSHOT_LISTS} list files) after observation."
 
 # Assert the packages stage-arlowe declares actually landed in the rootfs.
 # An unread package list is invisible at build time: pi-gen reads NN-packages-nr

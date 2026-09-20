@@ -333,7 +333,19 @@ echo "[00-run-chroot] cleaning nondeterminism artifacts"
 
 # apt cache
 apt-get clean
-rm -rf /var/lib/apt/lists/*
+
+# /var/lib/apt/lists is NOT deleted here, deliberately. It used to be, and that
+# is the one thing that made the snapshot pin unobservable: build-image.sh's
+# snapshot gate counts the list files naming snapshot.debian.org (must be > 0)
+# and the ones naming the rolling mirror (must be 0), and it runs after ALL of
+# pi-gen, i.e. after this script. Emptying the directory here left that gate
+# reading nothing -- the first assertion aborted every build, and the second,
+# which is the only one that catches a partially-applied overlay, could never
+# fire because zero list files trivially contain zero off-pin list files.
+#
+# The 136 MB still must not ship, so the deletion moved to build-image.sh
+# immediately AFTER the gate and well before anything is measured or
+# partitioned. Observe the artifact, then remove it -- not the reverse.
 
 # Python bytecode caches
 find /opt/arlowe /usr -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
