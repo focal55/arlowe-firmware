@@ -30,5 +30,8 @@ if [ "$RELEASE" != "bookworm" ]; then
 fi
 
 if [ ! -d "${ROOTFS_DIR}" ]; then
+	# upstream pi-gen leaves RELEASE unquoted; this file is a faithful copy and the only
+	# intended divergence is the snapshot URL. RELEASE is a distro codename, no whitespace.
+	# shellcheck disable=SC2086
 	bootstrap ${RELEASE} "${ROOTFS_DIR}" http://snapshot.debian.org/archive/debian/20260915T000000Z/
 fi

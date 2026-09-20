@@ -32,6 +32,9 @@ fi
 
 if [ -n "$TEMP_REPO" ]; then
 	install -m 644 /dev/null "${ROOTFS_DIR}/etc/apt/sources.list.d/00-temp.list"
+	# upstream pi-gen uses echo|sed here; kept verbatim so the recorded upstream digest
+	# keeps meaning "unchanged from upstream apart from our pin".
+	# shellcheck disable=SC2001
 	echo "$TEMP_REPO" | sed "s/RELEASE/$RELEASE/g" > "${ROOTFS_DIR}/etc/apt/sources.list.d/00-temp.list"
 else
 	rm -f "${ROOTFS_DIR}/etc/apt/sources.list.d/00-temp.list"

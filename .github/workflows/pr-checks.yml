@@ -104,6 +104,8 @@ jobs:
             scripts/lib/*.sh \
             scripts/pki/*.sh \
             pi-gen/stage-arlowe/**/*.sh \
+            overlays/pi-gen/**/*.sh \
+            tests/phase-*/*.sh \
             units/install-units.sh \
             runtime/cli/ab \
             runtime/recovery/*.sh
