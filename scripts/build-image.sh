@@ -400,6 +400,59 @@ fi
 ok "Kernel pinned: rootfs carries exactly $(printf '%s' "${ACTUAL_KVERS}" | tr '\n' ' ')"
 
 # ---------------------------------------------------------------------------
+# BUILD INPUT RECORD AND DRIFT GATE (ADR-0009, Phase 7.2 SC5)
+#
+# The gates above assert the things we PINNED are what landed. This records
+# everything that RESOLVED -- roughly 400 Debian packages nobody individually
+# chose -- and diffs it against a committed reference. The pins cover what we
+# control; the record covers what we merely accepted; the gate notices when the
+# second set moves without the first.
+#
+# PLACEMENT, same reasoning as the substrate gates: after the rootfs is fully
+# provisioned and before anything is measured or partitioned, so an input drift
+# costs a rootfs build rather than a full partition-and-image cycle.
+#
+# Exit 2 (no reference committed yet) warns and continues -- the first build
+# legitimately has no baseline. Exit 1 aborts with the diff already printed.
+# ---------------------------------------------------------------------------
+log "=== Build input record (built rootfs) ==="
+
+INPUTS_MANIFEST="${REPO_ROOT}/build/arlowe-inputs.manifest"
+INPUTS_REFERENCE="${REPO_ROOT}/docs/operations/phase-07.2-inputs.reference"
+
+if ! "${SCRIPT_DIR}/record-build-inputs.sh" --rootfs "${PIGEN_ROOTFS}" --out "${INPUTS_MANIFEST}"; then
+    fail "Could not record the build inputs for this rootfs."
+    fail "This is a hard failure, not a skip: an unrecorded build cannot be"
+    fail "compared against the reference, and a gate that silently records"
+    fail "nothing is the defect Phase 7.2 exists to remove."
+    exit 1
+fi
+
+set +e
+"${SCRIPT_DIR}/record-build-inputs.sh" --diff "${INPUTS_MANIFEST}" --reference "${INPUTS_REFERENCE}"
+INPUTS_RC=$?
+set -e
+
+case "${INPUTS_RC}" in
+    0)
+        ok "Build inputs identical to ${INPUTS_REFERENCE#"${REPO_ROOT}/"}"
+        ;;
+    2)
+        warn "No input reference committed yet at ${INPUTS_REFERENCE#"${REPO_ROOT}/"}."
+        warn "Commit ${INPUTS_MANIFEST#"${REPO_ROOT}/"} there to make later builds gated."
+        ;;
+    *)
+        fail "Build inputs differ from the recorded reference (diff above)."
+        fail "Something that is not pinned moved. If the bump is deliberate:"
+        fail "  ARLOWE_INPUTS_ACCEPT=1 scripts/record-build-inputs.sh \\"
+        fail "      --diff ${INPUTS_MANIFEST#"${REPO_ROOT}/"} \\"
+        fail "      --reference ${INPUTS_REFERENCE#"${REPO_ROOT}/"}"
+        fail "and commit the re-recorded reference alongside the change that caused it."
+        exit 1
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
 # UNIT SUBSTRATE GATES — the inverse of the packages guard directly above.
 #
 # That guard proves DECLARED packages landed, so by construction it cannot see a
