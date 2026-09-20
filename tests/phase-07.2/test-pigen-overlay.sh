@@ -200,6 +200,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+_exec_bit() { [[ -x "$1" ]] && echo x || echo -; }
+_exec_bit_of_mode() { case "$1" in *[1357]) echo x;; *) echo -;; esac; }
+
 # [real-manifest] the shipped overlay's own digests and modes are not stale.
 # Nothing else catches a hand-edited overlay file whose digest was not
 # re-recorded until a build runs, hours in.
@@ -212,8 +215,15 @@ while IFS=$'\t' read -r p m _upstream o; do
         REAL_STALE="${REAL_STALE} missing:${p}"
     elif [[ "$(sha "$f")" != "$o" ]]; then
         REAL_STALE="${REAL_STALE} digest:${p}"
-    elif [[ "$(stat -c %a "$f")" != "$m" ]]; then
-        REAL_STALE="${REAL_STALE} mode:${p}"
+    elif [[ "$(_exec_bit "$f")" != "$(_exec_bit_of_mode "$m")" ]]; then
+        # Compare ONLY the executable bit. git tracks 100644 vs 100755 and nothing
+        # else; the group/other bits of a checked-out file come from the checking-out
+        # user's umask. A umask of 0002 yields 775/664 where 0022 yields 755/644, so
+        # comparing the full mode makes this test pass or fail on an environment
+        # property rather than on the overlay being stale. The MANIFEST mode is still
+        # the mode the applier INSTALLS -- that is the lost-exec-bit defence and is
+        # asserted by [mode-source] and [mode-assertion-teeth] against installed files.
+        REAL_STALE="${REAL_STALE} execbit:${p}"
     fi
 done < "${REPO_ROOT}/overlays/pi-gen/MANIFEST"
 if [[ -z "${REAL_STALE}" ]]; then
