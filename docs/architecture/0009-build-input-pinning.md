@@ -185,6 +185,25 @@ host — and is handled by pool-URL-plus-checksum in plan 07.2-02. Splitting the
 different mechanism, different blast radius, and a snapshot outage should not be
 indistinguishable from a kernel hash mismatch.
 
+**Why the Pi side uses pool URL plus checksum — stated correctly.** Three reasons, and only
+these three:
+
+1. **The digest is the pin.** An index entry is whatever the archive serves today; a recorded
+   digest is a claim that can be falsified.
+2. **The local cache makes a rebuild independent of the archive** still being reachable, and of
+   what it still retains.
+3. **There is no Raspberry Pi snapshot service**, so the mechanism this ADR uses for Debian is
+   unavailable on the Pi side.
+
+An earlier draft justified the pool fetch by claiming the Pi index retains just one version per
+package. **That was measured and refuted** in plan 07.2-02:
+`dists/bookworm/main/binary-arm64/Packages.gz` carries eleven `linux-image-*-rpt-rpi-2712`
+versions, 6.12.19 through 6.12.109, including every version pinned here. What carries exactly
+one version is the **meta** package, which is why the four meta packages are *removed* rather
+than version-constrained — there is no older candidate to pin them to. Do not reintroduce the
+refuted claim; the risk that is real is **pool retention of 6.12.96**, which is Raspberry Pi's
+policy and not a guarantee to us.
+
 **Image-hash equality remains out of scope**, per the existing Phase 6 ADR. What is gated here is
 *input* reproducibility: the same inputs resolve on every build. Two builds from the same inputs
 are not expected to produce byte-identical images, and nothing in this phase asserts that they do.
@@ -200,9 +219,67 @@ are not expected to produce byte-identical images, and nothing in this phase ass
   `overlays/pi-gen/stage0/prerun.sh`, and `PIGEN_SNAPSHOT` in `scripts/build-image.sh` — plus the
   MANIFEST digests. Forgetting any one of them fails the build rather than silently unpinning it.
 - Builds are slower. snapshot.debian.org is not a CDN.
+- **The build work dir must be destroyed before every full build.** This is a direct
+  build-procedure consequence of the prevent-don't-downgrade design above, not incidental
+  housekeeping. pi-gen guards its expensive steps on the rootfs already existing
+  (`stage0/prerun.sh` wraps bootstrap in `[ ! -d "${ROOTFS_DIR}" ]`), and `build-image.sh` only
+  `mkdir -p`s the work dir and never cleans it. Against a surviving tree, debootstrap is skipped
+  — defeating the snapshot pin, since the base system stays whatever it previously rolled to —
+  and, because the pinned and unpinned kernels are differently-*named* packages, apt has no
+  reason to remove the old one, so **both** remain installed.
+  `stage-arlowe/01-runtime/00-run-chroot.sh` then selects `IMG_KVER` with `sort -V | tail -1`,
+  picks the *newer* kernel, and the axcl compile fails ~25 minutes in with a log that reads
+  exactly like "the pin did not work". The property that makes the pin un-driftable is the same
+  property that makes an unclean tree accumulate rather than replace. Procedure in
+  `docs/operations/phase-07.2-build-pinning.md`.
 - Adding a fifth overlay entry means copying the upstream file, making the minimum change, and
   recording both digests by hand. The self-test's `real-manifest` case fails on a stale digest, so
   a forgotten re-record surfaces in CI rather than hours into a build.
+
+## Outcome — what the build actually showed
+
+An ADR that records only the plan teaches the next reader nothing. Plan 07.2-04 ran the
+phase's one full build on the arm64 build host at commit `2d57b8b` (2026-09-20), against a
+work dir destroyed first. Results:
+
+- **The mechanism worked as designed, first try.** All six overlay entries applied and
+  mode-asserted on a *cached* pi-gen tree; debootstrap ran for 3m35s against
+  `snapshot.debian.org/archive/debian/20260915T000000Z`; the rootfs carried exactly
+  `6.12.96+rpt-rpi-2712` and `6.12.96+rpt-rpi-v8` and nothing else; and the build log contains
+  **zero** references to the four kernel meta packages, so nothing resolved a kernel.
+- **SC6 — the thing that caused this phase — is fixed.** Five axcl `.ko` files built, all with
+  `vermagic: 6.12.96+rpt-rpi-2712`. Zero `too few arguments to function` and zero
+  `pci_resize_resource` hits. The `00-run-chroot.sh` line
+  `axcl driver build targeting image kernel 6.12.96+rpt-rpi-2712` is the direct counterpart of
+  the `6.12.109+rpt-rpi-2712` that broke it.
+- **The reference manifest holds 658 packages** and 10 pinned artifacts — noticeably more than
+  the ~220 the resolve-twice CI job sees, because that job resolves the declared package set
+  while this records everything actually installed in the finished rootfs.
+- **Measured rootfs size, for issue #135:** 2,758,905,768 B = **2.57 GiB**, model-free
+  (`/usr` 2.0 G, `/opt` 715 M of which venvs 434 M and vendored Node 204 M, `/boot` 102 M).
+  This is the first whole-rootfs measurement taken on a real build rather than in a container
+  or against an empty directory, and the first that includes `/opt/arlowe/venvs` at all.
+  ADR-0004's "≈2-3 GB per slot" survives contact with measurement.
+
+**Two surprises, both worth recording.**
+
+1. **`scripts/build-image.sh` was tracked with a non-executable mode** (`100644`) and had been
+   since Phase 6. It ran on the build host only because that working copy carried a stray local
+   exec bit. A fresh checkout could not execute the documented invocation at all. Fixed in the
+   same plan. This is the same failure shape as decision 4 above — a lost exec bit is silent —
+   arriving through version control rather than through the overlay.
+
+2. **The Phase 7.1 unit substrate gates read the build host, not the rootfs.** They glob
+   `/etc/systemd/system/*.service` and read the results without chroot. Seven of those entries
+   are dbus alias symlinks whose targets are *absolute* (`/lib/systemd/system/...`), so the read
+   escapes the rootfs. Demonstrated on `dbus-org.freedesktop.nm-dispatcher.service`: the gate
+   reported `ExecStart=/usr/libexec/nm-dispatcher` (the trixie host's NetworkManager 1.52.1) and
+   failed the build for a missing binary, while the rootfs's own unit declares
+   `ExecStart=/usr/lib/NetworkManager/nm-dispatcher`, which is present. This is a Phase 7.1
+   defect and is not patched here, but it belongs on this page because it is the same lesson
+   decision 9 states for *this* phase's gates — **the rootfs is the evidence** — violated in a
+   neighbouring one. A gate that reads the host can return a false pass as easily as this false
+   failure.
 
 ## Alternatives considered
 

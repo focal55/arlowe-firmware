@@ -260,7 +260,7 @@ Plans:
 **Why inserted**: Found when the Phase 7.1 SC6 checkpoint build failed at `ax_pcie_dev_host.c:220` — the kernel gained an `exclude_bars` argument to `pci_resize_resource` between 6.12.96 and 6.12.109. Nothing in this repo changed; an unpinned input did. The failure was the lucky case: a compile error is loud, and the same drift could have shipped a quietly different kernel instead.
 
 **Success Criteria** (what must be TRUE):
-  1. The kernel is pinned to an explicit version and verified by sha256. It must be fetched by **pool URL**, not apt version pinning — `archive.raspberrypi.com` is a rolling index carrying only the newest version, while its pool still serves older debs (verified: 6.12.96's four debs return HTTP 206; the pool retains 6.12.19 through 6.12.109). `6.12.96` is the known-good reference, proven booting on the current test card.
+  1. The kernel is pinned to an explicit version and verified by sha256. It must be fetched by **pool URL**, not apt version pinning — for three reasons: the digest is the pin (an index entry is whatever the archive serves today; a recorded digest is a claim that can be falsified), the local cache makes a rebuild independent of the archive, and **no Raspberry Pi snapshot service exists** (`snapshot.raspberrypi.com` and `.org` both return HTTP 000), so the Debian-side snapshot mechanism is simply unavailable on this side. **Not** because the index retains one version — that premise was measured and refuted in plan 07.2-02: `dists/bookworm/main/binary-arm64/Packages.gz` carries eleven `linux-image-*-rpt-rpi-2712` versions, 6.12.19 through 6.12.109, including every version pinned here. What carries exactly one version is the **meta** package (`apt-cache madison linux-headers-rpi-2712` → `1:6.12.109-1+rpt1`), which is why the four meta packages are *removed* from `stage0/02-firmware/01-packages` rather than version-constrained. The thing that can actually change, and therefore the risk to watch, is **pool RETENTION of 6.12.96**: the pool retains 6.12.19 through 6.12.109 today, but that is Raspberry Pi's retention policy and not a guarantee to us — mirror the six pinned debs somewhere the project controls. `6.12.96` is the known-good reference, proven booting on the current test card.
   2. Debian-side packages resolve from a snapshot so a later rebuild resolves the same versions. `snapshot.debian.org` is reachable; **no Raspberry Pi snapshot service exists** (`snapshot.raspberrypi.com` and `.org` are both unreachable), so the Pi archive needs the pool-plus-checksum treatment rather than a snapshot URL.
   3. `SOURCE_DATE_EPOCH` is derived from the commit and actually honored by the build, rather than named in a requirement and implemented nowhere.
   4. **The pins survive pi-gen's re-clone.** The kernel enters via `pi-gen/stage0/02-firmware/01-packages`, an upstream file; `build-image.sh` re-clones pi-gen at its tag every build and restores only `config` + `stage-arlowe`, so an edit to `stage0/` is erased. The mechanism must be idempotent and asserted, or it silently stops applying — the F7 #18 shape.
@@ -272,10 +272,48 @@ Plans:
 Sequential by necessity, not by omission: all four plans own `scripts/build-image.sh`, and 02/03 build on the overlay mechanism 01 delivers. Only plan 04 runs a full image build.
 
 Plans:
-- [ ] 07.2-01-PLAN.md — The pi-gen overlay mechanism (SC4) plus the Debian snapshot pin (SC2): a tracked `pi-gen/overlay/` tree and an applier that asserts upstream drift, failed application, unexpected pre-existing files, and lost exec bits; `20260915T000000Z` for debootstrap and apt; ADR-0009 (Wave 1)
-- [ ] 07.2-02-PLAN.md — Kernel pinned to 6.12.96 (SC1): `third_party/kernel/manifest.yml` with six pool-fetched debs by sha256, a `verify-third-party.sh` stanza inheriting the node cache fallback, the four meta packages removed from `stage0/02-firmware/01-packages`, and a build-time assertion that the rootfs carries exactly one kernel version (Wave 2)
-- [ ] 07.2-03-PLAN.md — `SOURCE_DATE_EPOCH` with a falsifiable consumer (SC3) and the recorded-input manifest plus diff gate (SC5); CI job proving two resolutions agree without building an image (Wave 3)
+- [x] 07.2-01-PLAN.md — The pi-gen overlay mechanism (SC4) plus the Debian snapshot pin (SC2): a tracked `pi-gen/overlay/` tree and an applier that asserts upstream drift, failed application, unexpected pre-existing files, and lost exec bits; `20260915T000000Z` for debootstrap and apt; ADR-0009 (Wave 1)
+- [x] 07.2-02-PLAN.md — Kernel pinned to 6.12.96 (SC1): `third_party/kernel/manifest.yml` with six pool-fetched debs by sha256, a `verify-third-party.sh` stanza inheriting the node cache fallback, the four meta packages removed from `stage0/02-firmware/01-packages`, and a build-time assertion that the rootfs carries exactly one kernel version (Wave 2)
+- [x] 07.2-03-PLAN.md — `SOURCE_DATE_EPOCH` with a falsifiable consumer (SC3) and the recorded-input manifest plus diff gate (SC5); CI job proving two resolutions agree without building an image (Wave 3)
 - [ ] 07.2-04-PLAN.md — The one full build: axcl compiles against 6.12.96 (SC6), the reference input manifest committed from real build output, pin-bump runbook, IMAGE-03 and Phase 6 SC5 records closed (Wave 4, checkpoint)
+
+**Build outcome (plan 07.2-04, commit `2d57b8b`, arm64 build host, 2026-09-20).** One full
+build, against a work dir destroyed first so debootstrap actually ran (`stage0/prerun.sh`
+08:08:53 → 08:12:28, resolving from
+`http://snapshot.debian.org/archive/debian/20260915T000000Z`).
+
+| SC | Verdict | Evidence |
+|---|---|---|
+| SC1 kernel pinned by pool URL + sha256 | **MET** | All six debs verified by digest pre-build; rootfs carries exactly `6.12.96+rpt-rpi-2712` and `6.12.96+rpt-rpi-v8`; `/usr/src` holds only 6.12.96 headers; **zero** hits for `linux-(image\|headers)-rpi-(v8\|2712)` in the build log, so no meta package resolved. |
+| SC2 Debian from a snapshot | **MET** | In-build gate: `Debian resolution pinned: 29 snapshot list files, 0 off-pin`; 7 snapshot lines in the rootfs `sources.list`. |
+| SC3 `SOURCE_DATE_EPOCH` honoured | **MET** | `clamped 9935 path(s) to SOURCE_DATE_EPOCH=1789888361`; `asserted: 0 arlowe-authored paths newer than the epoch`; independently re-checked against the rootfs. |
+| SC4 pins survive pi-gen's re-clone | **MET** | All 6 overlay entries applied and mode-asserted on a cached pi-gen tree before the build. |
+| SC5 recorded manifest + diff gate | **MET** | `docs/operations/phase-07.2-inputs.reference`, 658 pkg rows + 10 pin rows, generated from this build's rootfs. First build correctly took the exit-2 warn path. |
+| SC6 axcl compiles against the pin | **MET** | `axcl driver build targeting image kernel 6.12.96+rpt-rpi-2712`; five `.ko` built, `vermagic: 6.12.96+rpt-rpi-2712 SMP preempt mod_unload modversions aarch64`; **zero** `too few arguments to function` and zero `pci_resize_resource` hits. The failure that caused this phase is gone. |
+
+**Phase 6 SC5 is now checkable** — not by assertion but by a mechanism that exists: the
+recorded input manifest plus the diff gate in `scripts/build-image.sh`, backed by the
+`build-inputs-resolve` CI job that proves two resolutions from one commit agree.
+
+**Phase 7.1 SC6 is unblocked in the sense this phase owns — the driver COMPILES — but its
+hardware checkpoint cannot run yet.** This build did **not** emit a `.img`: it aborted
+after all six criteria above were satisfied, at the Phase 7.1 unit substrate gates.
+
+**That abort is a Phase 7.1 gate defect, not a rootfs defect.** `verify_unit_execstart` and
+`verify_unit_runtime_versions` glob `/etc/systemd/system/*.service` and read the results
+**without chroot**. Seven of those entries are dbus alias symlinks whose targets are
+*absolute* (`/lib/systemd/system/...`), so the read escapes the rootfs and lands on the
+**build host's** unit files. Proven: the rootfs's own
+`NetworkManager-dispatcher.service` declares `ExecStart=/usr/lib/NetworkManager/nm-dispatcher`
+(present, 68024 bytes), while the gate reported the trixie host's
+`ExecStart=/usr/libexec/nm-dispatcher` (absent from the rootfs). The remaining 11 failures are
+OS daemons (`sshd`, `wpa_supplicant`, `bluetoothd`, `avahi-daemon`, `ModemManager`,
+`systemd-timesyncd`) being demanded an interpreter version floor they cannot have. **Every
+arlowe unit passed** — node 24.21.0 against a 20.9.0 floor, and four venv pythons at 3.11.2
+against a 3.11.0 floor. The severity is that a gate reading the host instead of the rootfs can
+produce a false PASS as readily as this false FAIL. Needs a Phase 7.1 gap-closure plan; not
+patched here, because loosening a gate from inside a verification plan is the move this phase
+exists to distrust.
 
 ### Phase 8: First-boot pairing and wake word
 

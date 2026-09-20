@@ -84,7 +84,7 @@
 
 - [ ] **IMAGE-01**: pi-gen pipeline produces a flashable `.img` file from repo contents + pinned dependencies
 - [ ] **IMAGE-02**: Image stages: base (Pi OS), hardware deps (`axcl_host.deb`, ALSA, NetworkManager, Python), runtime (`/opt/arlowe/runtime/`), models (single shared read-only `models` partition mounted at `/opt/arlowe/models` in both slots — see ADR-0004), first-boot (first-boot hook armed — ready-to-pair state; the pairing daemon itself is Phase 8)
-- [ ] **IMAGE-03**: Image build is reproducible — build inputs are pinned (Debian snapshot, debs, submodule, SOURCE_DATE_EPOCH); image-hash equality is NOT gated (ext4 nondeterminism); documented exception list (see ADR / docs/operations/phase-6 repro notes)
+- [x] **IMAGE-03**: Image build is reproducible — build **inputs** are pinned; image-hash equality is **NOT** gated (ext4 nondeterminism), per ADR-0009's scope boundary. Closed by Phase 7.2 against a real build, not by assertion. What is now true: the kernel is installed from six digest-pinned debs rather than resolved (`third_party/kernel/manifest.yml`); Debian debootstraps and resolves from snapshot `20260915T000000Z` (`overlays/pi-gen/stage0/`); `SOURCE_DATE_EPOCH` is derived from the commit and has a consumer that fails rather than skips (`pi-gen/stage-arlowe/04-reproducibility/`); the ax-llm submodule and axcl/node/model artifacts are digest-pinned. Evidence, each named rather than claimed: the reference manifest `docs/operations/phase-07.2-inputs.reference` (658 pkg rows, generated from the built rootfs); the diff gate in `scripts/build-image.sh`; the `build-inputs-resolve` CI job proving two resolutions from one commit agree; and the bump procedures in `docs/operations/phase-07.2-build-pinning.md`. What is deliberately **not** claimed: two builds are not expected to produce byte-identical images, and nothing asserts that they do.
 - [ ] **IMAGE-04**: Image size verified ≤ 16 GB viable (single shared model set + fixed overhead fits a 16 GB card; 32 GB recommended for larger-model headroom — see ADR-0004); flash time documented
 - [ ] **IMAGE-05**: `scripts/build-image.sh` runs the full pipeline; `scripts/flash-sd.sh` writes to a connected SD card
 - [ ] **IMAGE-06**: `scripts/dev-deploy.sh` rsyncs `runtime/` to a connected Pi for fast iteration without re-flashing
@@ -252,7 +252,7 @@ Every v1 requirement is mapped to exactly one **owning** phase in `.planning/ROA
 | WAKE-03 | Phase 8 | Pending |
 | IMAGE-01 | Phase 6 | Pending |
 | IMAGE-02 | Phase 6 (+ 7.1) | Pending |
-| IMAGE-03 | Phase 6 | Pending |
+| IMAGE-03 | Phase 6 (+ 7.2) | Met — inputs pinned + gated; see `docs/operations/phase-07.2-inputs.reference`, ADR-0009 |
 | IMAGE-04 | Phase 6 | Pending |
 | IMAGE-05 | Phase 6 | Pending |
 | IMAGE-06 | Phase 6 | Pending |
