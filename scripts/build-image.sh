@@ -41,6 +41,9 @@ SUBSTRATE_LIB="${SCRIPT_DIR}/lib/verify-unit-execstart.sh"
 # shellcheck source=scripts/lib/verify-unit-execstart.sh
 source "${SUBSTRATE_LIB}"
 
+# shellcheck source=scripts/lib/pigen-overlay.sh
+source "${SCRIPT_DIR}/lib/pigen-overlay.sh"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -74,6 +77,14 @@ log "=== Step 2: pi-gen build ==="
 PIGEN_REF="2026-06-18-raspios-bookworm-arm64"
 PIGEN_MARKER="${PI_GEN_DIR}/.arlowe-pigen-ref"
 
+# Debian snapshot timestamp the rootfs must resolve from. The overlay under
+# overlays/pi-gen/ declares it; this constant is what the post-build gate below
+# expects to OBSERVE in the built rootfs. The two are deliberately independent
+# copies: if they drift, the gate fails and a human reconciles them. Deriving
+# this from the overlay would make the gate agree with whatever the overlay
+# happens to say, which is not a measurement.
+PIGEN_SNAPSHOT="20260915T000000Z"
+
 if [[ -f "${PIGEN_MARKER}" && "$(cat "${PIGEN_MARKER}")" == "${PIGEN_REF}" ]]; then
     ok "pi-gen pinned at ${PIGEN_REF}"
 else
@@ -97,6 +108,25 @@ else
     rm -rf "${PIGEN_TMP}"
     ok "pi-gen provisioned at ${PIGEN_REF}"
 fi
+
+# Apply the tracked arlowe overlay onto the pi-gen tree.
+#
+# This call sits OUTSIDE the branch above, and that placement is the entire
+# point. The cached-pi-gen branch short-circuits to an `ok` line and does no
+# work, so an overlay applied only inside the clone branch would stop applying
+# the moment a build reuses a cached tree -- which is the common case, not the
+# rare one. A pin that quietly stops applying is the F7 #18 shape.
+#
+# The overlay source is ${REPO_ROOT}/overlays/pi-gen, entirely outside
+# ${PI_GEN_DIR}. That is why the `sudo rm -rf "${PI_GEN_DIR}"` above cannot
+# destroy it and why git can track it at all -- .gitignore's /pi-gen/* rule
+# would otherwise make the whole overlay an untracked no-op in CI.
+apply_pigen_overlay "${PI_GEN_DIR}" "${REPO_ROOT}/overlays/pi-gen" || {
+    fail "pi-gen overlay did not apply cleanly — aborting before the build."
+    fail "The build inputs this overlay pins would otherwise float; see"
+    fail "docs/architecture/0009-build-input-pinning.md."
+    exit 1
+}
 
 # pi-gen sets WORK_DIR; default to a canonical build-local path so the
 # models marker file (written by stage-arlowe/02-models/00-run.sh) is
@@ -141,6 +171,73 @@ if [[ ! -d "${PIGEN_ROOTFS}" ]]; then
     exit 1
 fi
 ok "Model-free rootfs at: ${PIGEN_ROOTFS}"
+
+# ---------------------------------------------------------------------------
+# SNAPSHOT PIN OBSERVATION GATE
+#
+# Reads nothing from overlays/. Reading the timestamp back out of the overlay
+# would prove only that we wrote what we wrote; the rootfs is where the pin
+# either happened or did not.
+#
+# Three assertions, in increasing order of how much they actually catch:
+#   1. the pin reached the rootfs as an ACTIVE deb line (not just a comment),
+#      and nothing under sources.list.d/ declares the rolling mirror -- a
+#      deb822 .sources file there would bypass sources.list entirely;
+#   2. at least one apt list file names the snapshot host, i.e. packages really
+#      did resolve from it;
+#   3. ZERO apt list files name the rolling mirror. This is the real check. A
+#      rolling-mirror list file present means something resolved off-pin, and
+#      it is the only one of the three that catches a partially-applied
+#      overlay.
+#
+# These read ${WORK_DIR}/stage-arlowe/rootfs, which keeps its populated
+# /var/lib/apt/lists: the only place pi-gen deletes them is
+# export-image/02-set-sources, which operates on its own copied rootfs.
+# ---------------------------------------------------------------------------
+log "=== Snapshot pin observation (built rootfs) ==="
+
+if ! sudo grep -Eq "^deb[[:space:]]+http://snapshot\.debian\.org/archive/debian/${PIGEN_SNAPSHOT}[[:space:]]" \
+        "${PIGEN_ROOTFS}/etc/apt/sources.list"; then
+    fail "Built rootfs does not resolve Debian from snapshot ${PIGEN_SNAPSHOT}."
+    fail "No active deb line in ${PIGEN_ROOTFS}/etc/apt/sources.list names it:"
+    sudo grep -vE '^[[:space:]]*(#|$)' "${PIGEN_ROOTFS}/etc/apt/sources.list" >&2 || true
+    fail "The stage0 overlay did not reach the rootfs, or PIGEN_SNAPSHOT here"
+    fail "disagrees with overlays/pi-gen/stage0/00-configure-apt/files/sources.list."
+    exit 1
+fi
+
+ROLLING_DECL="$(sudo grep -rhvE '^[[:space:]]*(#|$)' \
+    "${PIGEN_ROOTFS}/etc/apt/sources.list" \
+    "${PIGEN_ROOTFS}/etc/apt/sources.list.d/" 2>/dev/null \
+    | grep -F 'deb.debian.org' || true)"
+if [[ -n "${ROLLING_DECL}" ]]; then
+    fail "Built rootfs still declares the rolling Debian mirror:"
+    printf '%s\n' "${ROLLING_DECL}" >&2
+    fail "Every Debian source must name snapshot.debian.org, including any"
+    fail "deb822 .sources file under sources.list.d/."
+    exit 1
+fi
+
+APT_LISTS="$(sudo ls -1 "${PIGEN_ROOTFS}/var/lib/apt/lists/" 2>/dev/null || true)"
+SNAPSHOT_LISTS="$(printf '%s\n' "${APT_LISTS}" | grep -c '^snapshot\.debian\.org_' || true)"
+ROLLING_LISTS="$(printf '%s\n' "${APT_LISTS}" | grep -c '^deb\.debian\.org_' || true)"
+
+if (( SNAPSHOT_LISTS == 0 )); then
+    fail "No apt list file in the built rootfs names snapshot.debian.org."
+    fail "sources.list declares the pin but nothing resolved from it."
+    printf '%s\n' "${APT_LISTS}" >&2
+    exit 1
+fi
+
+if (( ROLLING_LISTS > 0 )); then
+    fail "${ROLLING_LISTS} apt list file(s) in the built rootfs name the rolling mirror:"
+    printf '%s\n' "${APT_LISTS}" | grep '^deb\.debian\.org_' >&2
+    fail "Something resolved packages off-pin. The overlay applied only partially,"
+    fail "or a stage re-added a Debian source after stage0 configured apt."
+    exit 1
+fi
+
+ok "Debian resolution pinned: ${SNAPSHOT_LISTS} snapshot list files, 0 off-pin."
 
 # Assert the packages stage-arlowe declares actually landed in the rootfs.
 # An unread package list is invisible at build time: pi-gen reads NN-packages-nr
