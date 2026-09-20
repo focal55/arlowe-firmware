@@ -27,7 +27,11 @@
 #   There is no older candidate to pin a meta package to. That is why the four
 #   meta packages are REMOVED from the overlay's stage0/02-firmware/01-packages
 #   rather than version-constrained, and it is NOT the reason we fetch by pool
-#   URL. (Do not write "the index carries only the newest version" -- it is false.)
+#   URL.
+#
+#   An earlier draft justified the pool fetch by claiming the Pi index retains
+#   just one version per package. That was measured and refuted -- see the
+#   eleven-version count above -- so do not reintroduce it anywhere.
 #
 # Why pool URL plus sha256, three real reasons:
 #   1. The digest is the pin. An index entry is whatever the archive serves
