@@ -26,7 +26,7 @@
 # minimum change, and record both digests here by hand. There is deliberately no
 # regenerate-the-digests helper -- one would be used to silence the drift alarm
 # rather than to investigate it.
-stage0/prerun.sh	755	c82188c568eba90c59721bf6f3c0334aded9427c0eeac3e64448fd69e6f2548d	PENDING
-stage0/00-configure-apt/00-run.sh	755	3b22cbeb3b69ec3679b21e24d62afb0e37ec55e6a5892a8390e855c4b41d8e71	PENDING
-stage0/00-configure-apt/files/sources.list	644	bfbba7ccd0e1caafdd71c813371dcdb3249aa4ac399a36449cec68cf49c67673	PENDING
-stage0/00-configure-apt/files/99arlowe-pinned	644	NEW	PENDING
+stage0/prerun.sh	755	c82188c568eba90c59721bf6f3c0334aded9427c0eeac3e64448fd69e6f2548d	956533f8dfe2c4ffd6ab38af6036f94c222aa80a430cb6f3ed2b19a988e0f519
+stage0/00-configure-apt/00-run.sh	755	3b22cbeb3b69ec3679b21e24d62afb0e37ec55e6a5892a8390e855c4b41d8e71	75546552128e1d40d6a6f177c80f9ed60376e15dbc6f2ef3860f694541f4807d
+stage0/00-configure-apt/files/sources.list	644	bfbba7ccd0e1caafdd71c813371dcdb3249aa4ac399a36449cec68cf49c67673	b61c330c5342bd912d90389feab7e18ce79f3c0a153648678bd05fadb51c7cdb
+stage0/00-configure-apt/files/99arlowe-pinned	644	NEW	3e2c74401f93977d76eeea4cefb84eb01b70cde89a6f816014de5e9613ee910e
