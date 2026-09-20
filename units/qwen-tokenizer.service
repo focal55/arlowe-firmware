@@ -13,7 +13,10 @@ Environment=PYTHONPATH=/opt/arlowe/runtime/lib
 # gates the whole qwen chain — qwen-api Requires=qwen-tokenizer.service and has
 # no python venv of its own, so a bad overlay here blocks qwen-api too.
 ExecStartPre=/opt/arlowe/venvs/llm/bin/python -m arlowe_config_validate
-ExecStart=/opt/arlowe/venvs/llm/bin/python /opt/arlowe/runtime/llm/qwen2.5_tokenizer_uid.py
+# --host: the script defaults to 0.0.0.0, exposing the tokenizer to the whole
+# LAN. Its only consumer is ax-llm, which connects to http://127.0.0.1:12345
+# (runtime/llm/run_api.sh), so bind loopback.
+ExecStart=/opt/arlowe/venvs/llm/bin/python /opt/arlowe/runtime/llm/qwen2.5_tokenizer_uid.py --host 127.0.0.1
 Restart=on-failure
 RestartSec=5
 
