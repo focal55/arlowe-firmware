@@ -290,8 +290,17 @@ These are deliberately recorded rather than silently decided:
   rows would stop the gate firing on every commit. Widening a gate's silence is
   usually wrong; this is the rarer case where the noise itself is the risk, because
   a gate that fires on noise gets switched off.
-- **Pool mirroring.** The six pinned kernel debs currently exist only in Raspberry
-  Pi's pool and the build host's cache. Neither is a project-controlled archive.
+- **Pool mirroring, and the cache that is not yet load-bearing.** The six pinned
+  kernel debs currently exist only in Raspberry Pi's pool and the build host's
+  cache. Neither is a project-controlled archive. Worse, the cache is not
+  actually used at install time: `apt-get install ./*.deb` in
+  `stage0/02-firmware/00-run.sh` prefers the archive when its index carries the
+  same version, and the build log confirms all six were re-downloaded
+  (`Need to get 119 MB of archives`). So today the sha256 pin verifies the cache
+  while the archive supplies the installed bytes, and a build would fail if the
+  pool dropped 6.12.96 even with a full local cache. The version pin is
+  unaffected — the package name is version-specific — but closing this is what
+  would make reasons 1 and 2 above true in practice.
 - **`rpi-v8` flavour.** The device is Pi 5 only. Keeping v8 costs image size and
   doubles the kernel pin surface; it was kept so this phase reproduces the
   known-good rootfs rather than changing what ships.

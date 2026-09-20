@@ -261,7 +261,7 @@ work dir destroyed first. Results:
   or against an empty directory, and the first that includes `/opt/arlowe/venvs` at all.
   ADR-0004's "≈2-3 GB per slot" survives contact with measurement.
 
-**Two surprises, both worth recording.**
+**Three surprises, all worth recording.**
 
 1. **`scripts/build-image.sh` was tracked with a non-executable mode** (`100644`) and had been
    since Phase 6. It ran on the build host only because that working copy carried a stray local
@@ -280,6 +280,29 @@ work dir destroyed first. Results:
    decision 9 states for *this* phase's gates — **the rootfs is the evidence** — violated in a
    neighbouring one. A gate that reads the host can return a false pass as easily as this false
    failure.
+
+3. **`apt-get install ./*.deb` re-downloads the pinned debs from the archive.** The build log
+   reads `Need to get 119 MB of archives` and carries `Get:` lines pointing at
+   `http://archive.raspberrypi.com/...` for all six pinned kernel debs, even though those exact
+   files had just been copied into the chroot. Verified in a native arm64 `debian:bookworm`
+   container: with the Pi archive index present, `apt-get install --print-uris ./*.deb` resolves
+   every one of the six to an `http://archive.raspberrypi.com/debian/pool/...` URI rather than a
+   `file:` URI. (A first attempt at this test appeared to show `file:` URIs, but its
+   `apt-get update` had failed, so apt had no archive candidate to prefer — the test was
+   measuring an empty index, not apt's preference. Worth stating, because it is the same
+   measuring-nothing trap this ADR warns about elsewhere.)
+
+   **What this does and does not weaken.** The *version* pin is untouched and remains
+   un-driftable: `linux-image-6.12.96+rpt-rpi-2712` is a distinct package name, so only 6.12.96
+   can install, and the rootfs assertion confirms it did. What is weaker than it looks is the
+   *digest* pin and the *cache* rationale. `verify-third-party.sh` hashes the cached debs, but
+   those bytes are then not the bytes installed — so reason 1 above ("the digest is the pin")
+   currently covers the cache rather than the installation, and reason 2 ("the local cache makes
+   a rebuild independent of the archive") is **not realised**: a build would fail today if the
+   archive stopped serving 6.12.96, populated local cache notwithstanding. That is precisely the
+   pool-retention risk the manifest names, left unmitigated by the mechanism meant to mitigate
+   it. Closing it means changing how `stage0/02-firmware/00-run.sh` installs; it is recorded
+   here rather than patched inside a verification plan.
 
 ## Alternatives considered
 
