@@ -64,6 +64,28 @@ if ! "${SCRIPT_DIR}/verify-third-party.sh"; then
 fi
 ok "Third-party deps verified."
 
+# The kernel is installed from six pinned debs rather than resolved by apt
+# (ADR-0009). verify-third-party.sh check 7 verifies them and writes the single
+# directory holding them here; a file rather than an env var because that script
+# is a CHILD process and cannot mutate this one's environment.
+KERNEL_CACHE_FILE="${REPO_ROOT}/build/.arlowe-kernel-cache"
+KERNEL_MANIFEST="${REPO_ROOT}/third_party/kernel/manifest.yml"
+if [[ ! -f "${KERNEL_CACHE_FILE}" ]]; then
+    fail "Kernel cache pointer missing: ${KERNEL_CACHE_FILE}"
+    fail "verify-third-party.sh writes it once all six pinned kernel debs verify,"
+    fail "and removes it whenever they do not. Run:"
+    fail "  ARLOWE_KERNEL_FETCH=1 scripts/verify-third-party.sh"
+    exit 1
+fi
+export ARLOWE_KERNEL_CACHE
+ARLOWE_KERNEL_CACHE="$(cat "${KERNEL_CACHE_FILE}")"
+export ARLOWE_KERNEL_MANIFEST="${KERNEL_MANIFEST}"
+if [[ ! -d "${ARLOWE_KERNEL_CACHE}" ]]; then
+    fail "Kernel cache directory does not exist: ${ARLOWE_KERNEL_CACHE}"
+    exit 1
+fi
+ok "Pinned kernel cache: ${ARLOWE_KERNEL_CACHE}"
+
 # ---------------------------------------------------------------------------
 # Step 2: drive pi-gen to produce the model-free rootfs + models staging tree
 # ---------------------------------------------------------------------------
@@ -149,9 +171,15 @@ log "models stage:    ${ARLOWE_MODELS_STAGE}"
 # need the rootfs work directory, not pi-gen's 2-partition .img output.
 (
     cd "${PI_GEN_DIR}"
+    # Every variable stage0/stage-arlowe needs must be named HERE. sudo builds a
+    # fresh environment, so an exported-but-unlisted variable simply does not
+    # cross this boundary -- and stage0/02-firmware/00-run.sh hard-fails rather
+    # than silently building a rootfs with no kernel.
     sudo SKIP_IMAGES=1 \
         WORK_DIR="${WORK_DIR}" \
         AXCL_DEB="${AXCL_DEB}" \
+        ARLOWE_KERNEL_CACHE="${ARLOWE_KERNEL_CACHE}" \
+        ARLOWE_KERNEL_MANIFEST="${ARLOWE_KERNEL_MANIFEST}" \
         ARLOWE_MODELS_CACHE="${ARLOWE_MODELS_CACHE}" \
         ARLOWE_MODELS_STAGE="${ARLOWE_MODELS_STAGE}" \
         ./build.sh
@@ -266,6 +294,51 @@ if (( ${#MISSING_PKGS[@]} > 0 )); then
     exit 1
 fi
 ok "All ${#DECLARED_PKGS[@]} declared packages present in rootfs."
+
+# ---------------------------------------------------------------------------
+# KERNEL PIN OBSERVATION GATE (ADR-0009)
+#
+# The declared-packages guard above cannot see this: it only checks packages
+# stage-arlowe declared, and the kernel is installed by stage0 from pinned deb
+# files that appear in no package list at all.
+#
+# What this catches that nothing else does: a rootfs carrying MORE than the
+# pinned kernels. stage-arlowe/01-runtime/00-run-chroot.sh selects the kernel to
+# build the axcl module against with
+#   find /lib/modules -maxdepth 1 -name '*-rpi-2712' | sort -V | tail -1
+# i.e. the HIGHEST version present. A second kernel sneaking back in -- a
+# re-added meta package, an apt upgrade, a stale overlay -- therefore does not
+# announce itself; it just silently builds against the wrong headers and fails
+# at compile time, or worse, boots the wrong kernel. This is the one check that
+# would have caught the original drift at BUILD time instead of at compile time.
+#
+# Expectations are read from the manifest, not repeated here: the manifest is
+# the pin, and a second copy of the version string is how a pin half-applies.
+# ---------------------------------------------------------------------------
+log "=== Kernel pin observation (built rootfs) ==="
+
+EXPECTED_KVERS="$(python3 -c "
+import yaml
+with open('${KERNEL_MANIFEST}') as f:
+    k = yaml.safe_load(f)['kernel']
+print('\n'.join(sorted(k['expected_module_dirs'])))
+")"
+ACTUAL_KVERS="$(sudo ls -1 "${PIGEN_ROOTFS}/lib/modules" 2>/dev/null | LC_ALL=C sort || true)"
+
+if [[ "${EXPECTED_KVERS}" != "${ACTUAL_KVERS}" ]]; then
+    fail "Built rootfs does not carry exactly the pinned kernel module directories."
+    fail "Expected (third_party/kernel/manifest.yml):"
+    printf '%s\n' "${EXPECTED_KVERS}" | sed 's/^/         /' >&2
+    fail "Actual (${PIGEN_ROOTFS}/lib/modules):"
+    printf '%s\n' "${ACTUAL_KVERS:-<empty>}" | sed 's/^/         /' >&2
+    fail "An EXTRA directory means a second kernel resolved despite the pin, and"
+    fail "stage-arlowe builds the axcl module against the highest version present."
+    fail "A MISSING one means stage0/02-firmware/00-run.sh did not run or did not"
+    fail "install what the manifest names."
+    exit 1
+fi
+
+ok "Kernel pinned: rootfs carries exactly $(printf '%s' "${ACTUAL_KVERS}" | tr '\n' ' ')"
 
 # ---------------------------------------------------------------------------
 # UNIT SUBSTRATE GATES — the inverse of the packages guard directly above.
