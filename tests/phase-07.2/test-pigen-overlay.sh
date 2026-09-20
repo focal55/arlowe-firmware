@@ -27,6 +27,16 @@
 #
 # Runs on Linux (GNU sha256sum, stat -c, install -D), same as the build host.
 
+
+# This suite needs GNU coreutils: it uses `stat -c` and GNU `sed -i` semantics.
+# It runs on the arm64 build host and in CI (ubuntu-24.04-arm), not on macOS --
+# BSD stat has no -c and BSD sed -i takes a mandatory suffix argument. Fail with
+# that sentence rather than five confusing per-case failures.
+if ! stat -c %a . >/dev/null 2>&1; then
+    echo "SKIP: this suite requires GNU coreutils (stat -c). Run it on the build host or in CI." >&2
+    exit 0
+fi
+
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
