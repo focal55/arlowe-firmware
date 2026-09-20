@@ -56,6 +56,9 @@ third_party/axcl/*.deb
 # it here, so without this rule a ~30 MB binary lands in a commit. Keep manifest.yml + docs.
 third_party/node/*.tar.xz
 third_party/node/*.tar.gz
+# Pinned kernel debs (ADR-0009). third_party/kernel/INSTALL.md names this directory as a
+# staging location, and the six debs total ~75 MiB. Keep manifest.yml + INSTALL.md.
+third_party/kernel/*.deb
 
 # Standard Python / Next.js noise that will accumulate in runtime/ subtrees.
 __pycache__/
