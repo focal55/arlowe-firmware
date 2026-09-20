@@ -30,6 +30,27 @@ for unit in "${UNITS[@]}"; do
 done
 echo "  all six unit files present"
 
+# --- Assertion 1b: every unit is actually ENABLED ---
+# A unit file in /etc/systemd/system is inert until something links it into its
+# WantedBy= target. This assertion exists because install-units.sh copied the
+# units and stopped there: all six shipped disabled on a flashed image, the
+# device booted running nothing, and the file-presence check above passed the
+# whole time. Assert the link, not the file.
+echo "--- checking units are enabled ---"
+for unit in "${UNITS[@]}"; do
+    svc_file="/etc/systemd/system/${unit}.service"
+    wanted_by="$(sed -n 's/^WantedBy=//p' "${svc_file}" | tr ' ' '\n' | grep -c . || true)"
+    [[ "${wanted_by}" -gt 0 ]] \
+        || fail "${unit}.service declares no WantedBy= target, so it can never be enabled"
+    while read -r target; do
+        [[ -n "${target}" ]] || continue
+        link="/etc/systemd/system/${target}.wants/${unit}.service"
+        test -L "${link}" \
+            || fail "${unit}.service is installed but not enabled: ${link} missing"
+    done < <(sed -n 's/^WantedBy=//p' "${svc_file}" | tr ' ' '\n')
+done
+echo "  all six units enabled via .wants symlinks"
+
 # --- Assertion 2: User=arlowe and Group=arlowe in every unit ---
 echo "--- checking User=arlowe and Group=arlowe ---"
 for unit in "${UNITS[@]}"; do
