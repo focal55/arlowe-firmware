@@ -18,6 +18,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 6: Image build with A/B partitions** - pi-gen pipeline produces a flashable `.img` with A/B system partitions and shared owner-state partition (complete in code 2026-06-14, 6 plans merged via PRs #112/#113/#114/#115/#116. HARDWARE CHECKPOINT IN PROGRESS — started 2026-06-19 on arlowe-1 (first-ever build), paused mid-setup pending SD-card-size decision + WhisPlay-driver staging; see STATE.md Session Continuity for the resume checklist. Runbook docs/operations/phase-6-build-flash-deploy.md)
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls — 10/11 plans merged to main (PR #122, `e7dff4f`); SC4 unverified, 07-09 parked on an AWS staging account
 - [x] **Phase 7.1: Runtime substrate repair (INSERTED)** - Populate `/opt/arlowe/venvs`, build the dashboard to `server.js`, declare the missing apt packages, guard the wake-word verifier; a build gate asserts every unit's ExecStart interpreter exists in the rootfs **(complete in code; SC6 hardware checkpoint UNPROVEN)**
+- [ ] **Phase 7.2: Build input pinning (INSERTED)** - Make IMAGE-03 true: pin the kernel by checksum from the pool, resolve Debian packages from a snapshot, implement SOURCE_DATE_EPOCH, and assert the pins survive pi-gen's re-clone
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
 - [ ] **Phase 10: Owner-consented support access** - Dashboard "Support Mode" toggle provisions a time-bound founder SSH key; auto-revokes; full audit log
@@ -248,6 +249,26 @@ Plans:
   - `runtime/dashboard` uses **pnpm** (`pnpm-lock.yaml`, `pnpm-workspace.yaml`, no `package-lock.json`), so the image build cannot use `npm ci`. CI already pins pnpm 10 for this reason.
   - The dev pins in `runtime/*/requirements.txt` (`numpy==2.3.5`, `Pillow==11.1.0`) are not installable against bookworm's system layer (numpy 1.24.2, Pillow 9.4.0). A naive resolve shadows the apt numpy and floats onnxruntime/matplotlib to latest, breaking Phase 6 SC5 input reproducibility. Hence the separate pinned image-only requirement files.
 
+### Phase 7.2: Build input pinning (INSERTED)
+
+**Goal**: Make IMAGE-03 true. It claims build inputs are pinned; three of its four components are not implemented. Two clean builds from the same commit resolve different package versions, so Phase 6 SC5 has never held, and a kernel bump from 6.12.96 to 6.12.109 broke the vendored axcl driver compile with no change on our side (issue #137).
+
+**Depends on**: Phase 6 (the build pipeline this corrects)
+
+**Requirements**: No new REQ-IDs. Makes IMAGE-03 true and Phase 6 SC5 checkable. Unblocks Phase 7.1 SC6.
+
+**Why inserted**: Found when the Phase 7.1 SC6 checkpoint build failed at `ax_pcie_dev_host.c:220` — the kernel gained an `exclude_bars` argument to `pci_resize_resource` between 6.12.96 and 6.12.109. Nothing in this repo changed; an unpinned input did. The failure was the lucky case: a compile error is loud, and the same drift could have shipped a quietly different kernel instead.
+
+**Success Criteria** (what must be TRUE):
+  1. The kernel is pinned to an explicit version and verified by sha256. It must be fetched by **pool URL**, not apt version pinning — `archive.raspberrypi.com` is a rolling index carrying only the newest version, while its pool still serves older debs (verified: 6.12.96's four debs return HTTP 206; the pool retains 6.12.19 through 6.12.109). `6.12.96` is the known-good reference, proven booting on the current test card.
+  2. Debian-side packages resolve from a snapshot so a later rebuild resolves the same versions. `snapshot.debian.org` is reachable; **no Raspberry Pi snapshot service exists** (`snapshot.raspberrypi.com` and `.org` are both unreachable), so the Pi archive needs the pool-plus-checksum treatment rather than a snapshot URL.
+  3. `SOURCE_DATE_EPOCH` is derived from the commit and actually honored by the build, rather than named in a requirement and implemented nowhere.
+  4. **The pins survive pi-gen's re-clone.** The kernel enters via `pi-gen/stage0/02-firmware/01-packages`, an upstream file; `build-image.sh` re-clones pi-gen at its tag every build and restores only `config` + `stage-arlowe`, so an edit to `stage0/` is erased. The mechanism must be idempotent and asserted, or it silently stops applying — the F7 #18 shape.
+  5. Two builds from the same commit resolve an identical set of package versions, evidenced by a recorded manifest that a gate diffs. Input reproducibility only; image-hash equality stays out of scope per ADR (ext4 nondeterminism).
+  6. The axcl driver compiles against the pinned kernel, restoring the Phase 7.1 SC6 path.
+
+**Plans**: TBD
+
 ### Phase 8: First-boot pairing and wake word
 
 **Goal**: A factory-fresh image boots into a pairing daemon, captures Wi-Fi + owner account + device name, requests a device cert, writes the config overlay, and starts the runtime services. The generic "Hey Arlowe" model ships in the image. Factory reset returns the unit to the pairing state.
@@ -339,7 +360,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -351,6 +372,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 8 -> 
 | 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
 | 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
 | 7.1 Runtime substrate repair (INSERTED) | 6/6 | Complete in code (passed-with-notes; SC1–SC5 verified in arm64 bookworm containers). **SC6 deferred to a hardware checkpoint, procedure in `docs/operations/phase-7.1-substrate.md`** — UNPROVEN until run | 2026-09-12 |
+| 7.2 Build input pinning (INSERTED) | 0/TBD | Not started — blocks Phase 7.1 SC6 (#137) | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |
