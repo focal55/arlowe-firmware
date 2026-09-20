@@ -52,7 +52,9 @@ Node tarball search order:
 
 Unlike the other pins, third_party/node/manifest.yml carries a real url (Node is
 MIT-licensed and publicly downloadable). Set ARLOWE_NODE_FETCH=1 to have this gate
-download it to /var/cache/arlowe-build/ when absent; the SHA-256 is asserted either
+download it when absent -- to /var/cache/arlowe-build/ if that is writable,
+otherwise to ${XDG_CACHE_HOME:-$HOME/.cache}/arlowe-build/ so the fetch works
+unprivileged; the SHA-256 is asserted either
 way, so fetching never weakens the pin.
 
 Model artifact search order (per artifact, using install_to subpath from manifest):
@@ -396,6 +398,8 @@ with open('${NODE_MANIFEST}') as f:
 print(m['node']['url'] or '')
 " 2>/dev/null)
 
+  _node_user_cache="${XDG_CACHE_HOME:-${HOME}/.cache}/arlowe-build"
+
   node_path=""
   if [[ -n "${ARLOWE_NODE_TARBALL:-}" ]]; then
     node_path="${ARLOWE_NODE_TARBALL}"
@@ -403,17 +407,34 @@ print(m['node']['url'] or '')
     node_path="${REPO_ROOT}/third_party/node/${node_filename}"
   elif [[ -f "/var/cache/arlowe-build/${node_filename}" ]]; then
     node_path="/var/cache/arlowe-build/${node_filename}"
+  elif [[ -f "${_node_user_cache}/${node_filename}" ]]; then
+    node_path="${_node_user_cache}/${node_filename}"
   fi
 
   # Opt-in fetch. Node's url is non-null (MIT, publicly downloadable), unlike the
   # axcl and model pins. Fetching still lands in the hash assertion below.
+  #
+  # The shared cache lives under /var/cache, which an unprivileged build user
+  # cannot create. Fall back to a user cache rather than failing: the bare
+  # "mkdir: Permission denied" surfaced three lines above an unrelated-looking
+  # "not found", which is how this cost a build cycle on the arm64 host.
   if [[ -z "${node_path}" ]] && [[ "${ARLOWE_NODE_FETCH:-}" == "1" ]] && [[ -n "${node_url}" ]]; then
-    mkdir -p /var/cache/arlowe-build
-    if curl -fsSL "${node_url}" -o "/var/cache/arlowe-build/${node_filename}.part"; then
-      mv "/var/cache/arlowe-build/${node_filename}.part" "/var/cache/arlowe-build/${node_filename}"
-      node_path="/var/cache/arlowe-build/${node_filename}"
+    node_cache=""
+    if mkdir -p /var/cache/arlowe-build 2>/dev/null; then
+      node_cache="/var/cache/arlowe-build"
+    elif mkdir -p "${_node_user_cache}" 2>/dev/null; then
+      node_cache="${_node_user_cache}"
+      echo "         /var/cache/arlowe-build not writable; caching in ${node_cache}"
+    fi
+
+    if [[ -z "${node_cache}" ]]; then
+      echo >&2 "  ARLOWE_NODE_FETCH=1 set but no cache directory is writable."
+      echo >&2 "  Tried /var/cache/arlowe-build and ${_node_user_cache}."
+    elif curl -fsSL "${node_url}" -o "${node_cache}/${node_filename}.part"; then
+      mv "${node_cache}/${node_filename}.part" "${node_cache}/${node_filename}"
+      node_path="${node_cache}/${node_filename}"
     else
-      rm -f "/var/cache/arlowe-build/${node_filename}.part"
+      rm -f "${node_cache}/${node_filename}.part"
       echo >&2 "  ARLOWE_NODE_FETCH=1 set but download failed: ${node_url}"
     fi
   fi
