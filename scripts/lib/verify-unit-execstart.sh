@@ -8,6 +8,12 @@
 #   verify_unit_execstart      <rootfs>  every Exec* target resolves inside the rootfs
 #   verify_unit_runtime_versions <rootfs>  every named interpreter meets a version floor
 #
+# NOTHING IN EITHER GATE MAY READ THE BUILD HOST. Seven of the fifteen units on
+# a real rootfs are `systemctl enable` aliases — symlinks with absolute targets
+# into /lib/systemd/system — so both the executable paths AND the unit files
+# themselves resolve through _vue_resolve, which re-roots at <rootfs>. See
+# _vue_unit_resolve for what happened when only the former did.
+#
 # WHY BOTH. scripts/build-image.sh's declared-packages guard (immediately above
 # the call site) proves that packages the build DECLARED landed. By construction
 # it can never see a dependency nobody declared. These gates invert that: the
@@ -278,12 +284,47 @@ _vue_is_interpolated() {
 # pi-gen/stage-arlowe/03-firstboot/00-run-chroot.sh writes directly and which
 # never passes through the repo's unit source directory, and the slot-B rootfs carries
 # arlowe-recovery.service. A repo-side list would miss both.
+#
+# `-e` alone is wrong here: it FOLLOWS symlinks, so an alias whose absolute
+# target is absent from the build host would be dropped from the unit set
+# silently — a unit that vanishes from the expectation set rather than failing.
+# `-L` catches the entry as a directory entry regardless of where it points.
 _vue_unit_files() {
     local rootfs="$1" f
     for f in "${rootfs}/etc/systemd/system/"*.service; do
-        [[ -e "${f}" ]] && printf '%s\n' "${f}"
+        [[ -e "${f}" || -L "${f}" ]] && printf '%s\n' "${f}"
     done
     return 0
+}
+
+# ---------------------------------------------------------------------------
+# Resolve the UNIT FILE ITSELF rootfs-relative, before anything reads it.
+#
+# Found by the plan 07.2 full build, which produced a correct rootfs and then
+# failed twelve assertions, every one of them false. `systemctl enable` installs
+# dbus aliases into /etc/systemd/system as symlinks with ABSOLUTE targets:
+#
+#     sshd.service -> /lib/systemd/system/ssh.service
+#
+# and seven of the fifteen units on a real rootfs are that shape. Reading
+# "${rootfs}/etc/systemd/system/sshd.service" hands that absolute target to the
+# kernel, which follows it on the BUILD HOST. The gate parsed the host's trixie
+# unit files and judged the bookworm rootfs by them — it read the host's
+# NetworkManager 1.52.1 ExecStart=/usr/libexec/nm-dispatcher and reported it
+# missing, while the rootfs's own unit correctly names
+# /usr/lib/NetworkManager/nm-dispatcher, present at 68024 bytes.
+#
+# The false-FAIL was the visible half. The false-PASS is the worse one and the
+# same bug: a build host that happens to carry what the image lacks would make
+# this gate report clean, which is the exact class it exists to catch.
+#
+# _vue_resolve already re-roots absolute targets for EXECUTABLE paths. This puts
+# the unit-file read under the same rule. Prints the rootfs-RELATIVE resolved
+# path, like _vue_resolve, and returns _vue_resolve's code.
+# ---------------------------------------------------------------------------
+_vue_unit_resolve() {
+    local rootfs="$1" unit="$2"
+    _vue_resolve "${rootfs}" "${unit#"${rootfs}"}"
 }
 
 # _vue_hard_permission <tag> <unit> <token> <blocked-path>
@@ -315,7 +356,7 @@ verify_unit_execstart() {
     _vue_shield_on
     local tag='unit-execstart'
     local rc=0 fails=0 skips=0 warns=0 checked=0 units=0 hard=0
-    local unit name directive value tolerate stripped
+    local unit name directive value tolerate stripped unit_rel urc
     local -a tokens
     local token exe resolved rrc
 
@@ -337,7 +378,21 @@ verify_unit_execstart() {
 
     for unit in "${unit_files[@]}"; do
         units=$(( units + 1 ))
+        # The name stays the INSTALLED one. sshd.service is what systemd loads
+        # and what a reader greps for, even though its body lives in ssh.service.
         name="$(basename "${unit}" .service)"
+
+        unit_rel="$(_vue_unit_resolve "${rootfs}" "${unit}")"; urc=$?
+        if (( urc == 3 )); then
+            _vue_hard_permission "${tag}" "${name}" "${unit#"${rootfs}"}" "${unit_rel}"
+            hard=1
+            continue
+        fi
+        if (( urc != 0 )) || [[ ! -f "${rootfs}${unit_rel}" || ! -r "${rootfs}${unit_rel}" ]]; then
+            _vue_fail "${tag}" "${name}: the unit file does not resolve to a readable file inside the rootfs (chain ends at ${unit_rel}) — its Exec* stanzas cannot be read, and following that link on the build host would test the host instead"
+            fails=$(( fails + 1 ))
+            continue
+        fi
 
         while IFS=$'\t' read -r directive value; do
             IFS=$'\t' read -r tolerate stripped < <(_vue_strip_prefixes "${value}")
@@ -428,7 +483,7 @@ verify_unit_execstart() {
                     fi
                 fi
             done
-        done < <(_vue_exec_stanzas "${unit}")
+        done < <(_vue_exec_stanzas "${rootfs}${unit_rel}")
     done
 
     if (( hard )); then
@@ -572,6 +627,7 @@ verify_unit_runtime_versions() {
     local tag='unit-versions'
     local rc=0 fails=0 skips=0 probes=0 undeclared=0 hard=0
     local unit name directive value stripped exe resolved rrc base lit_base
+    local unit_rel urc
     local floor raw got allowed entry
     local -a tokens unit_files=()
     local -A seen_version=()
@@ -606,6 +662,22 @@ verify_unit_runtime_versions() {
 
     for unit in "${unit_files[@]}"; do
         name="$(basename "${unit}" .service)"
+
+        unit_rel="$(_vue_unit_resolve "${rootfs}" "${unit}")"; urc=$?
+        if (( urc == 3 )); then
+            _vue_hard_permission "${tag}" "${name}" "${unit#"${rootfs}"}" "${unit_rel}"
+            hard=1
+            continue
+        fi
+        if (( urc != 0 )) || [[ ! -f "${rootfs}${unit_rel}" || ! -r "${rootfs}${unit_rel}" ]]; then
+            # verify_unit_execstart owns the FAIL for this — it reaches the same
+            # conclusion from the same resolve and reporting it twice would
+            # double-count one defect. Say it and move on.
+            printf '[%s] SKIP %s: unit file does not resolve to a readable file inside the rootfs (chain ends at %s) — see the unit-execstart gate\n' \
+                "${tag}" "${name}" "${unit_rel}"
+            skips=$(( skips + 1 ))
+            continue
+        fi
 
         while IFS=$'\t' read -r directive value; do
             # The '-' tolerance flag is irrelevant here: systemd tolerating a
@@ -710,7 +782,7 @@ verify_unit_runtime_versions() {
                 _vue_fail "${tag}" "${name}: ${exe} reports ${got}, below the declared floor ${floor} — the unit would start and the service would not work"
                 fails=$(( fails + 1 ))
             fi
-        done < <(_vue_exec_stanzas "${unit}")
+        done < <(_vue_exec_stanzas "${rootfs}${unit_rel}")
     done
 
     if (( hard )); then

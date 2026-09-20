@@ -18,6 +18,16 @@
 #                   verify_unit_runtime_versions fails it. That is the exact shape
 #                   of the image on the bench today: nothing is missing, and the
 #                   dashboard still cannot start.
+#   [unit-read-escape]
+#                   proves the gate reads UNIT FILES inside the rootfs. Seven of
+#                   the fifteen units on a real rootfs are `systemctl enable`
+#                   aliases — symlinks with absolute targets — and following one
+#                   on the build host is a gate that can false-PASS as easily as
+#                   it false-failed.
+#
+# The fixture rootfs used to be synthetic in a way that hid that: every unit was a
+# regular file, so the alias-symlink shape had nothing to act on here and the
+# escape only surfaced on a real build.
 #
 # No assertion here depends on a COUNT of failures. An earlier draft of this phase
 # said "five venv-python lines", which is wrong on both readings — three distinct
@@ -88,9 +98,17 @@ new_rootfs() {
 # A fixture unit with an arbitrary body. write_unit <rootfs> <name> <line>...
 write_unit() {
     local r="$1" n="$2"; shift 2
+    write_unit_at "${r}/etc/systemd/system/${n}.service" "${n}" "$@"
+}
+
+# The same body at an arbitrary path, so a fixture can put a unit somewhere an
+# alias symlink points at. write_unit_at <path> <name> <line>...
+write_unit_at() {
+    local p="$1" n="$2"; shift 2
+    mkdir -p "$(dirname "${p}")"
     { printf '[Unit]\nDescription=fixture %s\n\n[Service]\n' "${n}"
       printf '%s\n' "$@"
-    } > "${r}/etc/systemd/system/${n}.service"
+    } > "${p}"
 }
 
 # ---------------------------------------------------------------------------
@@ -357,6 +375,37 @@ run_gate verify_unit_runtime_versions "${FIXED}" probe-override-is-loud
 assert_out "${OUT}" 'ARLOWE_VERSION_PROBE is set' "[probe-override-is-loud] the override is announced"
 assert_out "${OUT}" 'STUBBED, not measured' "[probe-override-is-loud] the results are marked as stubbed"
 unset ARLOWE_VERSION_PROBE
+
+# ===========================================================================
+# [unit-read-escape] — THE load-bearing case of this fix.
+#
+# Seven of the fifteen units on a real rootfs are `systemctl enable` dbus
+# aliases: symlinks in /etc/systemd/system whose target is ABSOLUTE
+# (sshd.service -> /lib/systemd/system/ssh.service). Reading the glob entry
+# directly hands that absolute path to the kernel, which follows it on the BUILD
+# HOST — so the gate parsed the host's trixie units and judged a bookworm rootfs
+# by them.
+#
+# The fixture makes the two readings disagree on purpose. The alias points at
+# /bin/ls, which exists on every build host as a BINARY carrying no Exec*
+# stanzas, and inside the rootfs is a real unit naming a target that is absent.
+#   escaping to the host -> zero stanzas parsed -> the gate PASSES, silently
+#   reading rootfs-relative -> the missing target is named -> the gate FAILS
+# The false-PASS is the direction that matters: a host that happens to carry
+# what the image lacks would make this gate report clean, which is the exact
+# class it exists to catch.
+# ===========================================================================
+ESCREAD="$(new_rootfs unit-read-escape)"
+write_unit_at "${ESCREAD}/bin/ls" arlowe-aliased \
+    'ExecStart=/opt/arlowe/runtime/cli/rootfs-only-target'
+ln -s /bin/ls "${ESCREAD}/etc/systemd/system/dbus-org.fixture.Aliased.service"
+run_gate verify_unit_execstart "${ESCREAD}" unit-read-escape
+evidence "unit-read-escape / verify_unit_execstart" "${OUT}"
+assert_rc 1 "${RC}" "[unit-read-escape] an absolute alias is read inside the rootfs, not on the host"
+assert_out "${OUT}" '/opt/arlowe/runtime/cli/rootfs-only-target' \
+    "[unit-read-escape] names the target the ROOTFS unit declares"
+assert_out "${OUT}" 'dbus-org.fixture.Aliased' \
+    "[unit-read-escape] reports it under the INSTALLED alias name, which is what systemd loads"
 
 echo "------------------------------------------------------------"
 if (( FAILURES != 0 )); then
