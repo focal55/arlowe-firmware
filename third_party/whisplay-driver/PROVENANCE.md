@@ -46,7 +46,7 @@ The WM8960 audio HAT component (Waveshare-sourced) does not carry a separate lic
 
 For `face.py` to import `WhisPlayBoard` successfully:
 - `WhisPlay.py` — the Python class file (the only Python import)
-- `RPi.GPIO` Python package. On Pi 5 this is supplied by pip `rpi-lgpio`, an API-compatible
+- `RPi.GPIO` Python package. On Pi 5 this is supplied by apt `python3-rpi-lgpio`, an API-compatible
   shim over lgpio, NOT by apt `python3-rpi.gpio`: RPi.GPIO 0.7.1 predates BCM2712 and raises
   `RuntimeError: Cannot determine SOC peripheral base address` at `GPIO.setup()` even with the
   HAT attached. The module name is unchanged, so `WhisPlay.py` itself is not modified.

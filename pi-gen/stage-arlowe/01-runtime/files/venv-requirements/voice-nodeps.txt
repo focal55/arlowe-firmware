@@ -35,12 +35,3 @@
 # this file is installed, which is why --no-deps is safe here and nowhere else.
 noisereduce==3.0.3
 
-# rpi-lgpio's only declared dependency is lgpio>=0.1.0.1, which the apt layer supplies as
-# python3-lgpio and which registers as lgpio 0.2.2.0 in importlib.metadata, so the resolver
-# has nothing left to fetch. --no-deps keeps pip from pulling the PyPI lgpio sdist and
-# compiling a second copy of a C extension the image already carries.
-#
-# It provides the module named RPi.GPIO. The venv is --system-site-packages, so its copy in
-# the venv shadows anything of that name in /usr/lib/python3/dist-packages; the apt layer no
-# longer installs python3-rpi.gpio, so nothing is shadowed in practice.
-rpi-lgpio==0.6
