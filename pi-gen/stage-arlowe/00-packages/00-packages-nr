@@ -38,6 +38,13 @@ network-manager
 # leaving the Apache-2.0 upstream driver unmodified, which INSTALL.md requires.
 # Both must change together.
 python3-lgpio
+# python3-rpi-lgpio provides the module named RPi.GPIO, backed by lgpio. Declared
+# explicitly: the first build got it anyway as a transitive dependency, and a
+# package the image depends on for its display driver should not arrive by
+# accident. archive.raspberrypi.com carries 0.6-0~rpt1, so it is covered by the
+# build-input manifest like every other apt package -- a stronger pin than the
+# pip entry this replaces.
+python3-rpi-lgpio
 python3-spidev
 
 # cmake — build-time only, for the native ax-llm build (01-runtime step 10).

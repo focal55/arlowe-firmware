@@ -346,7 +346,7 @@ place it is declared. Derived by walking first-party imports transitively from t
 | jsonschema | apt `python3-jsonschema` | `arlowe_config` (all four `arlowe_config_validate` stanzas) |
 | requests | apt `python3-requests` | `lib/arlowe_cloud.py` |
 | cryptography | apt `python3-cryptography` | `lib/arlowe_pki.py` |
-| RPi.GPIO | pip `voice-nodeps.txt` (`rpi-lgpio`, shim over apt `python3-lgpio`) | WhisPlay driver |
+| RPi.GPIO | apt `python3-rpi-lgpio` (shim over `python3-lgpio`) | WhisPlay driver |
 | spidev | apt `python3-spidev` | WhisPlay driver |
 | openwakeword | pip `voice.txt` | `voice_client.py` |
 | onnxruntime | pip `voice.txt`, `stt.txt` | openwakeword; faster-whisper VAD |
