@@ -23,6 +23,7 @@
 #   8. 01-runtime/files/build-dashboard.sh — next build → /opt/arlowe/runtime/dashboard/server.js
 #   8b. 01-runtime/files/install-piper.sh — pinned Piper TTS binary → /opt/arlowe/runtime/tts/bin/piper
 #   9. (post-axcl) extract-axcl-udev-from-deb.sh diagnostic (axcl deb installs its rule; ours overrides)
+#   10. (post-axcl) 01-runtime/files/build-ax-llm.sh — native arm64 build → /opt/arlowe/runtime/llm/bin/main_api_axcl_aarch64
 #
 # Steps 6, 7 and 8 all consume the rsync above them, which is why the rsync is
 # called out in the list rather than left implicit. Steps 7 and 8 additionally
@@ -274,6 +275,18 @@ else
     echo "[00-run-chroot] Ensure third_party/axcl/axcl_host_aarch64_V3.10.2.deb is present" >&2
     echo "[00-run-chroot] per third_party/axcl/INSTALL.md (Strategy C: user-supplied)." >&2
 fi
+
+# ---------------------------------------------------------------------------
+# Build ax-llm natively against the axcl SDK the deb above just installed.
+#
+# Must follow the axcl block: CMakeLists.txt falls back to /usr/include/axcl and
+# /usr/lib/axcl when AXCL_DIR is unset, so the headers have to exist first. This
+# is deliberately NOT the upstream build_aarch64.sh, which cross-compiles and
+# fetches an unpinned toolchain plus axcl 3.6.2 over the network -- a different
+# SDK from the pinned V3.10.2 this image runs on.
+# ---------------------------------------------------------------------------
+echo "[00-run-chroot] step 10: build-ax-llm.sh"
+bash "${REPO_ROOT}/pi-gen/stage-arlowe/01-runtime/files/build-ax-llm.sh"
 
 # ---------------------------------------------------------------------------
 # Vendor WhisPlay driver to /opt/arlowe/third_party/whisplay-driver/.

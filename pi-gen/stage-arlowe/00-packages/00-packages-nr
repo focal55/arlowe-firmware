@@ -40,6 +40,14 @@ network-manager
 python3-lgpio
 python3-spidev
 
+# cmake — build-time only, for the native ax-llm build (01-runtime step 10).
+# g++ and make are already present; cmake was the one missing piece, and without
+# it /opt/arlowe/runtime/llm/bin/main_api_axcl_aarch64 is never produced and
+# qwen-api exits 127 on every boot. A later pass can drop this from the shipped
+# image once the build moves out of the chroot; it is listed here because the
+# build currently runs inside it.
+cmake
+
 # ripgrep — used by the Phase 6-04 sanitize check script (faster than grep for
 # scanning rootfs for nondeterminism markers such as build-host paths)
 ripgrep
