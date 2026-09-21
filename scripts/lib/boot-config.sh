@@ -133,6 +133,22 @@ tryboot_a_b=1
 kernel=kernel_2712.img
 arm_64bit=1
 [all]
+# --- Whisplay HAT device tree ---------------------------------------------
+# This block is why arlowe-face and arlowe-voice both failed on the first
+# flashed image. This function WRITES config.txt from scratch, replacing
+# whatever pi-gen produced, so anything not named here is absent from the
+# device -- and nothing named the HAT. The result was no /dev/spidev0.0 for
+# the LCD and no soundcard at all ("aplay -l: no soundcards found"), which
+# reads like absent hardware and is not: the HAT is attached.
+#
+# The upstream PiSugar installer (install_wm8960_drive.sh) writes these lines
+# on a normal Pi OS install. The image build never runs it, so they belong
+# here. Both wm8960-soundcard.dtbo and snd-soc-wm8960.ko ship with the pinned
+# firmware and kernel, so no out-of-tree driver build is required.
+dtparam=spi=on
+dtparam=i2c_arm=on
+dtparam=i2s=on
+dtoverlay=wm8960-soundcard
 # Shared cmdline for both slots (root= overridden by arlowe-ab in cmdline.txt)
 include cmdline.txt
 EOF
@@ -163,6 +179,12 @@ tryboot_a_b=1
 kernel=kernel_2712.img
 arm_64bit=1
 [all]
+# Same HAT device tree as config.txt — a recovery boot must present the same
+# hardware as a normal boot, or slot B comes up with no display and no audio.
+dtparam=spi=on
+dtparam=i2c_arm=on
+dtparam=i2s=on
+dtoverlay=wm8960-soundcard
 include tryboot_cmdline.txt
 EOF
 
