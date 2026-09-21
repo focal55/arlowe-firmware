@@ -1,9 +1,7 @@
 {
   "backend": "piper",
   "elevenlabs_enabled": false,
-  "elevenlabs_voice_id": "EXAVITQu4vr4xnSDxMaL",
-  "elevenlabs_model_id": "eleven_turbo_v2_5",
   "auto_story_mode": false,
   "story_threshold": 200,
-  "_elevenlabs_note": "opt-in only; requires API key from ELEVENLABS_API_KEY env var or tts.elevenlabs.api_key in /etc/arlowe/config.yml"
+  "_elevenlabs_note": "Deferred to a later iteration as an owner-enabled feature. Nothing here selects it: backend must be set to 'elevenlabs' explicitly, and it then requires an API key from ELEVENLABS_API_KEY or tts.elevenlabs.api_key in /etc/arlowe/config.yml. elevenlabs_voice_id and elevenlabs_model_id are intentionally absent -- they belong with the feature when it ships, not baked into the shipped default."
 }

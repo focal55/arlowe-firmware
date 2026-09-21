@@ -215,10 +215,15 @@ def get_tts_engine():
 
 def load_tts_config() -> dict:
     """Load TTS config from dashboard config file"""
+    # Piper only. ElevenLabs is deferred to a later iteration as an explicit,
+    # owner-enabled feature; until then nothing here may reach a cloud API.
+    # auto_story_mode defaulted to True while tts_config.json shipped false, so a
+    # missing or unparseable config file silently routed any response over
+    # story_threshold to ElevenLabs -- an outbound call the owner never opted into.
+    # No voice id is defaulted either: it belongs with the feature, not the fallback.
     default = {
         "backend": "piper",
-        "elevenlabs_voice_id": "EXAVITQu4vr4xnSDxMaL",
-        "auto_story_mode": True,
+        "auto_story_mode": False,
         "story_threshold": 200,
     }
     try:
@@ -241,15 +246,14 @@ def speak(text: str, source: str = None):
     tts = get_tts_engine()
     config = load_tts_config()
     
-    # Determine which backend to use
+    # Determine which backend to use. Length does NOT select a backend: routing a
+    # long response to a cloud API on nothing but a character count is an outbound
+    # call the owner never asked for. ElevenLabs is reachable only by explicit
+    # configuration, and is deferred to a later iteration as a feature option.
     backend = TTSBackend.PIPER
     if config["backend"] == "elevenlabs":
         backend = TTSBackend.ELEVENLABS
-        print(f"  [TTS] Using ElevenLabs (configured)", flush=True)
-    elif config["auto_story_mode"] and len(text) > config["story_threshold"]:
-        # Auto-switch to ElevenLabs for longer responses
-        backend = TTSBackend.ELEVENLABS
-        print(f"  [TTS] Auto story mode: {len(text)} chars > {config['story_threshold']}", flush=True)
+        print("  [TTS] Using ElevenLabs (explicitly configured)", flush=True)
     
     # Update ElevenLabs voice if configured
     if config.get("elevenlabs_voice_id"):
