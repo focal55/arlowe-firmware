@@ -8,10 +8,25 @@
 piper:
   binary:
     version: "1.2.0"
-    url: "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_aarch64.tar.gz"
-    # SHA-256 of the extracted piper binary (not the tarball).
-    # Verified against ~/models/piper/piper on arlowe-1 (2026-05-02).
-    sha256: 0c44a6360a21367b5d03b8656c3e274f4de715f6533245d8c1f17c242631912b
+    # Asset name is piper_arm64.tar.gz. The previous url said
+    # piper_linux_aarch64.tar.gz, which has never existed on this release and
+    # returned 404 -- no build step fetched it, so nothing ever found out. A pin
+    # nothing dereferences is not a pin.
+    url: "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_arm64.tar.gz"
+    # sha256 of the TARBALL, verified by downloading the asset on 2026-09-21.
+    #
+    # The tarball is what gets pinned, not just the binary inside it: the archive
+    # also ships libonnxruntime.so, libpiper_phonemize.so, libespeak-ng.so and
+    # espeak-ng-data, all of which the binary loads at runtime. Hashing only the
+    # executable left ~16 MB of loaded code unverified.
+    sha256: 34b298f6b3e55b55e81f05c6157310f9ec4df3fdd3d73e4c85eb80e218c54d2c
+    # sha256 of ./piper/piper inside that tarball; a secondary check that the
+    # archive still contains the executable we expect after unpacking.
+    binary_sha256: b09560ec0aea67ac14da6de667df076a0baad7a427631188e8e674c0edce572c
+    # The value here was previously 0c44a636..., measured from ~/models/piper/piper
+    # on the old dev Pi. That binary is not the upstream v1.2.0 arm64 release --
+    # the hashes differ -- so its provenance is unknown and it is not what the
+    # image should ship.
     install_to: "/opt/arlowe/runtime/tts/bin/piper"
 
   voices:

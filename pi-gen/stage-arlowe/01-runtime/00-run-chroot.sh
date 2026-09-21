@@ -21,6 +21,7 @@
 #   6. install-arlowe-cli.sh     — /usr/local/sbin/arlowe-* symlinks
 #   7. 01-runtime/files/build-venvs.sh — populate /opt/arlowe/venvs/{voice,llm,stt}
 #   8. 01-runtime/files/build-dashboard.sh — next build → /opt/arlowe/runtime/dashboard/server.js
+#   8b. 01-runtime/files/install-piper.sh — pinned Piper TTS binary → /opt/arlowe/runtime/tts/bin/piper
 #   9. (post-axcl) extract-axcl-udev-from-deb.sh diagnostic (axcl deb installs its rule; ours overrides)
 #
 # Steps 6, 7 and 8 all consume the rsync above them, which is why the rsync is
@@ -162,6 +163,19 @@ bash "${REPO_ROOT}/pi-gen/stage-arlowe/01-runtime/files/build-venvs.sh"
 # ---------------------------------------------------------------------------
 echo "[00-run-chroot] step 8: build-dashboard.sh"
 bash "${REPO_ROOT}/pi-gen/stage-arlowe/01-runtime/files/build-dashboard.sh"
+
+# ---------------------------------------------------------------------------
+# Install the pinned Piper TTS binary.
+#
+# Must run AFTER the runtime rsync, because it installs into
+# /opt/arlowe/runtime/tts/bin and the rsync would otherwise overwrite the
+# directory. runtime/tts/manifest.yml has carried a pinned url and sha256 for
+# this binary since Phase 1 with nothing reading them: 02-models stages the
+# piper VOICES and no step ever fetched the ENGINE, so every image shipped a
+# device that listens and cannot speak.
+# ---------------------------------------------------------------------------
+echo "[00-run-chroot] step 8b: install-piper.sh"
+bash "${REPO_ROOT}/pi-gen/stage-arlowe/01-runtime/files/install-piper.sh"
 
 # ---------------------------------------------------------------------------
 # Install the axcl deb.
