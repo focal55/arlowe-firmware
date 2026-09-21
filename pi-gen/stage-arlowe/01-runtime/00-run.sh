@@ -64,7 +64,14 @@ echo "[01-runtime] staging repo tree into chroot at ${CHROOT_REPO}"
 install -d -m 0755 "${STAGING}"
 
 # Stage each required subdir. rsync preserves permissions and is idempotent.
-for subdir in scripts/provision units config runtime provision third_party/axcl third_party/whisplay-driver third_party/node pi-gen/stage-arlowe/01-runtime/files; do
+# third_party/ax-llm is staged because step 10 compiles it in the chroot. This
+# list is an allowlist, so a subdir that is not named here is simply absent and
+# the failure surfaces only at the step that needs it -- build-ax-llm.sh died
+# with "submodule not found" while the submodule was present on the build host.
+# The whole staged tree is removed by the cleanup block before the rootfs is
+# measured, and build-ax-llm.sh deletes its own build directory, so neither the
+# 28 MB of source nor the object files reach the image.
+for subdir in scripts/provision units config runtime provision third_party/axcl third_party/whisplay-driver third_party/node third_party/ax-llm pi-gen/stage-arlowe/01-runtime/files; do
     src="${REPO_ROOT}/${subdir}"
     dst="${STAGING}/${subdir}"
     if [[ -d "${src}" ]]; then
