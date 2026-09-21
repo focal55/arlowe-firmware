@@ -318,9 +318,15 @@ Two mitigations, both load-bearing:
 - **Node security updates are now a manual bump.** A vendored tarball does not get `apt upgrade`.
   The manifest must be bumped and re-hashed when Node 24 releases a security patch. This is the
   price of pinning bytes, and it should be a recurring maintenance item rather than a surprise.
-- **`RPi.GPIO` cannot be import-tested off-hardware.** It installs from apt fine but raises
+- **`RPi.GPIO` cannot be import-tested off-hardware.** It installs fine but raises
   `RuntimeError: This module can only be run on a Raspberry Pi!` at import. Plan 07.1-05's import
   checker must special-case it rather than treating the failure as a missing dependency.
+- **`RPi.GPIO` on Pi 5 means `rpi-lgpio`, not apt `python3-rpi.gpio`.** apt's RPi.GPIO 0.7.1
+  predates BCM2712 and raises `RuntimeError: Cannot determine SOC peripheral base address` at
+  `GPIO.setup()`. That reads like absent hardware and is not: it fails with the HAT attached, and
+  it is why `arlowe-face` restart-looped on the first flashed image. `rpi-lgpio` provides the same
+  module name over lgpio, so the Apache-2.0 vendored driver stays unmodified. Off-hardware import
+  behaviour is unchanged, so the special-case above still applies.
 
 ## The ledger
 
@@ -340,7 +346,7 @@ place it is declared. Derived by walking first-party imports transitively from t
 | jsonschema | apt `python3-jsonschema` | `arlowe_config` (all four `arlowe_config_validate` stanzas) |
 | requests | apt `python3-requests` | `lib/arlowe_cloud.py` |
 | cryptography | apt `python3-cryptography` | `lib/arlowe_pki.py` |
-| RPi.GPIO | apt `python3-rpi.gpio` | WhisPlay driver |
+| RPi.GPIO | pip `voice-nodeps.txt` (`rpi-lgpio`, shim over apt `python3-lgpio`) | WhisPlay driver |
 | spidev | apt `python3-spidev` | WhisPlay driver |
 | openwakeword | pip `voice.txt` | `voice_client.py` |
 | onnxruntime | pip `voice.txt`, `stt.txt` | openwakeword; faster-whisper VAD |
