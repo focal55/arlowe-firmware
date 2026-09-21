@@ -49,9 +49,15 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 # ALSA audio device access; PrivateDevices=no required for DeviceAllow
 PrivateDevices=no
-DeviceAllow=/dev/snd/* rw
-DeviceAllow=/dev/snd/seq rw
-DeviceAllow=/dev/snd/timer r
+# char-alsa, not /dev/snd/*. systemd does NOT expand globs in DeviceAllow -- it
+# kept the literal string "/dev/snd/*", which matches no node, so controlC0 and
+# pcmC0D0c/p were denied while seq and timer (named literally) were allowed.
+# ALSA could then not open the card at all: "confmisc.c:855:(parse_card) cannot
+# find card '0'", which surfaced as PyAudio "no default output device" and read
+# like absent hardware. /proc/devices maps major 116 to "alsa"; the class covers
+# every node the card presents, including ones added by a future overlay.
+DeviceAllow=char-alsa rw
+DeviceAllow=char-sound rw
 
 # Writable paths
 ReadWritePaths=/var/lib/arlowe/state /var/lib/arlowe/logs /var/lib/arlowe/conversations

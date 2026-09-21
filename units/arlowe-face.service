@@ -9,7 +9,16 @@ Type=simple
 User=arlowe
 Group=arlowe
 SupplementaryGroups=gpio spi video
-WorkingDirectory=/opt/arlowe/runtime
+# lgpio writes its notification scratch files by RELATIVE name (.lgd-nfyN, see
+# lgpio.py:504) into the process working directory, so the CWD must be writable.
+# Under ProtectSystem=strict /opt/arlowe/runtime is read-only and the driver died
+# with FileNotFoundError: '.lgd-nfy-3' -- after the BCM2712 failure was fixed, not
+# instead of it. RuntimeDirectory= gives a tmpfs dir owned by User= that systemd
+# creates on start and removes on stop; pointing the CWD there keeps the code
+# directory read-only. PYTHONPATH above is absolute, so `python -m face.face_service`
+# does not depend on the CWD.
+RuntimeDirectory=arlowe-face
+WorkingDirectory=/run/arlowe-face
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/opt/arlowe/runtime:/opt/arlowe/runtime/lib
 Environment=ARLOWE_WHISPLAY_DRIVER_PATH=/opt/arlowe/third_party/whisplay-driver
@@ -52,8 +61,13 @@ PrivateDevices=no
 DeviceAllow=/dev/spidev0.0 rw
 DeviceAllow=/dev/spidev0.1 rw
 DeviceAllow=/dev/gpiomem rw
-DeviceAllow=/dev/gpiochip0 rw
-DeviceAllow=/dev/gpiochip4 rw
+# char-gpiochip, not individual nodes. /proc/devices maps major 254 to
+# "gpiochip", and this class covers every minor. The previous list named
+# /dev/gpiochip0 and /dev/gpiochip4; on Pi 5 with kernel 6.12 the chips are
+# gpiochip11-15, so neither existed and the service died with
+# "lgpio.error: can not open gpiochip". Chip numbering is a kernel detail that
+# has already moved once -- allow the class so it cannot break again.
+DeviceAllow=char-gpiochip rw
 DeviceAllow=/dev/fb0 rw
 ReadWritePaths=/var/lib/arlowe/state /var/lib/arlowe/logs/face
 
