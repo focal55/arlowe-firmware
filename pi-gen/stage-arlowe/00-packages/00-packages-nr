@@ -28,7 +28,16 @@ alsa-utils
 network-manager
 
 # Pi hardware GPIO + SPI access (WhisPlay display driver, WhisPlay audio HAT)
-python3-rpi.gpio
+#
+# python3-lgpio, NOT python3-rpi.gpio. RPi.GPIO 0.7.1 predates BCM2712 and cannot
+# resolve the Pi 5's peripheral base: WhisPlay.py died at GPIO.setup() with
+# "RuntimeError: Cannot determine SOC peripheral base address" on every boot, which
+# reads like absent hardware but happens with the HAT attached. lgpio drives gpiochip
+# devices and works on Pi 5. The RPi.GPIO *API* is still what the vendored driver
+# calls, so rpi-lgpio (voice-nodeps.txt) supplies it as a shim over this package --
+# leaving the Apache-2.0 upstream driver unmodified, which INSTALL.md requires.
+# Both must change together.
+python3-lgpio
 python3-spidev
 
 # ripgrep — used by the Phase 6-04 sanitize check script (faster than grep for
