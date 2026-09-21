@@ -27,8 +27,13 @@ set -euo pipefail
 log()  { echo "[build-ax-llm] $*"; }
 fail() { echo "[build-ax-llm] ERROR: $*" >&2; exit 1; }
 
-REPO_ROOT="${REPO_ROOT:-/opt/arlowe-build/repo}"
-SRC="${REPO_ROOT}/third_party/ax-llm"
+# 00-run-chroot.sh sets REPO_ROOT but does not export it, so a child `bash`
+# does not inherit it. build-dashboard.sh and build-venvs.sh both handle this
+# by defaulting to the staged path directly; match them rather than relying on
+# an inherited value. A wrong default here is invisible until the build runs:
+# the first attempt defaulted to /opt/arlowe-build/repo and died at step 8b.
+REPO_ROOT="${REPO_ROOT:-/root/arlowe-build/repo}"
+SRC="${ARLOWE_AXLLM_SRC:-${REPO_ROOT}/third_party/ax-llm}"
 DEST_DIR=/opt/arlowe/runtime/llm/bin
 DEST="${DEST_DIR}/main_api_axcl_aarch64"
 
