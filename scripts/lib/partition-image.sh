@@ -224,11 +224,18 @@ _pimg_mkfs() {
 
     echo "[partition-image] formatting partitions..."
     sudo mkfs.vfat -F 32 -n "boot" "${loop_dev}p1"
-    sudo mkfs.ext4 -L "system_a" -F "${loop_dev}p2"
-    sudo mkfs.ext4 -L "system_b" -F "${loop_dev}p3"
+    # -m 1 rather than the mkfs default of 5. The reserved-block pool exists so
+    # root can still write when a filesystem fills and to limit fragmentation;
+    # 5% of a ~3 GiB A/B slot is ~160 MiB per slot, 320 MiB across both, on a
+    # partition layout that measured 0 bytes available on the first real image.
+    # 1% keeps the root-writable margin that matters without spending the rest.
+    sudo mkfs.ext4 -m 1 -L "system_a" -F "${loop_dev}p2"
+    sudo mkfs.ext4 -m 1 -L "system_b" -F "${loop_dev}p3"
     # noatime is a mount option in fstab, not an mkfs flag.
-    sudo mkfs.ext4 -L "owner_state" -F "${loop_dev}p4"
-    sudo mkfs.ext4 -L "models" -F "${loop_dev}p5"
+    sudo mkfs.ext4 -m 1 -L "owner_state" -F "${loop_dev}p4"
+    # -m 0 on models: mounted read-only at runtime (see the fstab entry written
+    # by _pimg_write_fstab), so a root-writable reserve buys nothing.
+    sudo mkfs.ext4 -m 0 -L "models" -F "${loop_dev}p5"
     echo "[partition-image] all five partitions formatted"
 }
 

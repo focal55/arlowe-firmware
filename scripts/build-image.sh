@@ -556,8 +556,16 @@ log "=== Step 3: measure rootfs + models ==="
 # sudo: the pi-gen rootfs has root-owned 0700 dirs (identity/, /root, ssl/private,
 # ...) that a non-root du can't read — it would both error out (pipefail) and
 # undercount the rootfs, yielding a too-small slot. Measure as root for accuracy.
-ROOTFS_BYTES="$(sudo du -sb "${PIGEN_ROOTFS}" | awk '{print $1}')"
-MODELS_BYTES="$(sudo du -sb "${ARLOWE_MODELS_STAGE}" | awk '{print $1}')"
+# du -sB1, NOT du -sb: -b implies --apparent-size, which sums file lengths and
+# ignores block allocation. The rootfs is tens of thousands of small files (three
+# Python venvs, the Next.js build), and on ext4 every one rounds up to a 4 KiB
+# block and costs inode plus directory metadata. Apparent size therefore
+# undercounts real consumption badly, the slot was sized from that undercount,
+# and the first flashed image came up with a 3.2 GB slot 100% full and 0 bytes
+# available -- which then blocked installing anything at all on the device.
+# -B1 reports allocated blocks in bytes, which is what the partition must hold.
+ROOTFS_BYTES="$(sudo du -sB1 "${PIGEN_ROOTFS}" | awk '{print $1}')"
+MODELS_BYTES="$(sudo du -sB1 "${ARLOWE_MODELS_STAGE}" | awk '{print $1}')"
 
 log "Measured model-free rootfs: $(( ROOTFS_BYTES / 1024 / 1024 )) MiB (${ROOTFS_BYTES} bytes)"
 log "Measured models tree:       $(( MODELS_BYTES / 1024 / 1024 )) MiB (${MODELS_BYTES} bytes)"
