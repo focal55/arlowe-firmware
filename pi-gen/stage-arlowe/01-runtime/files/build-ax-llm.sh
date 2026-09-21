@@ -75,12 +75,19 @@ install -m 0755 -o root -g arlowe "${BUILT}" "${DEST}" 2>/dev/null \
     || { install -m 0755 "${BUILT}" "${DEST}"; log "WARNING: group 'arlowe' absent; ${DEST} left root-owned"; }
 
 # The runtime resolves libaxcl_*.so from /usr/lib/axcl, which is not on the
-# default loader path. Record it so qwen-api does not need LD_LIBRARY_PATH.
-if [[ ! -f /etc/ld.so.conf.d/axcl.conf ]]; then
+# default loader path. The axcl deb already ships /etc/ld.so.conf.d/axcl.conf
+# naming that directory -- but shipping the file is not the same as the cache
+# having been rebuilt, and inside the chroot it had not been. Guarding the whole
+# block on the file's absence therefore skipped ldconfig exactly when the deb was
+# installed, which is always, and the linked binary came out with
+# libaxcl_pkg/comm/token/logger unresolved. Ensure the path is recorded, then run
+# ldconfig unconditionally: it is cheap and idempotent, and the cache is the thing
+# that actually has to be right.
+if ! grep -qx '/usr/lib/axcl' /etc/ld.so.conf.d/axcl.conf 2>/dev/null; then
     echo /usr/lib/axcl > /etc/ld.so.conf.d/axcl.conf
-    ldconfig
-    log "registered /usr/lib/axcl with ldconfig"
+    log "recorded /usr/lib/axcl in /etc/ld.so.conf.d/axcl.conf"
 fi
+ldconfig
 
 # Prove the binary actually resolves its libraries here, not on first boot.
 if command -v ldd >/dev/null 2>&1; then
