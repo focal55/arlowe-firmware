@@ -3,13 +3,26 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import argparse
 import uuid
+import os
+from pathlib import Path
 
 # 全局字典：存储 uid 到 Tokenizer_Http 实例的映射
 tokenizers = {}
 
 class Tokenizer_Http():
     def __init__(self):
-        model_id = "qwen2.5_tokenizer"
+        # Absolute, resolved from this file's location -- NOT a bare relative
+        # name. from_pretrained("qwen2.5_tokenizer") resolves against the process
+        # CWD, so it depended silently on the unit's WorkingDirectory. When it
+        # cannot resolve, this constructor raises inside do_GET -- after
+        # send_response(200) has already gone out -- so the client sees HTTP 200
+        # with a zero-length body. ax-llm then fails to parse JSON, retries
+        # get_uid ten times, and dies; nothing in either log names the real cause.
+        # ARLOWE_QWEN_TOKENIZER_DIR overrides for a developer checkout.
+        model_id = os.environ.get(
+            "ARLOWE_QWEN_TOKENIZER_DIR",
+            str(Path(__file__).resolve().parent / "qwen2.5_tokenizer"),
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
         self.messages = [
             {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
