@@ -146,6 +146,7 @@ declare -A ARLOWE_RUNTIME_FLOOR=(
 ARLOWE_EXPECTED_UNDECLARED=(
     '/bin/touch'                                     # coreutils; firstboot ExecStartPost marker
     '/opt/arlowe/runtime/cli/arlowe-grow-models'     # first-party grow script, firstboot ExecStartPre
+    '/opt/arlowe/runtime/cli/arlowe-userconf'        # first-party bash; provisions a login from userconf.txt
     '/opt/arlowe/runtime/cli/boot-check'             # first-party entry point
     '/opt/arlowe/runtime/cli/identity'               # first-party entry point
     '/opt/arlowe/runtime/llm/run_api.sh'             # first-party shell wrapper; execs a venv python itself
