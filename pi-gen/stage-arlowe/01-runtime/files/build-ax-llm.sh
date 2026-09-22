@@ -97,6 +97,28 @@ if command -v ldd >/dev/null 2>&1; then
     fi
 fi
 
+# Install the Qwen tokenizer data the tokenizer service loads.
+#
+# runtime/llm/qwen2.5_tokenizer_uid.py is our fork of the upstream script, which
+# upstream runs from third_party/ax-llm/scripts/ with qwen2.5_tokenizer/ sitting
+# beside it. Our copy has no such directory, so AutoTokenizer.from_pretrained
+# found nothing and raised inside the request handler -- after HTTP 200 had been
+# sent -- and ax-llm saw an empty body, could not get a uid, and restart-looped.
+# 11 MB of vocab/merges/config, from the same pinned submodule as the binary.
+TOK_SRC="${SRC}/scripts/qwen2.5_tokenizer"
+TOK_DEST=/opt/arlowe/runtime/llm/qwen2.5_tokenizer
+if [[ -d "${TOK_SRC}" ]]; then
+    install -d -m 0755 "${TOK_DEST}"
+    cp -a "${TOK_SRC}/." "${TOK_DEST}/"
+    if getent group arlowe >/dev/null 2>&1; then
+        chown -R root:arlowe "${TOK_DEST}"
+    fi
+    chmod -R g+rX "${TOK_DEST}"
+    log "installed qwen tokenizer data -> ${TOK_DEST}"
+else
+    fail "${TOK_SRC} missing — the tokenizer service cannot load its vocab without it"
+fi
+
 log "provenance: ax-llm submodule at $(git -C "${SRC}" rev-parse HEAD 2>/dev/null || echo unknown)"
 log "installed -> ${DEST}"
 rm -rf "${BUILD_DIR}"
