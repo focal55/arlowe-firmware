@@ -22,6 +22,15 @@
 # holds huggingface_hub below 1.0 in this venv while the stt venv runs 1.x — see constraints.txt.
 transformers==4.57.6
 
+# transformers declares jinja2 only as an extra, so a plain install omits it --
+# and apply_chat_template() needs it. qwen2.5_tokenizer_uid.py calls that from
+# its /reset and /encode handlers, which raise after send_response(200) has
+# already been written, so the client gets HTTP 200 with an empty body. ax-llm
+# then aborts on "parse error ... attempting to parse an empty input" with the
+# real cause named nowhere in its own log. Pinned to the version transformers
+# 4.57.6 resolves against.
+jinja2==3.1.6
+
 # llm/router.py: `from filelock import FileLock` for thread-safe usage-stats writes.
 filelock==3.32.6
 
