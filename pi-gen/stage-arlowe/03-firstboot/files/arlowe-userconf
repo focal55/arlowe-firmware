@@ -1,0 +1,49 @@
+#!/bin/bash
+# Provision a login account from /boot/firmware/userconf.txt, if one is present.
+#
+# The factory image ships NO login account, which is correct: the device is meant
+# to be paired, not logged into. But that also made every hardware test cycle
+# require hand-editing cmdline.txt on the card to get a shell, and it is why
+# userconf.txt did nothing on the first flashed image -- pi-gen's own
+# userconfig.service is not enabled here.
+#
+# Enabling pi-gen's service is the wrong fix: with no userconf.txt it runs an
+# INTERACTIVE wizard on tty1 and masks getty, so a device with no keyboard sits
+# at a prompt forever. This unit does nothing at all when the file is absent.
+#
+# Format matches Raspberry Pi's: one line, username:crypt-hash, e.g.
+#   printf '%s:%s\n' myuser "$(openssl passwd -6)" > /boot/firmware/userconf.txt
+set -euo pipefail
+
+CONF=/boot/firmware/userconf.txt
+[[ -f "${CONF}" ]] || exit 0
+
+line="$(head -n1 "${CONF}" | tr -d '\r')"
+user="${line%%:*}"
+hash="${line#*:}"
+
+if [[ -z "${user}" || -z "${hash}" || "${user}" == "${line}" ]]; then
+    echo "[arlowe-userconf] ${CONF} is not username:hash — ignoring" >&2
+    exit 0
+fi
+# A crypt hash, not a plaintext password. Refuse anything else rather than
+# silently setting a password that is not what the writer intended.
+if [[ "${hash}" != \$* ]]; then
+    echo "[arlowe-userconf] second field is not a crypt hash (expected \$6\$...) — ignoring" >&2
+    exit 0
+fi
+
+if ! id -u "${user}" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "${user}"
+    echo "[arlowe-userconf] created ${user}"
+fi
+printf '%s:%s\n' "${user}" "${hash}" | chpasswd -e
+for g in sudo adm dialout audio video plugdev users input netdev arlowe; do
+    getent group "${g}" >/dev/null 2>&1 && usermod -a -G "${g}" "${user}" || true
+done
+
+# Remove it so the hash does not sit readable on a FAT partition any longer than
+# it must. This mirrors what Raspberry Pi's own userconf does.
+rm -f "${CONF}"
+sync
+echo "[arlowe-userconf] provisioned ${user}; ${CONF} removed"
