@@ -11,7 +11,7 @@
 # committed copy is a baseline a gate diffs against, and an edited baseline
 # asserts something no build produced. Re-record a deliberate bump with
 # ARLOWE_INPUTS_ACCEPT=1.
-source_date_epoch	1790004551
+source_date_epoch	1790043229
 worktree_clean	true
 pigen_ref	2026-06-18-raspios-bookworm-arm64
 debian_snapshot	20260915T000000Z
@@ -623,7 +623,7 @@ pkg	raspberrypi-archive-keyring	2021.1.1+rpt1	all
 pkg	raspberrypi-net-mods	1.4.3	all
 pkg	raspberrypi-sys-mods	20250930~bookworm	arm64
 pkg	raspi-config	20250813	all
-pkg	raspi-firmware	1:1.20260907-1~bookworm	all
+pkg	raspi-firmware	1:1.20260915-1~bookworm	all
 pkg	raspi-gpio	0.20231127	arm64
 pkg	raspi-utils	20251002-1~bookworm	all
 pkg	raspi-utils-core	20251002-1~bookworm	arm64
