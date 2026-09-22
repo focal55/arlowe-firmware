@@ -79,6 +79,44 @@ ln -sf "/etc/systemd/system/${SERVICE_NAME}" \
 echo "[03-firstboot] ${SERVICE_NAME} installed and enabled"
 
 # ---------------------------------------------------------------------------
+# arlowe-userconf: headless account provisioning from /boot/firmware/userconf.txt
+#
+# The factory image ships no login account, which is correct -- the device is
+# paired, not logged into. But it also meant every hardware test cycle required
+# hand-editing cmdline.txt on the card to get a shell, and that userconf.txt did
+# nothing on a flashed image, because pi-gen's userconfig.service is not enabled
+# here. Enabling pi-gen's is the wrong fix: with no userconf.txt present it runs
+# an interactive wizard on tty1 and masks getty, so a device with no keyboard
+# attached waits at a prompt forever. This unit is a no-op when the file is
+# absent, so the factory default is unchanged.
+# ---------------------------------------------------------------------------
+# Same files/ convention as the service above: pi-gen copies the stage's files/
+# into the chroot at /files/. The repo path is a fallback for a manual run.
+USERCONF_UNIT="arlowe-userconf.service"
+USERCONF_SRC=""
+USERCONF_UNIT_SRC=""
+for base in /files /tmp/arlowe-build/repo/pi-gen/stage-arlowe/03-firstboot/files; do
+    if [[ -f "${base}/arlowe-userconf" && -f "${base}/${USERCONF_UNIT}" ]]; then
+        USERCONF_SRC="${base}/arlowe-userconf"
+        USERCONF_UNIT_SRC="${base}/${USERCONF_UNIT}"
+        break
+    fi
+done
+
+if [[ -n "${USERCONF_SRC}" && -n "${USERCONF_UNIT_SRC}" ]]; then
+    install -d -m 0755 /opt/arlowe/runtime/cli
+    install -m 0755 -o root -g root "${USERCONF_SRC}" /opt/arlowe/runtime/cli/arlowe-userconf
+    install -m 0644 -o root -g root "${USERCONF_UNIT_SRC}" "/etc/systemd/system/${USERCONF_UNIT}"
+    install -d -m 0755 /etc/systemd/system/multi-user.target.wants
+    ln -sf "/etc/systemd/system/${USERCONF_UNIT}" \
+        "/etc/systemd/system/multi-user.target.wants/${USERCONF_UNIT}"
+    echo "[03-firstboot] ${USERCONF_UNIT} installed and enabled"
+else
+    echo "[03-firstboot] ERROR: arlowe-userconf sources not found under /files or the repo fallback" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Install arlowe-grow-models.sh to the CLI path the service references.
 # The service calls /opt/arlowe/runtime/cli/arlowe-grow-models, which is
 # created here as a copy of the grow script (not a symlink — the grow script

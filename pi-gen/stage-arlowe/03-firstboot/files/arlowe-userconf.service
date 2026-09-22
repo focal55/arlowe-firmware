@@ -1,0 +1,16 @@
+[Unit]
+Description=Arlowe headless account provisioning from /boot/firmware/userconf.txt
+# Before sshd: the point is to be able to log in on this boot, not the next one.
+After=local-fs.target
+Before=ssh.service systemd-user-sessions.service
+ConditionPathExists=/boot/firmware/userconf.txt
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+ExecStart=/opt/arlowe/runtime/cli/arlowe-userconf
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
