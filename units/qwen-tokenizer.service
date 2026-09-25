@@ -3,7 +3,12 @@ Description=Qwen tokenizer HTTP service
 After=network.target
 
 [Service]
-Type=simple
+# notify: the script sends READY=1 once port 12345 is listening. With
+# Type=simple, qwen-api's After= released it the moment this process started,
+# about 40 s before the tokenizer finished loading, and qwen-api failed twice on
+# every boot. TimeoutStartSec covers the cold first boot (40 s measured).
+Type=notify
+TimeoutStartSec=180
 User=arlowe
 Group=arlowe
 WorkingDirectory=/opt/arlowe/runtime/llm
