@@ -148,6 +148,8 @@ jobs:
       # ARLOWE_VERSION_PROBE stubs and the path cases are pure filesystem.
       - name: Run the deliberate-failure self-test
         run: bash tests/phase-07.1/test-verify-unit-execstart.sh
+      - name: Run the persistent-journal gate self-test
+        run: bash tests/phase-07.1/test-verify-persistent-journal.sh
 
   linked-issue:
     name: Linked issue

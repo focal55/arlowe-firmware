@@ -546,6 +546,22 @@ fi
 ok "Unit substrate gates passed: every Exec* target resolves, every interpreter meets its floor,"
 ok "and every DeviceAllow entry grants a device the unit can actually open."
 
+# Persistent journal gate. pi-gen ships Storage=volatile; every image before this
+# gate lost its logs on each reboot, and nothing noticed. See the library header.
+JOURNAL_LIB="${SCRIPT_DIR}/lib/verify-persistent-journal.sh"
+JOURNAL_RC=0
+sudo bash -c 'set -uo pipefail; source "$1"; verify_persistent_journal "$2"' \
+    _ "${JOURNAL_LIB}" "${PIGEN_ROOTFS}" || JOURNAL_RC=$?
+if (( JOURNAL_RC == 2 )); then
+    fail "The persistent-journal gate could not perform its test (see the ERROR above)."
+    exit 1
+fi
+if (( JOURNAL_RC != 0 )); then
+    fail "Persistent-journal gate FAILED — the image would lose its logs on reboot or slot switch."
+    exit 1
+fi
+ok "Persistent-journal gate passed."
+
 # Locate the models staging tree (written by 02-models/00-run.sh).
 MODELS_STAGE_MARKER="${WORK_DIR}/arlowe-models-stage-path"
 if [[ -f "${MODELS_STAGE_MARKER}" ]]; then
