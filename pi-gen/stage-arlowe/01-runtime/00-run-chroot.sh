@@ -351,6 +351,39 @@ PARTUUID=${MODELS_PARTUUID_PLACEHOLDER}  /opt/arlowe/models  ext4  ro,noatime  0
 EOF
 
 # ---------------------------------------------------------------------------
+# Persistent journal on owner_state (F7 #27).
+#
+# pi-gen stage2 seds Storage=volatile into the main journald.conf, so a hang or
+# a failed boot left nothing to read. A drop-in overrides it without patching
+# upstream.
+#
+# The journal lives on owner_state, not the slot root: the root is per-slot,
+# nearly full, and replaced by an update, which would discard the logs from
+# before the update. /var/lib/arlowe/journal is created here so partition-image.sh
+# seeds it onto owner_state with the rest of the skeleton.
+#
+# nofail: losing persistent logs must not stop the device booting. If the bind
+# fails, journald writes to the root's /var/log/journal instead, and its default
+# SystemKeepFree (15%) leaves a nearly full root alone.
+#
+# The journal holds whatever units print, including voice transcripts, so the
+# factory reset (PAIR-07) must clear /var/lib/arlowe/journal.
+# ---------------------------------------------------------------------------
+echo "[00-run-chroot] configuring persistent journal on owner_state"
+install -d -o root -g systemd-journal -m 2755 /var/lib/arlowe/journal
+install -d -m 0755 /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/50-arlowe-persistent.conf <<'EOF'
+[Journal]
+Storage=persistent
+SystemMaxUse=256M
+EOF
+cat >> /etc/fstab <<'EOF'
+
+# Persistent journal, shared by both slots (see 01-runtime/00-run-chroot.sh).
+/var/lib/arlowe/journal  /var/log/journal  none  bind,nofail,x-systemd.requires-mounts-for=/var/lib/arlowe  0  0
+EOF
+
+# ---------------------------------------------------------------------------
 # In-chroot cleanup for reproducibility.
 # Clears obvious nondeterminism so repeated builds produce bit-similar rootfs.
 # Snapshot/SOURCE_DATE_EPOCH wiring belongs to plan 06-06's build orchestration;

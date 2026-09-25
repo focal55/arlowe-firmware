@@ -149,6 +149,9 @@ PARTUUID=${puuid_boot}  /boot/firmware      vfat  defaults            0  2
 # Owner state (noatime, fixed size — ADR-0004)
 PARTUUID=${puuid_owner}  /var/lib/arlowe    ext4  defaults,noatime    0  2
 
+# Persistent journal on owner_state, so a recovery boot's logs outlive it
+/var/lib/arlowe/journal  /var/log/journal  none  bind,nofail,x-systemd.requires-mounts-for=/var/lib/arlowe  0  0
+
 # Shared models partition — ro,nofail: recovery does not require models
 PARTUUID=${puuid_models}  /opt/arlowe/models  ext4  ro,noatime,nofail  0  2
 EOF

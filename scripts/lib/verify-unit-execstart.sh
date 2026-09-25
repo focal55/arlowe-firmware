@@ -916,3 +916,136 @@ verify_unit_runtime_versions() {
     _vue_shield_off
     return "${rc}"
 }
+
+# ---------------------------------------------------------------------------
+# verify_unit_device_allow <rootfs>
+#
+# DeviceAllow= is the quietest directive in these units. Three separate units in
+# this repo shipped a DeviceAllow that granted less than the service needed, and
+# every one of them passed `systemd-analyze verify`, because naming a node that
+# does not exist, omitting one, and writing a glob systemd will not expand are
+# all valid syntax. All three then failed at runtime in the same way -- the
+# service reported something that sounded like absent hardware:
+#
+#   arlowe-face   /dev/gpiochip0 and /dev/gpiochip4 on a board presenting
+#                 gpiochip11-15  ->  "lgpio.error: can not open gpiochip"
+#   arlowe-voice  /dev/snd/*, kept literally  ->  ALSA "cannot find card '0'",
+#                 surfacing as PyAudio "no default output device"
+#   qwen-api      msg_userdev and p2p omitted  ->  AX_PCIe_OpenMsgPort fail,
+#                 surfacing as "axcl_Init(0) failed"
+#
+# Two of those three are statically catchable and this checks both.
+#
+# 1. NO GLOBS. systemd does not expand * ? or [ ] in a DeviceAllow path; it
+#    keeps the literal string, which matches no device node. There is no case
+#    where a glob here does what its author meant.
+#
+# 2. THE UDEV CONTRACT. A rules file under provision/udev/ may declare which
+#    units need the nodes it governs:
+#
+#        # ARLOWE-REQUIRED-BY: qwen-api.service arlowe-face.service
+#
+#    Every exact KERNEL=="name" in that file must then appear in each named
+#    unit's DeviceAllow. That is what qwen-api violated: the rule file listed
+#    four nodes and said in prose that qwen-api required them, and the unit
+#    granted two.
+#
+# What this canNOT catch is a node that does not exist on the target board --
+# /dev/gpiochip0 is matched by the shipped glob KERNEL=="gpiochip[0-9]*" and is
+# perfectly plausible at build time. That one needs hardware, and the answer is
+# to prefer a char- device class over a node name where one exists.
+# ---------------------------------------------------------------------------
+verify_unit_device_allow() {
+    local rootfs="${1:?rootfs required}"
+    local repo_root="${2:-}"
+    local tag="unit-devices"
+    local failures=0 checked=0
+
+    if [[ -z "${repo_root}" ]]; then
+        repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    fi
+    local rules_dir="${repo_root}/provision/udev"
+
+    local unit
+    while IFS= read -r unit; do
+        [[ -n "${unit}" ]] || continue
+        local name; name="$(basename "${unit}")"
+        local unit_rel; unit_rel="$(_vue_resolve "${rootfs}" "${unit#"${rootfs}"}")" || unit_rel="${unit}"
+        # apt-owned units (sshd, ModemManager) carry their vendor's DeviceAllow;
+        # holding those to our udev contract would report failures about nothing.
+        _vue_unit_owner "${rootfs}" "${unit#"${rootfs}"}" "${unit_rel}" >/dev/null && continue
+
+        local entry
+        while IFS= read -r entry; do
+            [[ -n "${entry}" ]] || continue
+            checked=$(( checked + 1 ))
+            local path="${entry%% *}"
+
+            case "${path}" in
+                char-*|block-*)
+                    _vue_ok "${tag}" "${name}: ${path} (device class)"
+                    continue
+                    ;;
+                *[\*\?\[]*)
+                    _vue_fail "${tag}" "${name}: DeviceAllow=${path} contains a glob." \
+                        "systemd does not expand globs here -- it keeps the literal string," \
+                        "which matches no node and grants nothing. Name the nodes, or use a" \
+                        "char-<class> from /proc/devices (e.g. char-alsa for /dev/snd/*)."
+                    failures=$(( failures + 1 ))
+                    continue
+                    ;;
+            esac
+            _vue_ok "${tag}" "${name}: ${path}"
+        done < <(_vue_device_allow_entries "${rootfs}" "${unit}")
+    done < <(_vue_unit_files "${rootfs}")
+
+    # --- the udev contract -------------------------------------------------
+    local rules
+    for rules in "${rules_dir}"/*.rules; do
+        [[ -f "${rules}" ]] || continue
+        local required_by
+        required_by="$(sed -n 's/^#[[:space:]]*ARLOWE-REQUIRED-BY:[[:space:]]*//p' "${rules}")"
+        [[ -n "${required_by}" ]] || continue
+
+        local nodes
+        nodes="$(sed -n 's/^KERNEL=="\([A-Za-z0-9_]*\)".*/\1/p' "${rules}")"
+        [[ -n "${nodes}" ]] || continue
+
+        local unit_name node
+        for unit_name in ${required_by}; do
+            local unit_path="${rootfs}/etc/systemd/system/${unit_name}"
+            if [[ ! -e "${unit_path}" && ! -L "${unit_path}" ]]; then
+                _vue_fail "${tag}" "$(basename "${rules}") requires ${unit_name}, which is not in the rootfs"
+                failures=$(( failures + 1 ))
+                continue
+            fi
+            local granted; granted="$(_vue_device_allow_entries "${rootfs}" "${unit_path}" | awk '{print $1}')"
+            for node in ${nodes}; do
+                checked=$(( checked + 1 ))
+                if printf '%s\n' "${granted}" | grep -qxF "/dev/${node}"; then
+                    _vue_ok "${tag}" "${unit_name}: /dev/${node} (required by $(basename "${rules}"))"
+                else
+                    _vue_fail "${tag}" "${unit_name}: /dev/${node} is governed by" \
+                        "$(basename "${rules}"), which declares ARLOWE-REQUIRED-BY: ${unit_name}," \
+                        "but the unit has no DeviceAllow for it. The service will be denied the" \
+                        "node at runtime and report it as missing hardware."
+                    failures=$(( failures + 1 ))
+                fi
+            done
+        done
+    done
+
+    _vue_log "${tag}" "${checked} DeviceAllow assertion(s), ${failures} failure(s)"
+    (( failures == 0 ))
+}
+
+# Exact-match DeviceAllow values for one unit file, one per line, drop-ins
+# included the same way the Exec* reader handles them.
+_vue_device_allow_entries() {
+    local rootfs="$1" unit="$2"
+    # _vue_resolve returns a path RELATIVE to the rootfs; re-root it to read.
+    local rel; rel="$(_vue_resolve "${rootfs}" "${unit#"${rootfs}"}")" || return 0
+    local real="${rootfs}${rel}"
+    [[ -r "${real}" ]] || return 0
+    sed -n 's/^[[:space:]]*DeviceAllow=[[:space:]]*//p' "${real}" | grep -v '^$'
+}
