@@ -1,10 +1,10 @@
 # The image's package set, reproduced -- so SC4 is checked against what the device
 # will actually have rather than against whatever the developer's machine carries.
 #
-# ARCHITECTURE. arm64 only, and not as a preference. python3-rpi.gpio and
-# python3-spidev exist for arm64 bookworm (0.7.1~a4-1+b4 and 3.6-1+b1) and do not
-# exist for amd64 at any version, so an amd64 run would have to stub the two
-# packages the WhisPlay driver needs and the check would stop covering them.
+# ARCHITECTURE. arm64 only, and not as a preference. python3-spidev and the lgpio
+# packages the WhisPlay driver needs exist for arm64 bookworm and do not exist for
+# amd64 at any version, so an amd64 run would have to stub them and the check would
+# stop covering them.
 # Build with --platform linux/arm64; tests/phase-07.1/run-import-check.sh does.
 FROM debian:bookworm
 
@@ -25,6 +25,20 @@ ENV DEBIAN_FRONTEND=noninteractive
 # PIL under arlowe-face. It defaults to empty and dropping a package can only ever
 # make the check stricter, never greener.
 # ---------------------------------------------------------------------------
+# The Raspberry Pi archive, because the image has it and this container exists to
+# reproduce the image's package set. python3-lgpio and python3-rpi-lgpio -- the
+# Pi 5 GPIO stack the WhisPlay driver imports as RPi.GPIO -- ship only here; Debian
+# carries python3-rpi.gpio, whose 0.7.1 predates BCM2712 and cannot address a Pi 5.
+# Without this source the derived set fails to install and the gate cannot run at
+# all, which is not the same as the gate passing.
+#
+# Deliberately NOT pinned to a snapshot: this gate answers "does every import
+# resolve against what the device has", and fidelity to the real archive is the
+# point. Reproducibility of the package VERSIONS is a different gate's job
+# (tests/phase-07.2/resolve-twice.sh), and pinning these is tracked in #146.
+RUN echo "deb [trusted=yes] http://archive.raspberrypi.com/debian bookworm main" \
+        > /etc/apt/sources.list.d/raspi.list
+
 ARG ARLOWE_DROP_PACKAGES=""
 COPY pi-gen/stage-arlowe/00-packages/00-packages-nr /tmp/00-packages-nr
 RUN pkgs="$(sed 's/#.*//' /tmp/00-packages-nr | tr -s '[:space:]' '\n' | grep -v '^$')"; \
