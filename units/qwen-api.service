@@ -22,8 +22,25 @@ RestartSec=10
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=no
+# All FOUR nodes the axcl deb exposes, not two. The udev rule this repo ships
+# (provision/90-arlowe-axera.rules) names axcl_host, ax_mmb_dev, msg_userdev and
+# p2p, and says in its own comment that qwen-api requires them -- this list
+# granted the first two.
+#
+# ax-llm died on "AX_PCIe_OpenMsgPort(target: 3 port: 21) fail, ret = 0xffffffff",
+# which is msg_userdev: the message channel it opens right after axcl_Init. The
+# failure surfaced as axcl_Init(0) failed and read like the accelerator not
+# answering. It answers -- axcl-smi talks to it fine (46C, 18/7040 MiB) over the
+# same ports, because axcl-smi is not sandboxed.
+#
+# Third unit in this repo whose DeviceAllow named less than it needed. A
+# DeviceAllow entry that is absent, that names a nonexistent node, or that uses a
+# glob systemd will not expand all fail the same way: silently, with the service
+# reporting something that sounds like missing hardware.
 DeviceAllow=/dev/axcl_host rw
 DeviceAllow=/dev/ax_mmb_dev rw
+DeviceAllow=/dev/msg_userdev rw
+DeviceAllow=/dev/p2p rw
 ProtectSystem=strict
 ProtectHome=yes
 ProtectKernelTunables=yes
