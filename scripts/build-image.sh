@@ -463,6 +463,8 @@ esac
 #
 #   verify_unit_execstart          every Exec* executable and script argument
 #                                  named by a unit resolves inside the rootfs.
+#   verify_unit_device_allow       every DeviceAllow entry grants something, and
+#                                  the udev contract in provision/udev/ is honoured
 #   verify_unit_runtime_versions   the interpreter each unit names meets a
 #                                  declared version floor. The path gate cannot
 #                                  tell a Node 20 from a Node 18, and the
@@ -524,18 +526,25 @@ sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_execstart "$2"' \
 VERSIONS_RC=0
 sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_runtime_versions "$2"' \
     _ "${SUBSTRATE_LIB}" "${PIGEN_ROOTFS}" || VERSIONS_RC=$?
+# Takes the repo root too: the udev contract it checks lives in provision/udev/,
+# which is not inside the rootfs being measured.
+DEVICES_RC=0
+sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_device_allow "$2" "$3"' \
+    _ "${SUBSTRATE_LIB}" "${PIGEN_ROOTFS}" "${REPO_ROOT}" || DEVICES_RC=$?
 
-if (( EXECSTART_RC == 2 || VERSIONS_RC == 2 )); then
+if (( EXECSTART_RC == 2 || VERSIONS_RC == 2 || DEVICES_RC == 2 )); then
     fail "A unit substrate gate could not perform its test (see the ERROR above)."
     fail "That is neither a pass nor a failure — the build stops rather than guess."
     exit 1
 fi
-if (( EXECSTART_RC != 0 || VERSIONS_RC != 0 )); then
+if (( EXECSTART_RC != 0 || VERSIONS_RC != 0 || DEVICES_RC != 0 )); then
     fail "Unit substrate gates FAILED — the rootfs names runtime artifacts it does not contain,"
-    fail "or ships an interpreter below its declared floor. Every failure is listed above."
+    fail "ships an interpreter below its declared floor, or grants device access that grants"
+    fail "nothing. Every failure is listed above."
     exit 1
 fi
-ok "Unit substrate gates passed: every Exec* target resolves and every interpreter meets its floor."
+ok "Unit substrate gates passed: every Exec* target resolves, every interpreter meets its floor,"
+ok "and every DeviceAllow entry grants a device the unit can actually open."
 
 # Persistent journal gate. pi-gen ships Storage=volatile; every image before this
 # gate lost its logs on each reboot, and nothing noticed. See the library header.
