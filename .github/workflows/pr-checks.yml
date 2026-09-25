@@ -150,6 +150,8 @@ jobs:
         run: bash tests/phase-07.1/test-verify-unit-execstart.sh
       - name: Run the persistent-journal gate self-test
         run: bash tests/phase-07.1/test-verify-persistent-journal.sh
+      - name: Run the recovery-slot unit removal self-test
+        run: bash tests/phase-07.1/test-recovery-stub-units.sh
 
   linked-issue:
     name: Linked issue

@@ -78,10 +78,21 @@ write_recovery_stub() {
     sudo mount "${loop_dev}p3" "${mnt_b}"
 
     _rstub_clone_and_prune "${mnt_a}" "${mnt_b}"
+    sudo bash -c 'set -euo pipefail; source "$1"; _rstub_remove_runtime_units "$2" "$3"' \
+        _ "${BASH_SOURCE[0]}" "${mnt_b}" "${repo_root}/units"
     _rstub_write_fstab     "${mnt_b}" "${puuid_boot}" "${puuid_owner}" "${puuid_models}"
     _rstub_install_recovery "${mnt_b}" "${repo_root}"
     _rstub_write_partuuid_map "${mnt_b}" "${partuuid_map}"
     _rstub_enable_service  "${mnt_b}"
+
+    # Slot B has never booted (F7), so a defect here goes unseen until an owner
+    # needs recovery. Gate it at build time the way slot A is gated.
+    local substrate_lib="${repo_root}/scripts/lib/verify-unit-execstart.sh"
+    sudo bash -c 'set -uo pipefail; source "$1"; verify_unit_execstart "$2"' \
+        _ "${substrate_lib}" "${mnt_b}" || {
+        echo "recovery-stub.sh: slot B names Exec* targets it does not contain (see above)" >&2
+        return 1
+    }
 
     sudo sync
     _rstub_cleanup
@@ -126,6 +137,35 @@ _rstub_clone_and_prune() {
     sudo rm -rf "${mnt_b:?}/opt/arlowe/models" 2>/dev/null || true
 
     echo "[recovery-stub] pruning complete"
+}
+
+# ---------------------------------------------------------------------------
+# Internal: remove the units whose runtime the prune just deleted
+# ---------------------------------------------------------------------------
+# The clone carries slot A's units and their enablement symlinks. Left in place,
+# every recovery boot starts services whose code is gone, and a real failure in
+# recovery would hide among the expected ones.
+#
+# The set is globbed from the repo's units/ directory, the same set
+# units/install-units.sh installed into slot A. It is not derived from the Exec*
+# paths: arlowe-voice and arlowe-face start as `python -m <module>` and never
+# name a pruned directory, so a path match would leave both enabled.
+#
+# Runs as root via `sudo bash -c`; it does not call sudo itself.
+_rstub_remove_runtime_units() {
+    local mnt_b="$1"
+    local units_src="$2"
+    local sysd="${mnt_b}/etc/systemd/system"
+    local unit name
+
+    for unit in "${units_src}"/*.service; do
+        [[ -e "${unit}" ]] || continue
+        name="$(basename "${unit}")"
+        rm -rf "${sysd:?}/${name}" "${sysd:?}/${name}.d"
+        find "${sysd}" -mindepth 2 -maxdepth 2 -type l -name "${name}" \
+            \( -path '*.wants/*' -o -path '*.requires/*' \) -delete
+        echo "[recovery-stub] removed ${name} from slot B"
+    done
 }
 
 # ---------------------------------------------------------------------------
