@@ -458,7 +458,7 @@ On the build host, with the card still at `/dev/sdX`:
 
 ```bash
 sudo mount /dev/sdX1 /mnt
-printf '%s:%s\n' focal55 "$(openssl passwd -6)" | sudo tee /mnt/userconf.txt >/dev/null
+printf '%s:%s\n' <user> "$(openssl passwd -6)" | sudo tee /mnt/userconf.txt >/dev/null
 sudo umount /mnt
 ```
 
