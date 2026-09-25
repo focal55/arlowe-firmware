@@ -1,0 +1,72 @@
+# Raspberry Pi archive package pinning.
+#
+# Companion to third_party/kernel/manifest.yml, same mechanism and same reason.
+# Decision recorded in docs/architecture/0009-build-input-pinning.md.
+#
+# WHY THESE THREE AND NOT OTHERS:
+#   Every other package in the image comes from snapshot.debian.org, which is
+#   pinned to a timestamp in the stage0 overlay and is therefore already
+#   reproducible. These three exist only in archive.raspberrypi.com, which is a
+#   ROLLING index with no snapshot service (snapshot.raspberrypi.com and
+#   snapshot.raspberrypi.org both return HTTP 000). They were the last unpinned
+#   build inputs.
+#
+# WHAT WENT WRONG WITHOUT THIS:
+#   raspi-firmware moved 1:1.20260907 -> 1:1.20260915 between two builds about
+#   ten hours apart, with nothing in the repo changed. The gate caught it and the
+#   bump had to be accepted rather than pinned, because there was nothing to pin
+#   it to.
+#
+#   raspi-firmware is not an ordinary package: it ships start.elf, fixup.dat and
+#   bootcode.bin -- the bootloader, the first code the device runs. An unpinned
+#   bootloader is a reproducibility hole and a supply-chain one.
+#
+#   python3-lgpio and python3-rpi-lgpio are the Pi 5 GPIO stack. rpi-lgpio
+#   provides the module named RPi.GPIO over lgpio; Debian's own python3-rpi.gpio
+#   is 0.7.1, predates BCM2712 and cannot address a Pi 5 at all, so there is no
+#   Debian package that does this job and no Debian version to fall back to.
+#   Without them the display driver cannot open a GPIO line.
+#
+# A SECOND, SHARPER REASON, measured:
+#   tests/phase-07.2/resolve-twice.sh resolves the declared package set against
+#   snapshot.debian.org. apt exits 100 on the WHOLE SET when any one package is
+#   unresolvable, so these two unpinnable packages did not merely go unmeasured --
+#   they silently stopped the gate measuring the other 26. It read as "28 packages
+#   pinned" while pinning nothing. Pinning them here is what lets that exclusion
+#   be removed.
+#
+# DIGESTS: taken from dists/bookworm/main/binary-arm64/Packages.gz and then
+# CONFIRMED by downloading each file and hashing the served bytes on 2026-09-25.
+# Both agreed. That second step is not ceremony -- the piper pin in
+# runtime/tts/manifest.yml was recorded from a local file, never dereferenced,
+# and turned out to match no upstream artifact at all.
+#
+# UPDATE PROCEDURE: bump version, url, size and sha256 together in one commit,
+# and re-record docs/operations/phase-07.2-inputs.reference in the same change.
+
+pool_base: "http://archive.raspberrypi.com/debian"
+
+packages:
+  - name: "raspi-firmware"
+    version: "1:1.20260915-1~bookworm"
+    filename: "raspi-firmware_1.20260915-1~bookworm_all.deb"
+    url: "http://archive.raspberrypi.com/debian/pool/main/r/raspi-firmware/raspi-firmware_1.20260915-1~bookworm_all.deb"
+    size: 13032122
+    sha256: "38f17381b60ffdfdb2aa51a2e365f26f3e4df8d0dbbb8a9e9c5a86de48085c29"
+    why: "bootloader: start.elf, fixup.dat, bootcode.bin"
+
+  - name: "python3-lgpio"
+    version: "0.2.2-1~rpt1"
+    filename: "python3-lgpio_0.2.2-1~rpt1_arm64.deb"
+    url: "http://archive.raspberrypi.com/debian/pool/main/l/lg-gpio/python3-lgpio_0.2.2-1~rpt1_arm64.deb"
+    size: 55060
+    sha256: "4ab1269be0c9d392103484cca713cb2853a9185bbc1a6f53c02e983ed8c00f23"
+    why: "GPIO bindings over gpiochip; the only ones that work on BCM2712"
+
+  - name: "python3-rpi-lgpio"
+    version: "0.6-0~rpt1"
+    filename: "python3-rpi-lgpio_0.6-0~rpt1_all.deb"
+    url: "http://archive.raspberrypi.com/debian/pool/main/r/rpi-lgpio/python3-rpi-lgpio_0.6-0~rpt1_all.deb"
+    size: 14346
+    sha256: "d93bfb09f00fb8419b3e0eac33dafc02d7991989203c0281344e7aea206b03cd"
+    why: "provides the module named RPi.GPIO, which the vendored WhisPlay driver imports"
