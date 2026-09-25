@@ -11,7 +11,7 @@
 # committed copy is a baseline a gate diffs against, and an edited baseline
 # asserts something no build produced. Re-record a deliberate bump with
 # ARLOWE_INPUTS_ACCEPT=1.
-source_date_epoch	1790043229
+source_date_epoch	1790347884
 worktree_clean	true
 pigen_ref	2026-06-18-raspios-bookworm-arm64
 debian_snapshot	20260915T000000Z
@@ -26,6 +26,9 @@ pin	third_party/kernel/linux-image-6.12.96+rpt-rpi-v8_6.12.96-1+rpt1_arm64.deb	9
 pin	third_party/kernel/linux-kbuild-6.12.96+rpt_6.12.96-1+rpt1_arm64.deb	d02f3b15ae790a00e2a5a29c684469866e81908b7b04645a53d5698596532e04
 pin	third_party/models/en_US-lessac-medium.onnx.json	TODO_SHA256__config_json
 pin	third_party/node/node-v24.21.0-linux-arm64.tar.xz	6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2
+pin	third_party/rpt-packages/python3-lgpio_0.2.2-1~rpt1_arm64.deb	4ab1269be0c9d392103484cca713cb2853a9185bbc1a6f53c02e983ed8c00f23
+pin	third_party/rpt-packages/python3-rpi-lgpio_0.6-0~rpt1_all.deb	d93bfb09f00fb8419b3e0eac33dafc02d7991989203c0281344e7aea206b03cd
+pin	third_party/rpt-packages/raspi-firmware_1.20260915-1~bookworm_all.deb	38f17381b60ffdfdb2aa51a2e365f26f3e4df8d0dbbb8a9e9c5a86de48085c29
 pkg	adduser	3.134	all
 pkg	alsa-topology-conf	1.2.5.1-2	all
 pkg	alsa-ucm-conf	1.2.8-1	all
