@@ -417,8 +417,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -
 | 5. Audio device auto-detection | 7/7 | Complete (passed-with-notes; on-Pi SC1-4 deferred to hardware checkpoint) | 2026-06-13 |
 | 6. Image build with A/B partitions | 6/6 | Complete in code; HARDWARE CHECKPOINT IN PROGRESS (started 2026-06-19, paused — see STATE.md) | 2026-06-14 |
 | 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
-| 7.1 Runtime substrate repair (INSERTED) | 6/6 | Complete in code (passed-with-notes; SC1–SC5 verified in arm64 bookworm containers). **SC6 deferred to a hardware checkpoint, procedure in `docs/operations/phase-7.1-substrate.md`** — UNPROVEN until run | 2026-09-12 |
-| 7.2 Build input pinning (INSERTED) | 0/TBD | Not started — blocks Phase 7.1 SC6 (#137) | - |
+| 7.1 Runtime substrate repair (INSERTED) | 6/6 | **Complete. SC6 met on hardware 2026-09-25: all six units `active`** — 5/6 from a clean flash, the sixth after a one-line `DeviceAllow` fix now on `main` but not yet in a built image. Results and that qualification in `docs/operations/phase-7.1-substrate.md` §SC6 results. Nine defects found, none container-reproducible | 2026-09-25 |
+| 7.2 Build input pinning (INSERTED) | Complete | Kernel pinned to 6.12.96 by pool URL + sha256; Debian snapshot pinned; input manifest diff gate green (#137 closed). Pi-archive packages pinned by digest, install path still via apt (#146 open) | 2026-09-21 |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |

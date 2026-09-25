@@ -559,6 +559,120 @@ document asserting a state the hardware had never confirmed.
 
 ---
 
+## SC6 results — 2026-09-25
+
+**SC6 is met: all six units reach `active`.** With one qualification stated up
+front, because this runbook exists to stop a phase being closed on evidence the
+hardware never produced.
+
+### The qualification
+
+Five of six reached `active` on a **clean flash, untouched**. The sixth,
+`qwen-api`, needed a one-line unit change applied by hand on the running device.
+That change is now on `main` (`0a4a1fb`) and will be in the next image, but **no
+image has yet been built containing it**. So:
+
+| | |
+|---|---|
+| verified from a clean flash | 5 of 6 |
+| verified on hardware, fix now on `main`, not yet in an image | 6 of 6 |
+
+The honest headline is the second line with the caveat attached, not either
+number alone.
+
+### The six, verbatim
+
+```
+qwen-tokenizer: active
+qwen-api: active
+whisper-stt: active
+arlowe-face: active
+arlowe-voice: active
+arlowe-dashboard: active
+```
+
+Sampled twice 60 s apart with identical PIDs, and `systemctl list-units
+--state=failed` reporting `0 loaded units listed.`
+
+### Step 6 — SC5, the verifier-absent wake path
+
+```
+[2/4] Wake gate: generic model, base threshold 0.7
+      (no verifier at /var/lib/arlowe/wake-word/verifier.pkl - device not personalized)
+🎤 LISTENING FOR WAKE WORD
+```
+
+### Step 7 — SC3, the dashboard serves unpaired
+
+`HTTP 200` on `localhost:3000`, with `/etc/arlowe/config.yml` absent — the
+CONFIG-03 unpaired state, which is correct for a factory-fresh device.
+
+### Step 8 — on-device sizing, for issue #135
+
+```
+/dev/root        3.5G  3.2G  278M  93%  /
+/dev/mmcblk0p4   2.9G  142M  2.7G   5%  /var/lib/arlowe
+/dev/mmcblk0p5    47G  6.2G   41G  14%  /opt/arlowe/models
+```
+
+Measured rootfs at build time: **2942 MiB**; slot: **3712 MiB**.
+
+Before the sizing fix the same layout produced a 3.2 GB slot with **0 bytes
+available**, which is not a near miss — it blocked `apt-get update` from writing
+a package list, and so blocked diagnosing anything on the device at all. #135 is
+closed on these figures.
+
+### NPU
+
+```
+0  AX8850  V3.10.2 | 0001:03:00.0 |  182 MiB /  945 MiB
+   46C               | 4983 MiB / 7040 MiB
+```
+
+The model is resident on the accelerator. `qwen-api` logs
+`AXCLWorker start with devid 0`.
+
+### What it took to get here
+
+Nine builds and three flashes. Nine defects, **none of which a container can
+reproduce**:
+
+| defect | why no container finds it |
+|---|---|
+| units shipped disabled | the test asserted `test -f`, not the `.wants` symlink |
+| `mbind` killed by seccomp | no `numa=fake=8` in a container |
+| `whisper-stt` read-only HF cache | `ProtectSystem=strict` never exercised |
+| lgpio read-only CWD | same |
+| HAT device tree absent | no `config.txt` in a container |
+| `DeviceAllow` granting nothing, ×3 | absent, nonexistent and unexpandable entries are all valid syntax |
+| Piper never installed, pin wrong twice | nothing dereferenced the pin |
+| ax-llm never built | a consumer with no producer |
+| slots sized from apparent size | `du -sb` implies `--apparent-size` |
+
+Four further builds died on defects in the build code itself — an unexported
+`REPO_ROOT`, a staging allowlist, an inverted `ldconfig` guard, a missing gate
+allowlist entry. `shellcheck` was clean on all four. Each was visible only
+inside pi-gen's chroot, which is an argument for making that loop cheaper before
+Phase 8 adds to it.
+
+### Corrections to earlier claims in this document
+
+- **The AX650 was never faulty.** This document previously implied `qwen-api`
+  needed the accelerator in a way the other units did not. It needed
+  `/dev/msg_userdev`, which its unit did not grant. `axcl-smi` talked to the card
+  throughout, because it is not sandboxed.
+- **`arlowe-voice` was not a hardware deferral.** It was recorded as needing a
+  capture device that was absent. The device was attached; the image never
+  enabled the HAT's device tree, so no soundcard existed.
+
+### Still open
+
+- **#146** — three Pi-archive inputs pinned by digest, install path still via apt
+- **#134** — recovery slot B ships slot A's units enabled with the runtime deleted
+- `Storage=volatile` — an overnight hang left no journal to diagnose
+
+---
+
 ## References
 
 - Build / flash / deploy mechanics: `docs/operations/phase-6-build-flash-deploy.md`
