@@ -133,10 +133,28 @@ fi
 # ---------------------------------------------------------------------------
 # Step 3: the package set, read from the two shipping lists.
 # ---------------------------------------------------------------------------
+# Packages that exist ONLY in archive.raspberrypi.com and therefore cannot take
+# part in a snapshot.debian.org resolution. This is not a waiver of the pin -- it
+# is the pin's boundary. There is no Raspberry Pi snapshot service (the reason
+# Phase 7.2 pinned the kernel debs by pool URL and sha256 rather than by suite),
+# so a package with no Debian counterpart has nothing to resolve against here and
+# apt exits 100 on the whole set, taking the other 26 with it.
+#
+# Both are the Pi 5 GPIO stack: python3-rpi.gpio is in Debian but its 0.7.1
+# predates BCM2712 and cannot address the Pi 5 at all, so there is no Debian
+# package that does this job. They want the kernel's treatment -- pool URL plus
+# sha256 -- which is tracked in #146 alongside raspi-firmware. Until then they are
+# named here so the exclusion is visible rather than implied by a silent failure.
+RPT_ONLY_PACKAGES=$'python3-lgpio\npython3-rpi-lgpio'
+
 PACKAGES="$( { sed 's/#.*//' "${ARLOWE_PKGS}"
                sed 's/#.*//' "${FIRMWARE_PKGS}"
                echo initramfs-tools
-             } | tr -s '[:space:]' '\n' | grep -v '^$' | LC_ALL=C sort -u )"
+             } | tr -s '[:space:]' '\n' | grep -v '^$' \
+               | grep -vxF "${RPT_ONLY_PACKAGES}" \
+               | LC_ALL=C sort -u )"
+echo "=== excluded (Pi-archive only, no Debian snapshot to resolve against; #146) ==="
+printf '%s\n' "${RPT_ONLY_PACKAGES}" | sed 's/^/  /'
 PACKAGE_COUNT="$(printf '%s\n' "${PACKAGES}" | wc -l)"
 echo "=== resolving ${PACKAGE_COUNT} declared packages ==="
 printf '%s\n' "${PACKAGES}" | tr '\n' ' '; echo
