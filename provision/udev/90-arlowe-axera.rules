@@ -19,6 +19,14 @@
 #
 # Required by qwen-api (LLM inference) and any arlowe service that uses the NPU.
 
+# ARLOWE-REQUIRED-BY: qwen-api.service
+#
+# Machine-readable, and read by verify_unit_device_allow. The prose below
+# already said qwen-api needed these four nodes; the unit granted two, and
+# nothing checked the prose. msg_userdev is the message channel
+# AX_PCIe_OpenMsgPort opens, and without it axcl_Init(0) fails in a way that
+# reads like the accelerator not answering.
+
 KERNEL=="axcl_host",   OWNER="root", GROUP="arlowe", MODE="0660"
 KERNEL=="ax_mmb_dev",  OWNER="root", GROUP="arlowe", MODE="0660"
 KERNEL=="msg_userdev", OWNER="root", GROUP="arlowe", MODE="0660"
