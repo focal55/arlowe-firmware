@@ -142,9 +142,13 @@ fi
 #
 # Both are the Pi 5 GPIO stack: python3-rpi.gpio is in Debian but its 0.7.1
 # predates BCM2712 and cannot address the Pi 5 at all, so there is no Debian
-# package that does this job. They want the kernel's treatment -- pool URL plus
-# sha256 -- which is tracked in #146 alongside raspi-firmware. Until then they are
-# named here so the exclusion is visible rather than implied by a silent failure.
+# package that does this job.
+#
+# They are NOT unpinned. third_party/rpt-packages/manifest.yml pins both by pool
+# URL and sha256, and scripts/verify-third-party.sh check 8 hard-fails the build
+# if the archive serves different bytes. That is the kernel's mechanism, applied
+# to the packages this resolution cannot reach. Excluding them here is therefore
+# a statement about WHERE they are pinned, not a gap.
 RPT_ONLY_PACKAGES=$'python3-lgpio\npython3-rpi-lgpio'
 
 PACKAGES="$( { sed 's/#.*//' "${ARLOWE_PKGS}"
