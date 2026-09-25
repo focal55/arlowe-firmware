@@ -451,6 +451,21 @@ Mechanics: `docs/operations/phase-6-build-flash-deploy.md` §Flash. Re-read trap
 scripts/flash-sd.sh build/arlowe.img /dev/sdX --yes
 ```
 
+**Before the card leaves the reader, provision a login.** The image ships no
+account by design, so a card booted without one is unreachable: no SSH and no
+console login. The only recovery is pulling power and moving the card again.
+On the build host, with the card still at `/dev/sdX`:
+
+```bash
+sudo mount /dev/sdX1 /mnt
+printf '%s:%s\n' focal55 "$(openssl passwd -6)" | sudo tee /mnt/userconf.txt >/dev/null
+sudo umount /mnt
+```
+
+`arlowe-userconf.service` creates the user from it on first boot and deletes the
+file. Then `ssh-copy-id` with that password. Writing only the FAT partition keeps
+the `.bmap`-flashed rootfs untouched.
+
 ## Step 4 — boot factory-fresh
 
 Boot the Pi with **`/etc/arlowe/config.yml` ABSENT**. That absence is the
@@ -580,6 +595,10 @@ image has yet been built containing it**. So:
 The honest headline is the second line with the caveat attached, not either
 number alone.
 
+**Superseded the same afternoon:** an image built from the fix reached 6 of 6
+from a clean flash with no hand changes. See [§SC6 re-run from a clean
+image](#sc6-re-run-from-a-clean-image--2026-09-25-afternoon).
+
 ### The six, verbatim
 
 ```
@@ -669,7 +688,83 @@ Phase 8 adds to it.
 
 - **#146** — three Pi-archive inputs pinned by digest, install path still via apt
 - **#134** — recovery slot B ships slot A's units enabled with the runtime deleted
-- `Storage=volatile` — an overnight hang left no journal to diagnose
+- ~~`Storage=volatile`~~ — closed by #157; see the re-run below
+
+---
+
+## SC6 re-run from a clean image — 2026-09-25 (afternoon)
+
+**6 of 6 `active` from a clean flash, no hand changes.** This removes the
+qualification above.
+
+Image built from `6a4c538` (tree-identical to `main` after #158) on the arm64
+build host; kernel `6.12.96+rpt-rpi-2712`. It contains `0a4a1fb` (qwen-api
+device nodes), #150 (DeviceAllow gate) and #157 (persistent journal). The card
+was touched after flashing only to add `userconf.txt` to the FAT boot partition
+(see Step 3).
+
+### Build gates, first run against a real rootfs
+
+```
+[unit-devices] 15 DeviceAllow assertion(s), 0 failure(s)
+[OK]   Unit substrate gates passed: every Exec* target resolves, every interpreter meets its floor,
+[OK]   and every DeviceAllow entry grants a device the unit can actually open.
+[journal] OK   Storage=persistent (last set by /etc/systemd/journald.conf.d/50-arlowe-persistent.conf)
+[journal] OK   /var/log/journal is bind-mounted from owner_state
+[journal] OK   /var/lib/arlowe/journal exists in the owner_state skeleton
+[OK]   Sanitize gate passed.
+[OK]   Identity-store gate passed.
+```
+
+The first build attempt stopped earlier, at the build-inputs gate: #151 added
+three pins without re-recording the reference. Every `pkg` row matched; #158
+re-recorded it.
+
+### The six, verbatim
+
+```
+qwen-tokenizer: active pid=685 restarts=0
+qwen-api: active pid=916 restarts=2
+whisper-stt: active pid=644 restarts=0
+arlowe-face: active pid=684 restarts=0
+arlowe-voice: active pid=690 restarts=0
+arlowe-dashboard: active pid=641 restarts=0
+```
+
+Identical 60 s apart; `0 loaded units listed.` for failed units. Factory state
+confirmed (`/etc/arlowe/config.yml` absent).
+
+`qwen-api restarts=2` is a startup race, not a fault: it is ordered after
+`qwen-tokenizer` but only waits for the process to start, not for port 12345 to
+listen. ax-llm's ten connect retries run within one second with no delay, so it exits
+255 and `Restart=on-failure` recovers it on the third attempt, about 40 s after
+boot. It happens on every boot: #159.
+
+### SC5 and SC3
+
+```
+[2/4] Wake gate: generic model, base threshold 0.7 (no verifier at /var/lib/arlowe/wake-word/verifier.pkl - device not personalized)
+```
+
+Verifier absent, `FileNotFoundError` count `0`. Dashboard: `200`.
+
+### Persistent journal
+
+```
+/dev/mmcblk0p4[/journal] /var/log/journal
+IDX BOOT ID                          FIRST ENTRY                 LAST ENTRY
+ -1 f54ec57b2a834372893cd3621168ae75 Fri 2026-09-25 19:00:48 UTC Fri 2026-09-25 19:03:31 UTC
+  0 37e7b373c3014ca4a2b94e7e16a92334 Fri 2026-09-25 19:07:45 UTC Fri 2026-09-25 19:08:58 UTC
+```
+
+Boot -1 is the first boot, ended by pulling power, not by a clean shutdown. Its
+journal survived that and remains readable, including its own wake-gate line.
+That is a stronger result than the planned clean reboot.
+
+### Sizing
+
+Rootfs 2.9G (`/usr` 2.0G, `/opt/arlowe` 777M). Slots 3.5G: A 84% used, B 80%.
+Models grew to 51.0 GB on first boot. Detail on #135.
 
 ---
 
