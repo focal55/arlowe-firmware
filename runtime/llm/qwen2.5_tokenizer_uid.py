@@ -6,6 +6,8 @@ import uuid
 import os
 from pathlib import Path
 
+import arlowe_sdnotify
+
 # 全局字典：存储 uid 到 Tokenizer_Http 实例的映射
 tokenizers = {}
 
@@ -199,4 +201,8 @@ if __name__ == "__main__":
     host = (args.host, args.port)
     print('Server running at http://%s:%s' % host)
     server = HTTPServer(host, Request)
+    # The socket is bound and listening once HTTPServer returns. Signal readiness
+    # here, not before the ~40 s tokenizer load above, so qwen-api's After= waits
+    # for a port that answers.
+    arlowe_sdnotify.ready()
     server.serve_forever()
