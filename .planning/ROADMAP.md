@@ -333,13 +333,28 @@ exists to distrust.
   4. Two builds on different days, with archive publishes between them, produce identical Pi-archive package sets without a re-record.
   5. A pin-bump runbook covers the security side: `libc6` and `openssl` come from this archive, so a pinned image gets their fixes only when the pins move.
 
-**Plans**: 0 plans
+**Plans**: 14 plans in 14 waves (sequential)
+
+Sequential by necessity. `scripts/build-image.sh` is owned in turn by 04b, 05b and 07a; the `build-inputs-resolve` CI job gains steps from 01a, 02, 03, 04a, 04b and 06a; and each plan consumes the one before it. Every plan was split to an honest estimate under 400 net lines, and the arithmetic is in each plan's objective. Only 08 and 09 touch hardware: 08 is build A plus a reference PR merged by the owner; 09 is build B, which does not start until the live archive has moved at least one pinned package.
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 7.3 to break down)
+- [ ] 07.3-01a-PLAN.md — Generator core: attribution to Pi archive / Debian snapshot / kernel pin / local (~355) (Wave 1)
+- [ ] 07.3-01b-PLAN.md — Generator input variants: .gz/.xz (refuses lz4), dpkg-status input, resolve-only (~150) (Wave 2)
+- [ ] 07.3-02-PLAN.md — Committed `third_party/pi-archive/manifest.yml` built from the 07.2 reference plus an apt-verified Pi index; INSTALL.md; committed-manifest test (~342) (Wave 3)
+- [ ] 07.3-03-PLAN.md — Fetch/verify helper as verify-third-party check 9; header lists 8 and 9 (~305) (Wave 4)
+- [ ] 07.3-04a-PLAN.md — Flat repo builder + `pi_archive_swap_back` library function, both fixture-tested, not yet wired (~345) (Wave 5)
+- [ ] 07.3-04b-PLAN.md — stage0 overlay swap + MANIFEST digest + build-image.sh wiring (repo build, sudo env, swap-back call), all in one PR (~200) (Wave 6)
+- [ ] 07.3-05a-PLAN.md — Completeness `check` subcommand, both directions (~250) (Wave 7)
+- [ ] 07.3-05b-PLAN.md — Gate (`0 off-pin`) and check-invocation library functions, plus build-image.sh calls (~245) (Wave 8)
+- [ ] 07.3-06a-PLAN.md — CI resolution through the flat repo, the probe script, a daily retention workflow that files an issue (~285) (Wave 9)
+- [ ] 07.3-06b-PLAN.md — Retire rpt-packages and old check 8 (~200) (Wave 10)
+- [ ] 07.3-07a-PLAN.md — Record mode (tested library function, exit 3) + ADR-0010 (~330) (Wave 11)
+- [ ] 07.3-07b-PLAN.md — Pin-bump and security runbook, SC5 (~250) (Wave 12)
+- [ ] 07.3-08-PLAN.md — Build A: evidence with a positive control, pin-row-only reference re-record, owner merge (~95) (Wave 13, checkpoint)
+- [ ] 07.3-09-PLAN.md — Build B once the archive has moved at least one pinned package: diff gate exit 0 without accept (SC4), records closed (~45) (Wave 14, checkpoint)
 
 **Details:**
-[To be added during planning]
+SC3 decision: `third_party/rpt-packages/` is folded into the Pi-archive manifest; the kernel keeps its own manifest and installer (bump procedure needs the axcl compile re-proof, meta packages are deliberately in no repo, and a wholesale Pi regeneration must not move the kernel), while sharing the no-live-source guarantee and the completeness check. Recorded in ADR-0010 by plan 07a.
 
 ### Phase 8: First-boot pairing and wake word
 
