@@ -28,10 +28,11 @@ stanza() {
         "$1" "$2" "$3" "$4" "${#5}000" "$(hex64 "$5")"
 }
 
-# make_fixtures <dir>: pi/Packages, deb/Packages, kernel.yml, ref.txt (installed set)
+# make_fixtures <dir>: pi/Packages, pi2/Packages, deb/Packages, kernel.yml,
+# ref.txt (installed set) and status (the same set as a dpkg status file)
 make_fixtures() {
     local d="$1"
-    mkdir -p "${d}/pi" "${d}/deb"
+    mkdir -p "${d}/pi" "${d}/pi2" "${d}/deb"
     {
         stanza pionly-a 1.0 arm64 pool/main/p/pionly-a/pionly-a_1.0_arm64.deb pa
         stanza pionly-all 2.0 all pool/main/p/pionly-all/pionly-all_2.0_all.deb pall
@@ -40,7 +41,12 @@ make_fixtures() {
         stanza shared-diff 4.0 arm64 pool/main/s/shared-diff/shared-diff_4.0_arm64.deb diff-pi
         stanza linux-kbuild-6.12.96+rpt 1:6.12.96-1+rpt1 arm64 \
             pool/main/l/linux/linux-kbuild-6.12.96+rpt_6.12.96-1+rpt1_arm64.deb kb
+        stanza firmware-fake-prestera 1:2.0-1 all \
+            pool/main/f/firmware-fake-prestera/firmware-fake-prestera_2.0-1_all.deb fp1
     } > "${d}/pi/Packages"
+    stanza firmware-fake-prestera 1:2.0-2 all \
+        pool/main/f/firmware-fake-prestera/firmware-fake-prestera_2.0-2_all.deb fp2 \
+        > "${d}/pi2/Packages"
     {
         stanza debonly 5.0 arm64 pool/main/d/debonly/debonly_5.0_arm64.deb donly
         stanza shared-same 3.0 arm64 pool/main/s/shared-same/shared-same_3.0_arm64.deb same
@@ -64,17 +70,28 @@ EOF
         $'pkg\tlinux-image-6.12.96+rpt-rpi-2712\t1:6.12.96-1+rpt1\tarm64' \
         $'pkg\tlinux-kbuild-6.12.96+rpt\t1:6.12.96-1+rpt1\tarm64' \
         > "${d}/ref.txt"
+    # oldpkg is in neither archive, so counting it as installed would fail the run.
+    {
+        awk -F'\t' '$1 == "pkg" { printf "Package: %s\nStatus: install ok installed\nArchitecture: %s\nVersion: %s\nDescription: fixture\n continuation line\n\n", $2, $4, $3 }' \
+            "${d}/ref.txt"
+        printf 'Package: oldpkg\nStatus: deinstall ok config-files\nArchitecture: arm64\nVersion: 0.1\n\n'
+    } > "${d}/status"
 }
 
 F="${WORK}/fx"
 make_fixtures "${F}"
 
-# gen <ref> <out> [extra args...]: run generate against the shared fixtures
+# genx <out> [args...]: run generate with the shared Debian list and kernel manifest
+genx() {
+    local out="$1"; shift
+    python3 "${GEN}" generate --debian-list "${F}/deb/Packages" \
+        --kernel-manifest "${F}/kernel.yml" --pool-base "${POOL}" --out "${out}" "$@"
+}
+
+# gen <ref> <out> [extra args...]: genx with <ref> as the installed set and the pi/ list
 gen() {
     local ref="$1" out="$2"; shift 2
-    python3 "${GEN}" generate --installed-reference "${ref}" \
-        --pi-list "${F}/pi/Packages" --debian-list "${F}/deb/Packages" \
-        --kernel-manifest "${F}/kernel.yml" --pool-base "${POOL}" --out "${out}" "$@"
+    genx "${out}" --installed-reference "${ref}" --pi-list "${F}/pi/Packages" "$@"
 }
 
 record() {
@@ -85,8 +102,15 @@ record() {
 # expect_rc <name> <rc> <needle or ''> <ref> [extra args...]
 expect_rc() {
     local name="$1" want="$2" needle="$3" ref="$4"; shift 4
+    expect_rcx "${name}" "${want}" "${needle}" --installed-reference "${ref}" \
+        --pi-list "${F}/pi/Packages" "$@"
+}
+
+# expect_rcx <name> <rc> <needle or ''> [genx args...]
+expect_rcx() {
+    local name="$1" want="$2" needle="$3"; shift 3
     local out rc
-    out="$(gen "${ref}" "${WORK}/scratch.yml" "$@" 2>&1)"; rc=$?
+    out="$(genx "${WORK}/scratch.yml" "$@" 2>&1)"; rc=$?
     if [[ ${rc} -eq ${want} && ( -z "${needle}" || "${out}" == *"${needle}"* ) ]]; then
         record "${name}" ok
     else
@@ -95,9 +119,12 @@ expect_rc() {
 }
 
 # expect_py <name> <python asserting on `m` (the loaded manifest) and `text`>
-expect_py() {
-    local out
-    if out="$(python3 - "${GOOD}" "$2" 2>&1 <<'PY'
+expect_py() { expect_py_on "${GOOD}" "$@"; }
+
+# expect_py_on <manifest> <name> <python>
+expect_py_on() {
+    local file="$1" out; shift
+    if out="$(python3 - "${file}" "$2" 2>&1 <<'PY'
 import sys, yaml
 text = open(sys.argv[1]).read()
 m = yaml.safe_load(text)
@@ -171,6 +198,59 @@ if cmp -s "${GOOD}" "${WORK}/again.yml"; then
 else
     record "[format-and-determinism] two runs are byte-identical" bad "outputs differ"
 fi
+
+# same_as_good <name> <out> [genx args...]: the run succeeds and matches the baseline
+same_as_good() {
+    local name="$1" out="$2" log; shift 2
+    if log="$(genx "${out}" "$@" 2>&1)" && cmp -s "${GOOD}" "${out}"; then
+        record "${name}" ok
+    else
+        record "${name}" bad "differs from the baseline or failed: ${log}"
+    fi
+}
+
+REF=(--installed-reference "${F}/ref.txt" --allow-local axclhost)
+gzip -c "${F}/pi/Packages" > "${WORK}/Packages.gz"
+xz -c "${F}/pi/Packages" > "${WORK}/Packages.xz"
+cp "${F}/pi/Packages" "${WORK}/Packages.lz4"
+same_as_good "[compressed] a .gz Pi list matches the plain one" "${WORK}/gz.yml" \
+    "${REF[@]}" --pi-list "${WORK}/Packages.gz"
+same_as_good "[compressed] a .xz Pi list matches the plain one" "${WORK}/xz.yml" \
+    "${REF[@]}" --pi-list "${WORK}/Packages.xz"
+expect_rcx "[compressed] a .lz4 list is refused and the cause named" 2 "docker-gzip-indexes" \
+    "${REF[@]}" --pi-list "${WORK}/Packages.lz4"
+
+same_as_good "[status-parity] a dpkg status file matches the reference; deinstalled is ignored" \
+    "${WORK}/status.yml" --installed-status "${F}/status" --allow-local axclhost \
+    --pi-list "${F}/pi/Packages"
+
+RO="${WORK}/ro.yml"
+genx "${RO}" "${REF[@]}" --pi-list "${F}/pi/Packages" \
+    --resolve-only firmware-fake-prestera > "${WORK}/ro.log" 2>&1 \
+    || echo "       (resolve-only run failed: $(cat "${WORK}/ro.log"))"
+[[ -s "${RO}" ]] || printf 'packages: []\n' > "${RO}"
+expect_py_on "${RO}" "[resolve-only] a never-installed Pi package is listed with a why" '
+r = m["resolve_only"]
+assert [e["name"] for e in r] == ["firmware-fake-prestera"], r
+assert r[0]["version"] == "1:2.0-1" and r[0]["why"].strip(), r
+assert r[0]["url"].endswith("/firmware-fake-prestera_2.0-1_all.deb"), r
+assert "firmware-fake-prestera" not in by, by.keys()'
+
+cp "${F}/ref.txt" "${WORK}/ro-inst.txt"
+printf 'pkg\tfirmware-fake-prestera\t1:2.0-1\tall\n' >> "${WORK}/ro-inst.txt"
+expect_rc "[resolve-only-installed] a resolve-only package that is installed fails" \
+    1 "is installed" "${WORK}/ro-inst.txt" --allow-local axclhost \
+    --resolve-only firmware-fake-prestera
+
+expect_rcx "[resolve-only-ambiguous] a bare name with two versions fails and lists both" \
+    1 "1:2.0-1, 1:2.0-2" "${REF[@]}" --pi-list "${F}/pi/Packages" \
+    --pi-list "${F}/pi2/Packages" --resolve-only firmware-fake-prestera
+genx "${WORK}/ro2.yml" "${REF[@]}" --pi-list "${F}/pi/Packages" --pi-list "${F}/pi2/Packages" \
+    --resolve-only firmware-fake-prestera=1:2.0-2 > "${WORK}/ro2.log" 2>&1 \
+    || echo "       (NAME=VERSION run failed: $(cat "${WORK}/ro2.log"))"
+[[ -s "${WORK}/ro2.yml" ]] || printf 'packages: []\n' > "${WORK}/ro2.yml"
+expect_py_on "${WORK}/ro2.yml" "[resolve-only-ambiguous] NAME=VERSION selects one" '
+assert [e["version"] for e in m["resolve_only"]] == ["1:2.0-2"], m["resolve_only"]'
 
 echo
 echo "${PASSED} passed, ${FAILED} failed"
