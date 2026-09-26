@@ -169,5 +169,43 @@ printf 'Package: stray\nStatus: install ok installed\nArchitecture: arm64\nVersi
 [[ ${RC} -eq 1 && "${OUT}" == *"stray 1 arm64: unattributed"* && "${OUT}" == *phase-07.3-pi-archive-pinning.md* ]]
 ok "[run-check-fail-propagates] a check failure: rc 1, the checker's reason and the runbook pointer"
 
+# --- pi_archive_record_candidate ---------------------------------------------
+PIL=archive.raspberrypi.com_debian_dists_bookworm_main_binary-arm64_Packages
+# rroot <dir>: a record-mode rootfs (live Pi list, no flat repo) whose status has pionly-a
+# at 2.0, one version newer than the manifest M. X is the candidate path.
+rroot() {
+    local c="$1" n v a L
+    R="${c}/rootfs"; M="${c}/manifest.yml"; K="${c}/kernel.yml"; X="${c}/candidate.yml"; L="${R}/var/lib/apt/lists"
+    mkdir -p "${L}" "${R}/var/lib/dpkg"
+    { stanza pionly-a 2.0 arm64 pool/main/p/pionly-a/pionly-a_2.0_arm64.deb
+      stanza firmware-marvell-prestera 1.0 all pool/main/f/fmp/firmware-marvell-prestera_1.0_all.deb; } > "${L}/${PIL}"
+    stanza debonly 5.0 arm64 pool/main/d/debonly/debonly_5.0_arm64.deb > "${L}/${SNAP}_main_binary-arm64_Packages"
+    printf 'packages:\n  - {name: "pionly-a", version: "1.0", arch: "arm64", filename: "pionly-a_1.0_arm64.deb", size: 1, sha256: "%s", url: "http://archive.raspberrypi.com/debian/pool/main/p/pionly-a/pionly-a_1.0_arm64.deb"}\n' \
+        "$(sha pionly-a)" > "${M}"
+    printf 'kernel:\n  deb_version: "6.12.96-1+rpt1"\n  debs:\n    - filename: "linux-image-6.12.96+rpt-rpi-2712_6.12.96-1+rpt1_arm64.deb"\n    - filename: "linux-headers-6.12.96+rpt-rpi-2712_6.12.96-1+rpt1_arm64.deb"\n' > "${K}"
+    for row in "pionly-a 2.0 arm64" "debonly 5.0 arm64" "axclhost 3.10.2 all" \
+               "linux-image-6.12.96+rpt-rpi-2712 1:6.12.96-1+rpt1 arm64" "linux-headers-6.12.96+rpt-rpi-2712 1:6.12.96-1+rpt1 arm64"; do
+        read -r n v a <<< "${row}"
+        printf 'Package: %s\nStatus: install ok installed\nArchitecture: %s\nVersion: %s\n\n' "${n}" "${a}" "${v}"
+    done > "${R}/var/lib/dpkg/status"
+}
+rec() { OUT="$(pi_archive_record_candidate "${R}" "${M}" "${K}" "${X}" 2>&1)"; RC=$?; }
+
+rroot "${WORK}/r-new"; rec
+[[ ${RC} -eq 0 ]] && python3 -c 'import sys, yaml; m = yaml.safe_load(open(sys.argv[1]))
+assert [(e["name"], e["version"]) for e in m["packages"]] == [("pionly-a", "2.0")]
+assert [e["name"] for e in m["resolve_only"]] == ["firmware-marvell-prestera"]' "${X}" &&
+    [[ "${OUT}" == *$'\n-  - {name: "pionly-a", version: "1.0"'* && "${OUT}" == *$'\n+  - {name: "pionly-a", version: "2.0"'* ]]
+ok "[record-candidate] a newer Pi version: rc 0, candidate carries it, stdout is the -old/+new diff"
+CANDIDATE="${X}"
+
+rroot "${WORK}/r-nopi"; rm "$(L_)/${PIL}"; rec
+[[ ${RC} -eq 1 && ! -e "${X}" && "${OUT}" == *archive.raspberrypi.com* ]]
+ok "[record-no-pi-lists] no live Pi list (record mode never reached stage0): rc 1, no candidate"
+
+rroot "${WORK}/r-same"; cp "${CANDIDATE}" "${M}"; rec
+[[ ${RC} -eq 0 && "${OUT}" == *"identical to the committed manifest"* && "${OUT}" != *'+++'* ]]
+ok "[record-identical] status matches the manifest: rc 0, says identical, prints no diff"
+
 echo "${PASSED} passed, ${FAILED} failed, ${SKIPPED} skipped"
 [[ ${FAILED} -eq 0 ]]
