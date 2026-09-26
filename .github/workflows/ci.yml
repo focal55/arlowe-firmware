@@ -152,6 +152,8 @@ jobs:
         run: bash tests/phase-07.2/test-verify-models.sh
       - name: Pi archive manifest generator self-test
         run: bash tests/phase-07.3/test-pi-archive-manifest.sh
+      - name: Committed Pi archive manifest self-test
+        run: bash tests/phase-07.3/test-pi-archive-committed.sh
       - name: Two resolutions from this commit must agree
         run: |
           docker run --rm -v "$PWD:/w" -w /w debian:bookworm \

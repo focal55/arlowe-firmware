@@ -60,7 +60,7 @@ third_party/node/*.tar.gz
 # staging location, and the six debs total ~75 MiB. Keep manifest.yml + INSTALL.md.
 third_party/kernel/*.deb
 # Pinned Raspberry Pi archive debs (phase 7.3). third_party/pi-archive/INSTALL.md names this
-# directory as a staging location, and the set is ~230 MiB. Keep manifest.yml + INSTALL.md.
+# directory as a staging location, and the set is ~170 MiB. Keep manifest.yml + INSTALL.md.
 third_party/pi-archive/*.deb
 
 # Standard Python / Next.js noise that will accumulate in runtime/ subtrees.
