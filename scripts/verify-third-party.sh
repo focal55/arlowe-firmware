@@ -13,8 +13,7 @@ set -euo pipefail
 #   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
 #   6. WM8960 audio HAT redistribution rights (non-blocking warning)
 #   7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
-#   8. Raspberry Pi archive packages (rpt-packages) SHA-256 match third_party/rpt-packages/manifest.yml (ADR-0009)
-#   9. Raspberry Pi archive debs SHA-256 match third_party/pi-archive/manifest.yml (Phase 7.3)
+#   8. Raspberry Pi archive debs SHA-256 match third_party/pi-archive/manifest.yml (Phase 7.3)
 #
 # Usage: scripts/verify-third-party.sh [--help]
 
@@ -58,8 +57,7 @@ Checks:
   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
   6. WM8960 audio HAT redistribution rights (non-blocking warning)
   7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
-  8. Raspberry Pi archive packages (rpt-packages) SHA-256 match third_party/rpt-packages/manifest.yml (ADR-0009)
-  9. Raspberry Pi archive debs SHA-256 match third_party/pi-archive/manifest.yml (Phase 7.3)
+  8. Raspberry Pi archive debs SHA-256 match third_party/pi-archive/manifest.yml (Phase 7.3)
 
 Kernel deb search order (per deb, six of them):
   - \$ARLOWE_KERNEL_DIR/<filename>
@@ -103,7 +101,7 @@ WhisPlay driver search order:
   - third_party/whisplay-driver/WhisPlay.py
   - /var/cache/arlowe-build/whisplay-driver/WhisPlay.py
 
-Pi archive debs (check 9): search order and ARLOWE_PI_ARCHIVE_FETCH=1 are in
+Pi archive debs (check 8): search order and ARLOWE_PI_ARCHIVE_FETCH=1 are in
 third_party/pi-archive/INSTALL.md. Once every deb verifies, the path of each is
 written to build/.arlowe-pi-archive-paths for scripts/build-image.sh.
 
@@ -615,110 +613,10 @@ for d in m['kernel']['debs']:
 fi
 
 # ---------------------------------------------------------------------------
-# Check 8: pinned Raspberry Pi archive packages (ADR-0009)
+# Check 8: every Raspberry Pi archive deb the image installs (Phase 7.3)
 #
-# Three of the ~90 Pi-archive packages the image installs; the rest are pinned
-# nowhere yet (Phase 7.3, #146). Debian packages come from snapshot.debian.org,
-# pinned to a timestamp; these exist only in archive.raspberrypi.com, a rolling
-# index with no snapshot service.
-#
-# raspi-firmware moved 1:1.20260907 -> 1:1.20260915 between two builds ten hours
-# apart with nothing in the repo changed. It ships start.elf, fixup.dat and
-# bootcode.bin -- the bootloader. python3-lgpio and python3-rpi-lgpio are the
-# Pi 5 GPIO stack, and Debian has no package that does their job.
-#
-# SCOPE, stated plainly: this check verifies the pinned bytes are still what the
-# archive serves, and HARD FAILS if they are not. It does not yet install from
-# the pin -- the packages still enter the image through apt, so a drifted archive
-# is caught here and stops the build rather than silently shipping a different
-# bootloader. Switching the install path to the cached debs (as
-# stage0/02-firmware does for the kernel) is the remaining half of #146.
-# ---------------------------------------------------------------------------
-RPT_MANIFEST="${REPO_ROOT}/third_party/rpt-packages/manifest.yml"
-
-if [[ ! -f "${RPT_MANIFEST}" ]]; then
-  printf "${RED}[FAIL]${NC} third_party/rpt-packages/manifest.yml  not found\n"
-  echo >&2 "  Expected at: ${RPT_MANIFEST}"
-  all_ok=false
-else
-  rpt_rows=$(python3 -c "
-import yaml
-with open('${RPT_MANIFEST}') as f:
-    m = yaml.safe_load(f)
-for e in m['packages']:
-    print('\t'.join([e['name'], e['version'], e['filename'], e['sha256'], e['url']]))
-" 2>/dev/null) || {
-    echo >&2 "ERROR: failed to parse ${RPT_MANIFEST} (is python3-yaml installed?)"
-    exit 1
-  }
-
-  _rpt_shared_cache="/var/cache/arlowe-build/rpt"
-  _rpt_user_cache="${XDG_CACHE_HOME:-${HOME}/.cache}/arlowe-build/rpt"
-
-  # Resolve the fetch destination once. /var/cache is not writable by an
-  # unprivileged build user, so the XDG fallback is the normal path.
-  rpt_fetch_dir=""
-  if [[ "${ARLOWE_RPT_FETCH:-}" == "1" ]]; then
-    if mkdir -p "${_rpt_shared_cache}" 2>/dev/null; then
-      rpt_fetch_dir="${_rpt_shared_cache}"
-    elif mkdir -p "${_rpt_user_cache}" 2>/dev/null; then
-      rpt_fetch_dir="${_rpt_user_cache}"
-      echo "         ${_rpt_shared_cache} not writable; caching in ${rpt_fetch_dir}"
-    else
-      echo >&2 "  ARLOWE_RPT_FETCH=1 set but no cache directory is writable."
-    fi
-  fi
-
-  while IFS=$'\t' read -r r_name r_ver r_file r_sha r_url; do
-    [[ -z "${r_name}" ]] && continue
-
-    r_path=""
-    for r_cand in \
-      "${ARLOWE_RPT_DIR:+${ARLOWE_RPT_DIR}/${r_file}}" \
-      "${REPO_ROOT}/third_party/rpt-packages/${r_file}" \
-      "${_rpt_shared_cache}/${r_file}" \
-      "${_rpt_user_cache}/${r_file}"; do
-      [[ -n "${r_cand}" && -f "${r_cand}" ]] && { r_path="${r_cand}"; break; }
-    done
-
-    if [[ -z "${r_path}" && -n "${rpt_fetch_dir}" ]]; then
-      echo "         fetching ${r_file}"
-      if curl -fsSL --retry 2 -o "${rpt_fetch_dir}/${r_file}.part" "${r_url}" 2>/dev/null; then
-        mv -f "${rpt_fetch_dir}/${r_file}.part" "${rpt_fetch_dir}/${r_file}"
-        r_path="${rpt_fetch_dir}/${r_file}"
-      else
-        rm -f "${rpt_fetch_dir}/${r_file}.part" 2>/dev/null || true
-      fi
-    fi
-
-    if [[ -z "${r_path}" ]]; then
-      printf "${RED}[FAIL]${NC} %-50s not found\n" "${r_name} ${r_ver}"
-      echo >&2 "  Set ARLOWE_RPT_FETCH=1 to download, or stage it at:"
-      echo >&2 "    ${REPO_ROOT}/third_party/rpt-packages/${r_file}"
-      all_ok=false
-      continue
-    fi
-
-    r_actual=$(sha256sum "${r_path}" | awk '{print $1}')
-    if [[ "${r_actual}" == "${r_sha}" ]]; then
-      printf "${GREEN}[OK]${NC}   %-50s sha256 matches\n" "${r_file}"
-    else
-      printf "${RED}[FAIL]${NC} %-50s sha256 mismatch\n" "${r_file}"
-      echo >&2 "  Expected: ${r_sha}"
-      echo >&2 "  Actual:   ${r_actual}"
-      echo >&2 "  The archive is serving different bytes than the pin records."
-      echo >&2 "  If the bump is deliberate, update version/url/size/sha256 in"
-      echo >&2 "  ${RPT_MANIFEST} and re-record the 07.2 inputs reference with it."
-      all_ok=false
-    fi
-  done <<< "${rpt_rows}"
-fi
-
-# ---------------------------------------------------------------------------
-# Check 9: every Raspberry Pi archive deb the image installs (Phase 7.3)
-#
-# The logic lives in scripts/lib/pi-archive-fetch.py rather than a third copy of
-# the bash fetch/verify loop above; check 8 is retired once nothing reads it.
+# The logic lives in scripts/lib/pi-archive-fetch.py rather than a second copy of
+# check 7's bash fetch/verify loop.
 # The helper removes the paths map before verifying, so a failed run leaves none.
 # ---------------------------------------------------------------------------
 PI_ARCHIVE_PATHS_FILE="${REPO_ROOT}/build/.arlowe-pi-archive-paths"

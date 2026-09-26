@@ -54,7 +54,7 @@ jobs:
           path: /var/cache/arlowe-build/axcl
           key: arlowe-axcl-${{ hashFiles('third_party/axcl/manifest.yml') }}
 
-      # verify-third-party.sh check 9 needs every pinned Pi archive deb. Keyed on
+      # verify-third-party.sh check 8 needs every pinned Pi archive deb. Keyed on
       # the manifest hash; the fetch helper re-verifies restored files by sha256.
       - name: Restore Pi archive deb cache
         uses: actions/cache@v4

@@ -22,7 +22,7 @@
 #   ARLOWE_PI_ARCHIVE_MODE  pinned (default; the only accepted value until record
 #                         mode lands with its stop-before-partitioning)
 #   ARLOWE_PI_ARCHIVE_DIR   Extra cache dir searched first for the pinned Pi debs
-#   ARLOWE_PI_ARCHIVE_FETCH 1 = download missing Pi debs (verify-third-party check 9)
+#   ARLOWE_PI_ARCHIVE_FETCH 1 = download missing Pi debs (verify-third-party check 8)
 #
 # Extension hooks for boot config + recovery stub:
 #   If scripts/lib/boot-config.sh exists, it is sourced and its
@@ -150,7 +150,7 @@ fi
 ok "Pinned kernel cache: ${ARLOWE_KERNEL_CACHE}"
 
 # The rootfs resolves Pi packages from a flat repo of the manifest's debs, built
-# here from the paths map check 9 wrote once every deb verified.
+# here from the paths map check 8 wrote once every deb verified.
 PI_ARCHIVE_PATHS_FILE="${REPO_ROOT}/build/.arlowe-pi-archive-paths"
 if ! command -v dpkg-scanpackages >/dev/null; then
     fail "dpkg-scanpackages not found. Run: sudo apt-get install -y --no-install-recommends dpkg-dev"
@@ -158,7 +158,7 @@ if ! command -v dpkg-scanpackages >/dev/null; then
 fi
 if [[ ! -f "${PI_ARCHIVE_PATHS_FILE}" ]]; then
     fail "Pi archive paths map missing: ${PI_ARCHIVE_PATHS_FILE}"
-    fail "verify-third-party.sh check 9 writes it once every pinned Pi deb verifies. Run:"
+    fail "verify-third-party.sh check 8 writes it once every pinned Pi deb verifies. Run:"
     fail "  ARLOWE_PI_ARCHIVE_FETCH=1 scripts/verify-third-party.sh"
     exit 1
 fi
