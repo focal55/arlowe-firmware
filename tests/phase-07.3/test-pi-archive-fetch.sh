@@ -63,10 +63,10 @@ ok() {
     fi
 }
 
-setup found; cp "${WORK}/origin/"*.deb "${D}/"
+setup found; cp "${WORK}/origin/"*.deb "${D}/"; MAP="${C}/build/paths"
 run ARLOWE_PI_ARCHIVE_DIR="${D}"
 [[ ${RC} -eq 0 && $(wc -l < "${MAP}") -eq 3 ]] && ! grep -qv "^[^	]*	${D}/" "${MAP}"
-ok "[found-in-dir] every deb found in ARLOWE_PI_ARCHIVE_DIR, map names each"
+ok "[found-in-dir] every deb found in ARLOWE_PI_ARCHIVE_DIR, map (in a new dir) names each"
 
 setup order; cp "${WORK}/origin/"*.deb "${S}/"; cp "${WORK}/origin/${A}" "${D}/"
 run ARLOWE_PI_ARCHIVE_DIR="${D}"
@@ -79,7 +79,7 @@ run
    -z "$(find "${C}/xdg" "${C}/shared" -type f)" ]]
 ok "[missing-no-fetch] an absent deb fails, names the opt-in, fetches nothing"
 
-setup digest; cp "${WORK}/origin/"*.deb "${S}/"; printf 'x' >> "${S}/${B}"
+setup digest; cp "${WORK}/origin/"*.deb "${S}/"; printf 'BETA bytes' > "${S}/${B}"
 run
 [[ ${RC} -eq 1 && "${OUT}" == *"FAIL ${B}"* && "${OUT}" == *"$(sha "${WORK}/origin/${B}")"* &&
    "${OUT}" == *"$(sha "${S}/${B}")"* ]]
@@ -109,7 +109,7 @@ fi
 ok "[fetch] opt-in fetch falls back to the writable XDG cache, leaves no .part"
 
 setup badfetch; mkdir -p "${C}/origin"; cp "${WORK}/origin/"*.deb "${C}/origin/"
-printf 'not beta' > "${C}/origin/${B}"
+printf 'beta BYTES' > "${C}/origin/${B}"
 { echo 'packages:'; entry "${A}" "${C}/origin"; entry "${B}" "${C}/origin"
   echo 'resolve_only:'; entry "${R}" "${C}/origin"; } > "${C}/m.yml"
 run ARLOWE_PI_ARCHIVE_FETCH=1
