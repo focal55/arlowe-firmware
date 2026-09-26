@@ -8,8 +8,15 @@
 #   pinned to a timestamp in the stage0 overlay and is therefore already
 #   reproducible. These three exist only in archive.raspberrypi.com, which is a
 #   ROLLING index with no snapshot service (snapshot.raspberrypi.com and
-#   snapshot.raspberrypi.org both return HTTP 000). They were the last unpinned
-#   build inputs.
+#   snapshot.raspberrypi.org both return HTTP 000).
+#
+#   They are NOT the only unpinned Pi-archive inputs. Measured 2026-09-25, the
+#   image installs 97 packages at a version the Pi archive serves; 90 of them are
+#   not the kernel and are pinned nowhere (libc6, openssl, dpkg, network-manager,
+#   rpi-eeprom, liblgpio1, which python3-lgpio below requires at an exact
+#   version). Most arrive through upstream pi-gen stage2. The input diff gate
+#   detects their drift; nothing pins them. Phase 7.3 replaces this file with a
+#   manifest covering all of them (#146).
 #
 # WHAT WENT WRONG WITHOUT THIS:
 #   raspi-firmware moved 1:1.20260907 -> 1:1.20260915 between two builds about
