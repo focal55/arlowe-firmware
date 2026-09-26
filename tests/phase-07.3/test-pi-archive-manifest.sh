@@ -70,12 +70,25 @@ EOF
         $'pkg\tlinux-image-6.12.96+rpt-rpi-2712\t1:6.12.96-1+rpt1\tarm64' \
         $'pkg\tlinux-kbuild-6.12.96+rpt\t1:6.12.96-1+rpt1\tarm64' \
         > "${d}/ref.txt"
-    # oldpkg is in neither archive, so counting it as installed would fail the run.
-    {
-        awk -F'\t' '$1 == "pkg" { printf "Package: %s\nStatus: install ok installed\nArchitecture: %s\nVersion: %s\nDescription: fixture\n continuation line\n\n", $2, $4, $3 }' \
-            "${d}/ref.txt"
-        printf 'Package: oldpkg\nStatus: deinstall ok config-files\nArchitecture: arm64\nVersion: 0.1\n\n'
-    } > "${d}/status"
+    to_status "${d}/ref.txt" > "${d}/status"
+    # Debian's own build of a Pi-pinned name, which apt substitutes when the flat repo lacks it
+    mkdir -p "${d}/debx"
+    stanza pionly-a 0.9-1 arm64 pool/main/p/pionly-a/pionly-a_0.9-1_arm64.deb pa-deb > "${d}/debx/Packages"
+}
+
+# to_status <ref>: the `pkg` rows as a dpkg status file, plus a deinstalled oldpkg.
+# oldpkg is in neither archive, so counting it as installed would fail the run.
+to_status() {
+    awk -F'\t' '$1 == "pkg" { printf "Package: %s\nStatus: install ok installed\nArchitecture: %s\nVersion: %s\nDescription: fixture\n continuation line\n\n", $2, $4, $3 }' "$1"
+    printf 'Package: oldpkg\nStatus: deinstall ok config-files\nArchitecture: arm64\nVersion: 0.1\n\n'
+}
+
+# flat_index: the flat repo's Packages for the resolve-only manifest, as dpkg-scanpackages writes it
+flat_index() {
+    stanza epochpkg 1:1.2.3-1+rpt1 arm64 ./epochpkg_1.2.3-1+rpt1_arm64.deb ep
+    stanza firmware-fake-prestera 1:2.0-1 all ./firmware-fake-prestera_2.0-1_all.deb fp1
+    stanza pionly-a 1.0 arm64 ./pionly-a_1.0_arm64.deb pa
+    stanza pionly-all 2.0 all ./pionly-all_2.0_all.deb pall
 }
 
 F="${WORK}/fx"
@@ -251,6 +264,78 @@ genx "${WORK}/ro2.yml" "${REF[@]}" --pi-list "${F}/pi/Packages" --pi-list "${F}/
 [[ -s "${WORK}/ro2.yml" ]] || printf 'packages: []\n' > "${WORK}/ro2.yml"
 expect_py_on "${WORK}/ro2.yml" "[resolve-only-ambiguous] NAME=VERSION selects one" '
 assert [e["version"] for e in m["resolve_only"]] == ["1:2.0-2"], m["resolve_only"]'
+
+# chk <status> [args...]: run check against the resolve-only manifest and the flat index
+chk() {
+    local st="$1"; shift
+    python3 "${GEN}" check --status "${st}" --manifest "${RO}" --kernel-manifest "${F}/kernel.yml" \
+        --debian-list "${F}/deb/Packages" --debian-list "${F}/debx/Packages" --allow-local axclhost "$@"
+}
+
+# expect_chk <name> <rc> <needle> <status> [args...]. Every passing case names a count, so a
+# check that read nothing cannot pass.
+expect_chk() {
+    local name="$1" want="$2" needle="$3" st="$4" out rc; shift 4
+    out="$(chk "${st}" "$@" 2>&1)"; rc=$?
+    if [[ ${rc} -eq ${want} && "${out}" == *"${needle}"* ]]; then record "${name}" ok
+    else record "${name}" bad "wanted rc=${want} naming \"${needle}\", got rc=${rc}: ${out}"; fi
+}
+
+# chk_status <name> <awk program over ref.txt> [extra pkg rows...]: a status variant
+chk_status() {
+    local out="${WORK}/st-$1"; shift
+    { awk -F'\t' -v OFS='\t' "$1" "${F}/ref.txt"; shift; printf '%s\n' "$@"; } > "${out}.ref"
+    to_status "${out}.ref" > "${out}"
+    echo "${out}"
+}
+
+FLAT=(--flat-list "${WORK}/flat/Packages")
+mkdir -p "${WORK}/flat"
+flat_index > "${WORK}/flat/Packages"
+PASS_LINE="[pi-archive] check: 3 manifest packages installed at the pinned version, 8 installed packages attributed, 0 unattributed"
+
+expect_chk "[check-pass] the pinned set passes with the summary line" 0 "${PASS_LINE}" \
+    "${F}/status" "${FLAT[@]}"
+
+ST="$(chk_status subst '$2 == "pionly-a" { $3 = "0.9-1" } 1')"
+expect_chk "[check-silent-substitution] Debian's build of a pinned name fails, both versions named" \
+    1 "pionly-a: pinned 1.0 arm64, installed 0.9-1 arm64" "${ST}" "${FLAT[@]}"
+
+ST="$(chk_status missing '$2 != "pionly-all"')"
+expect_chk "[check-missing] a manifest package that is not installed fails" \
+    1 "pionly-all: pinned 2.0 all, not installed" "${ST}" "${FLAT[@]}"
+
+ST="$(chk_status stray 1 $'pkg\tstray\t1.0\tarm64')"
+expect_chk "[check-unattributed] a package in no list fails and is named" \
+    1 "stray 1.0 arm64: unattributed" "${ST}" "${FLAT[@]}"
+expect_chk "[check-unattributed] the same package passes when allow-listed" \
+    0 "9 installed packages attributed, 0 unattributed" "${ST}" "${FLAT[@]}" --allow-local stray
+
+ST="$(chk_status roinst 1 $'pkg\tfirmware-fake-prestera\t1:2.0-1\tall')"
+expect_chk "[check-resolve-only-installed] an installed resolve-only package fails" \
+    1 "firmware-fake-prestera 1:2.0-1 all: resolve-only package is installed" "${ST}" "${FLAT[@]}"
+
+expect_chk "[check-kernel-ok] the kernel at its pin passes" 0 "${PASS_LINE}" "${F}/status" "${FLAT[@]}"
+ST="$(chk_status kwrong '$2 == "linux-kbuild-6.12.96+rpt" { $3 = "1:6.12.109-1+rpt1" } 1')"
+expect_chk "[check-kernel-wrong] the kernel off its pin fails" \
+    1 "linux-kbuild-6.12.96+rpt 1:6.12.109-1+rpt1 arm64: kernel package off the kernel pin" \
+    "${ST}" "${FLAT[@]}"
+
+mkdir -p "${WORK}/flat-sha" "${WORK}/flat-extra"
+flat_index | sed "s/^SHA256: $(hex64 pa)\$/SHA256: $(hex64 pa-rebuilt)/" > "${WORK}/flat-sha/Packages"
+{ flat_index; stanza pionly-extra 1.0 arm64 ./pionly-extra_1.0_arm64.deb px; } > "${WORK}/flat-extra/Packages"
+expect_chk "[check-index-drift] a changed flat sha256 is reported on the flat side" \
+    1 "flat index only: pionly-a 1.0 arm64 pionly-a_1.0_arm64.deb $(hex64 pa-rebuilt)" \
+    "${F}/status" --flat-list "${WORK}/flat-sha/Packages"
+expect_chk "[check-index-drift] and on the manifest side" \
+    1 "manifest only: pionly-a 1.0 arm64 pionly-a_1.0_arm64.deb $(hex64 pa)" \
+    "${F}/status" --flat-list "${WORK}/flat-sha/Packages"
+expect_chk "[check-index-drift] an extra flat stanza fails and is named" \
+    1 "flat index only: pionly-extra 1.0 arm64" "${F}/status" --flat-list "${WORK}/flat-extra/Packages"
+
+: > "${WORK}/empty-status"
+expect_chk "[check-vacuous] an empty installed set is refused" 2 "no installed packages" \
+    "${WORK}/empty-status" "${FLAT[@]}"
 
 echo
 echo "${PASSED} passed, ${FAILED} failed"
