@@ -6,6 +6,12 @@
 **Phase:** 7.2 (Build input pinning)
 **Closes:** Plan 07.2-01; feeds SC2 and SC4
 
+> **Superseded in part by [ADR-0010](0010-pi-archive-pinning.md) (Phase 7.3).** On the Raspberry
+> Pi archive side, "detected by the diff gate" becomes "pinned and installed from verified bytes":
+> every Pi-only package now installs from a local flat repo built from a sha256-pinned manifest,
+> and `third_party/rpt-packages/` is folded into it. The kernel and Debian snapshot decisions
+> below stand unchanged.
+
 This ADR is **Accepted**. Every claim below was measured, either on the arm64 build host or in a
 native arm64 `debian:bookworm` container, and the measurements are quoted inline. Nothing here
 rests on inference from documentation.
