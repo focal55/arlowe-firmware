@@ -573,6 +573,18 @@ if [[ ! -d "${ARLOWE_MODELS_STAGE}" ]]; then
 fi
 ok "Models staging tree at: ${ARLOWE_MODELS_STAGE}"
 
+# Verify what ships, not only the cache Step 1 checked: 02-models reads
+# ARLOWE_MODELS_CACHE, which falls back to a work-dir path Step 1 never looks at,
+# and it rsyncs whole directories, so an unlisted file would ship unverified.
+log "Verifying the staged models tree against third_party/models/manifest.yml..."
+if ! sudo python3 "${SCRIPT_DIR}/lib/verify-models.py" \
+        --manifest "${REPO_ROOT}/third_party/models/manifest.yml" \
+        --root "${ARLOWE_MODELS_STAGE}" --exact; then
+    fail "Staged models do not match the manifest file for file (see above)."
+    exit 1
+fi
+ok "Staged models verified: every file listed, every sha256 matches."
+
 # ---------------------------------------------------------------------------
 # Step 3: MEASURE — du rootfs and models staging tree
 # ---------------------------------------------------------------------------
