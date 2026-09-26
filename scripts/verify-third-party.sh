@@ -698,9 +698,10 @@ fi
 # ---------------------------------------------------------------------------
 # Check 8: pinned Raspberry Pi archive packages (ADR-0009)
 #
-# The last unpinned build inputs. Everything else comes from snapshot.debian.org,
-# which is pinned to a timestamp; these three exist only in
-# archive.raspberrypi.com, a rolling index with no snapshot service.
+# Three of the ~90 Pi-archive packages the image installs; the rest are pinned
+# nowhere yet (Phase 7.3, #146). Debian packages come from snapshot.debian.org,
+# pinned to a timestamp; these exist only in archive.raspberrypi.com, a rolling
+# index with no snapshot service.
 #
 # raspi-firmware moved 1:1.20260907 -> 1:1.20260915 between two builds ten hours
 # apart with nothing in the repo changed. It ships start.elf, fixup.dat and
