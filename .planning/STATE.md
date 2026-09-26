@@ -9,6 +9,8 @@ See: .planning/PROJECT.md (updated 2026-04-30)
 
 ## Current Position
 
+**Active: Phase 7.3 (Pi archive snapshot)**, local branch `phase/07.3-pi-archive`, GitHub skipped for this phase by owner choice. Plan 1 of 13 complete (07.3-01a: generator core, 14/14 self-test assertions). Next: 07.3-01b (compressed indexes, dpkg status input, resolve_only).
+
 Phase: 7 of 12 (Device identity and PKI) — MERGED TO MAIN, NOT COMPLETE (SC4 unverified). Phase 6 COMPLETE in code; its hardware checkpoint is separately blocked (SC3, F7 #25/#28).
 Plan: 10 of 11 in Phase 7 (waves 1-6 complete: 07-01 through 07-08b). 07-09 PARKED on an AWS staging account.
 Status: Phase 6 closed 2026-06-14. Flashable 5-partition A/B image pipeline: 06-01 reconciled shared-model sizing (16 GB viable / 32 GB recommended) + wrote ADR-0004 (partition sizing), ADR-0005 (tryboot root= A/B selector), ADR-0006 (Whisper model selection); 06-02 SHA-pinned model + WhisPlay manifest/verify gate (#112); 06-03 pi-gen stage-arlowe chroot provisioning, model-free rootfs (#113); 06-04 build-image.sh measure-then-set 5-partition A/B + models grow-to-fill (#114); 06-05 tryboot root= selector + arlowe-ab flip CLI + slot-B recovery stub (#115); 06-06 arm64 image-build CI + shellcheck gate + flash-sd.sh + dev-deploy.sh + runbook (#116). On-Pi flash+boot (SC1-SC5) deferred to a hardware checkpoint per Phase 1/3/4/5 precedent (runbook: docs/operations/phase-6-build-flash-deploy.md). Next: Phase 7 (device identity and PKI) — depends on Phase 6 (done) + Phase 4 (done); ADR pending for managed-PKI service selection.
@@ -104,6 +106,7 @@ Progress: Phase 1 [██████████] 100% qualified; Phase 2 [█�
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- **Pi archive manifest format** (Phase 7.3, 07.3-01a): one JSON-quoted flow mapping per line, sorted by (name, arch), `version` keeps the epoch, `filename` does not, and `url` = archive-root `pool_base` + index `Filename`. A package both archives carry with different bytes, a Pi-index sha256 conflict, an unattributable package, an armhf package, an off-pin kernel package and zero entries are all hard failures.
 - **ADR-0001** (resolved): option-2 chosen for `openai_wrapper.py`. Router points at ax-llm `/api/chat` native (`localhost:8000`), not `/v1/chat/completions`. `qwen-openai.service` deprecated.
 - **ADR-0002** (resolved): `arlowe-scheduled-summary.service` stripped from firmware.
 - **ADR-0003** (resolved, Phase 4): loosen-perms for dashboard→/etc/arlowe/config.yml write; `ota.channel_url` + `support_mode.*` flagged for Phase 10 re-hardening.
@@ -161,6 +164,10 @@ Workforce-infra debt tracked in Claude's memory store:
 - **A green CI run does not mean eslint-clean** (#120 residue): `lint` is `continue-on-error` until the 5 dashboard `set-state-in-effect` errors are fixed.
 
 ## Session Continuity
+
+Last session: 2026-09-26 (Phase 7.3 wave 1)
+
+Stopped at: Completed 07.3-01a-PLAN.md. `scripts/lib/pi-archive-manifest.py generate` + `tests/phase-07.3/test-pi-archive-manifest.sh` (14 passed) + CI step. Diff vs main is 397 lines. Resume file: None.
 
 Last session: 2026-09-20 (Phase 7.2 wave 4 — the one full build; SC1–SC6 met, no .img emitted)
 
