@@ -160,6 +160,8 @@ jobs:
         run: bash tests/phase-07.3/test-pi-archive-repo.sh
       - name: Pi archive rootfs library self-test
         run: bash tests/phase-07.3/test-pi-archive-gate.sh
+      - name: Stage0 apt overlay self-test
+        run: bash tests/phase-07.3/test-stage0-apt-overlay.sh
       - name: Two resolutions from this commit must agree
         run: |
           docker run --rm -v "$PWD:/w" -w /w debian:bookworm \

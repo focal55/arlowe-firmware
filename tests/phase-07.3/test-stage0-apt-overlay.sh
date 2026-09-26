@@ -65,7 +65,8 @@ setup() {
     export ROOTFS_DIR="${R}" STAGE_WORK_DIR="${C}/work" ARLOWE_PI_REPO="${REPO}"
     unset ARLOWE_PI_ARCHIVE_MODE
 }
-run() { OUT="$(cd "${S}" && bash "${OVERLAY}" 2>&1)"; RC=$?; }
+# Executed, not `bash FILE`: the shebang's -e is what stops the tampered case.
+run() { OUT="$(cd "${S}" && "${OVERLAY}" 2>&1)"; RC=$?; }
 ok() {
     if [[ $? -eq 0 ]]; then echo "[OK]   $1"; PASSED=$((PASSED + 1))
     else
