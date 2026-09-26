@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate third_party/pi-archive/manifest.yml from a resolved package set.
+"""Generate third_party/pi-archive/manifest.yml, and check a rootfs against it.
 
     pi-archive-manifest.py generate (--installed-reference REF | --installed-status S)
         --pi-list P... --debian-list P... --kernel-manifest M --pool-base URL --out F
@@ -28,6 +28,21 @@ exactly one version and sha256.
 
 Exit 0 written, 1 attribution failure (every one is reported, nothing is
 written), 2 could not run.
+
+    pi-archive-manifest.py check --status S --manifest M --kernel-manifest K
+        --flat-list F --debian-list P... [--allow-local N...]
+
+Checks an installed set (dpkg status S) against the manifest in both directions:
+  - index: the flat repo's (name, version, arch, filename, sha256) set equals
+    the manifest's packages plus resolve_only.
+  - forward: every packages entry is installed at exactly its version and arch.
+    This is the only check that catches apt silently installing Debian's build
+    of a name both archives carry when the flat repo lacks it.
+  - resolve_only: none is installed.
+  - reverse: every installed package is a manifest entry, a Debian stanza at
+    that version, the kernel pin, or --allow-local.
+Exit 0 passed, 1 check failure (every one is reported), 2 could not run,
+including an empty installed set or manifest, which would pass vacuously.
 """
 import argparse
 import gzip
@@ -272,6 +287,81 @@ def cmd_generate(a):
     return 0
 
 
+def load_manifest(path):
+    try:
+        m = yaml.safe_load(read_text(path))
+        pkgs, ro = m["packages"] or [], m.get("resolve_only") or []
+        rows = [(e["name"], e["version"], e["arch"], e["filename"], e["sha256"]) for e in pkgs + ro]
+    except (KeyError, TypeError, yaml.YAMLError) as e:
+        raise InputError("%s: not a pi-archive manifest: %s" % (path, e))
+    if not pkgs:
+        raise InputError("%s: manifest lists no packages; a check against it passes vacuously" % path)
+    return pkgs, ro, set(rows)
+
+
+def flat_rows(path):
+    return {(s.get("Package"), s.get("Version"), s.get("Architecture"),
+             os.path.basename(s.get("Filename", "")), s.get("SHA256")) for s in open_index(path)}
+
+
+def check(installed, pkgs, ro, manifest_rows, flat, deb, kernel_names, kernel_ver, allow_local):
+    failures = []
+    for side, rows in (("flat index only", flat - manifest_rows), ("manifest only", manifest_rows - flat)):
+        failures += ["%s: %s" % (side, " ".join(map(str, r))) for r in sorted(rows, key=str)]
+    by_name = {}
+    for name, version, arch in installed:
+        by_name.setdefault(name, []).append("%s %s" % (version, arch))
+    pinned = 0
+    for e in pkgs:
+        want = "%s %s" % (e["version"], e["arch"])
+        have = by_name.get(e["name"], [])
+        if want in have:
+            pinned += 1
+        else:
+            failures.append("%s: pinned %s, %s" % (e["name"], want,
+                            "installed " + ", ".join(have) if have else "not installed"))
+    ro_rows = {(e["name"], e["version"], e["arch"]) for e in ro}
+    for e in ro:
+        for have in by_name.get(e["name"], []):
+            failures.append("%s %s: resolve-only package is installed" % (e["name"], have))
+    pkg_rows = {(e["name"], e["version"], e["arch"]) for e in pkgs}
+    unattributed = 0
+    for name, version, arch in installed:
+        where = "%s %s %s" % (name, version, arch)
+        if name in kernel_names:
+            if version.split(":", 1)[-1] != kernel_ver:
+                failures.append("%s: kernel package off the kernel pin %s" % (where, kernel_ver))
+        elif not ((name, version, arch) in pkg_rows | ro_rows or matches(deb, name, version, arch)
+                  or name in allow_local):
+            unattributed += 1
+            failures.append("%s: unattributed; in neither the flat repo, the Debian lists, "
+                            "the kernel pin nor --allow-local" % where)
+    return pinned, unattributed, failures
+
+
+def cmd_check(a):
+    try:
+        installed = load_installed_status(a.status)
+        if not installed:
+            raise InputError("%s: no installed packages; refusing to pass vacuously" % a.status)
+        pkgs, ro, manifest_rows = load_manifest(a.manifest)
+        flat, deb = flat_rows(a.flat_list), load_indexes(a.debian_list)
+        kernel_names, kernel_ver = load_kernel(a.kernel_manifest)
+    except InputError as e:
+        print("[pi-archive] ERROR %s" % e, file=sys.stderr)
+        return 2
+    pinned, unattributed, failures = check(installed, pkgs, ro, manifest_rows, flat, deb,
+                                           kernel_names, kernel_ver, set(a.allow_local))
+    for f in failures:
+        print("[pi-archive] FAIL %s" % f, file=sys.stderr)
+    if failures:
+        return 1
+    print("[pi-archive] check: %d manifest packages installed at the pinned version, "
+          "%d installed packages attributed, %d unattributed"
+          % (pinned, len(installed), unattributed))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -287,6 +377,14 @@ def main():
     g.add_argument("--allow-local", action="append", default=[])
     g.add_argument("--resolve-only", action="append", default=[], metavar="NAME[=VERSION]")
     g.set_defaults(func=cmd_generate)
+    c = sub.add_parser("check", help="check an installed set against the manifest")
+    c.add_argument("--status", required=True, help="dpkg status file of the rootfs")
+    c.add_argument("--manifest", required=True)
+    c.add_argument("--kernel-manifest", required=True)
+    c.add_argument("--flat-list", required=True, help="the flat repo's Packages")
+    c.add_argument("--debian-list", action="append", required=True)
+    c.add_argument("--allow-local", action="append", default=[])
+    c.set_defaults(func=cmd_check)
     a = ap.parse_args()
     return a.func(a)
 
