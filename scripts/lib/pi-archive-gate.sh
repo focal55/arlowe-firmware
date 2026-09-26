@@ -6,8 +6,9 @@
 #   verify_pi_archive_resolution <rootfs>
 #   pi_archive_run_check <rootfs> <manifest> <kernel_manifest>
 #   pi_archive_swap_back <rootfs> <pigen_dir> <release> <source_date_epoch>
+#   pi_archive_record_candidate <rootfs> <manifest> <kernel_manifest> <out>
 #
-# The first two read the apt lists, so they run before the swap-back and before
+# All but the swap-back read the apt lists, so they run before the swap-back and before
 # build-image.sh deletes the lists.
 #
 # During the build the rootfs resolves Pi packages from a flat file: repo at
@@ -165,4 +166,36 @@ pi_archive_swap_back() {
     fi
     [[ ${rc} -eq 0 ]] && echo "[OK] Pi flat repo removed; rootfs ships the stock raspi.list."
     return "${rc}"
+}
+
+# Record mode: regenerate the manifest from a rootfs that resolved Pi packages
+# from the live archive, and print its diff against the committed one. Reads the
+# rootfs's own dpkg status and its apt-verified lists, never a host-side index.
+# No live Pi list means stage0 never switched to record mode: a failure, since a
+# candidate generated without one would attribute nothing to the Pi archive.
+pi_archive_record_candidate() {
+    local rootfs="$1" manifest="$2" kmanifest="$3" out="$4" lists="$1/var/lib/apt/lists" rc=0 f
+    local -a pi deb args
+    rm -f "${out}"
+    mapfile -d '' -t pi < <(_pi_lists "${lists}" 'archive.raspberrypi.com_*binary-arm64_Packages*')
+    mapfile -d '' -t deb < <(_pi_lists "${lists}" 'snapshot.debian.org_*binary-arm64_Packages*')
+    if (( ${#pi[@]} == 0 || ${#deb[@]} == 0 )); then
+        echo "[FAIL] record mode needs archive.raspberrypi.com and snapshot.debian.org binary-arm64 lists"
+        echo "       in ${lists}; found ${#pi[@]} and ${#deb[@]}. Did stage0 run with ARLOWE_PI_ARCHIVE_MODE=record?"
+        return 1
+    fi
+    args=(generate --installed-status "${rootfs}/var/lib/dpkg/status" --kernel-manifest "${kmanifest}"
+          --pool-base http://archive.raspberrypi.com/debian --out "${out}"
+          --resolve-only firmware-marvell-prestera)
+    for f in "${pi[@]}"; do args+=(--pi-list "${f}"); done
+    for f in "${deb[@]}"; do args+=(--debian-list "${f}"); done
+    for f in "${PI_LOCAL_PACKAGES[@]}"; do args+=(--allow-local "${f}"); done
+    python3 "${PI_GATE_REPO_ROOT}/scripts/lib/pi-archive-manifest.py" "${args[@]}" || rc=$?
+    (( rc == 0 )) || return "${rc}"
+    if cmp -s "${manifest}" "${out}"; then
+        echo "[OK] candidate ${out} is identical to the committed manifest; no pin moves."
+    else
+        diff -u "${manifest}" "${out}"
+    fi
+    return 0
 }
