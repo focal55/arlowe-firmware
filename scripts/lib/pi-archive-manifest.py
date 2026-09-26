@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Generate third_party/pi-archive/manifest.yml from a resolved package set.
 
-    pi-archive-manifest.py generate --installed-reference REF --pi-list P...
-        --debian-list P... --kernel-manifest M --pool-base URL --out F [--allow-local N...]
+    pi-archive-manifest.py generate (--installed-reference REF | --installed-status S)
+        --pi-list P... --debian-list P... --kernel-manifest M --pool-base URL --out F
+        [--allow-local N...] [--resolve-only NAME[=VERSION]...]
+
+The installed set is the `pkg` rows of an inputs-reference file, or the
+`install ok installed` stanzas of a dpkg status file. Index lists may be
+plain, .gz or .xz.
 
 Attribution per installed (name, version, arch); a stanza matches on name,
 version and Architecture equal to arch or `all`.
@@ -16,11 +21,18 @@ version and Architecture equal to arch or `all`.
   - neither: failure, unless named by --allow-local.
 Zero entries is a failure: an empty manifest pins nothing and says it succeeded.
 
+--resolve-only names a Pi package apt must be able to locate but that is never
+installed (an upstream stage list names it as a removal marker). It goes under
+resolve_only. Failure if it is installed, or if its Pi stanzas do not resolve to
+exactly one version and sha256.
+
 Exit 0 written, 1 attribution failure (every one is reported, nothing is
 written), 2 could not run.
 """
 import argparse
+import gzip
 import json
+import lzma
 import os
 import sys
 import tempfile
@@ -28,25 +40,27 @@ import tempfile
 import yaml
 
 KEEP = ("Package", "Version", "Architecture", "Filename", "Size", "SHA256")
-KEY_ORDER = ("name", "version", "arch", "filename", "size", "sha256", "url")
+KEY_ORDER = ("name", "version", "arch", "filename", "size", "sha256", "url", "why")
+REFUSED_SUFFIXES = (".lz4", ".bz2", ".zst", ".lzma", ".Z")
+RESOLVE_ONLY_WHY = ("named by an upstream pi-gen package list as a removal marker; "
+                    "apt must be able to locate it, it is never installed")
 
 
 class InputError(Exception):
     pass
 
 
-def read_text(path):
+def read_text(path, opener=open):
     try:
-        with open(path, encoding="utf-8") as f:
+        with opener(path, "rt", encoding="utf-8") as f:
             return f.read()
-    except (OSError, UnicodeDecodeError) as e:
+    except (OSError, EOFError, UnicodeDecodeError, lzma.LZMAError) as e:
         raise InputError("cannot read %s: %s" % (path, e))
 
 
-def open_index(path):
-    """Parse a Packages index into a list of stanza dicts (KEEP fields only)."""
+def parse_stanzas(text, keep):
     stanzas, cur = [], {}
-    for line in read_text(path).splitlines():
+    for line in text.splitlines():
         if not line.strip():
             if cur:
                 stanzas.append(cur)
@@ -55,11 +69,22 @@ def open_index(path):
             continue
         elif ":" in line:
             k, v = line.split(":", 1)
-            if k in KEEP:
+            if k in keep:
                 cur[k] = v.strip()
     if cur:
         stanzas.append(cur)
     return stanzas
+
+
+def open_index(path):
+    """Parse a plain, .gz or .xz Packages index into stanza dicts (KEEP fields only)."""
+    if path.endswith(REFUSED_SUFFIXES):
+        raise InputError(
+            "%s: unsupported index compression. apt in a docker image stores .lz4 lists "
+            "because of /etc/apt/apt.conf.d/docker-gzip-indexes; delete that file before "
+            "apt-get update, or pass a plain, .gz or .xz index" % path)
+    opener = gzip.open if path.endswith(".gz") else lzma.open if path.endswith(".xz") else open
+    return parse_stanzas(read_text(path, opener), KEEP)
 
 
 def load_indexes(paths):
@@ -81,6 +106,52 @@ def load_installed_reference(path):
                 raise InputError("%s: malformed pkg row %r" % (path, line))
             rows.append(tuple(f[1:]))
     return rows
+
+
+def load_installed_status(path):
+    """(name, version, arch) for every `install ok installed` stanza of a dpkg status file."""
+    rows = []
+    for s in parse_stanzas(read_text(path), ("Package", "Status", "Version", "Architecture")):
+        if s.get("Status") == "install ok installed":
+            if not all(k in s for k in ("Package", "Version", "Architecture")):
+                raise InputError("%s: installed stanza lacks Package, Version or Architecture: %r"
+                                 % (path, s))
+            rows.append((s["Package"], s["Version"], s["Architecture"]))
+    return rows
+
+
+def pi_entry(s, pool_base):
+    return {
+        "name": s["Package"], "version": s["Version"], "arch": s["Architecture"],
+        "filename": os.path.basename(s["Filename"]), "size": int(s["Size"]),
+        "sha256": s["SHA256"], "url": pool_base.rstrip("/") + "/" + s["Filename"],
+    }
+
+
+def complete(s):
+    return bool(s.get("Filename") and s.get("SHA256") and s.get("Size", "").isdigit())
+
+
+def resolve_only(specs, installed, pi, pool_base):
+    entries, failures = [], []
+    installed_names = {name for name, _, _ in installed}
+    for spec in specs:
+        name, _, version = spec.partition("=")
+        if name in installed_names:
+            failures.append("%s: resolve-only package is installed" % spec)
+            continue
+        hits = [s for (n, v), ss in sorted(pi.items()) if n == name and version in ("", v)
+                for s in ss]
+        found = sorted({(s["Version"], s.get("SHA256")) for s in hits})
+        if len(found) != 1:
+            failures.append("%s: resolve-only needs exactly one Pi version and sha256, found %d: %s"
+                            % (spec, len(found), ", ".join(v for v, _ in found) or "none"))
+            continue
+        if not complete(hits[0]):
+            failures.append("%s: Pi stanza lacks Filename, SHA256 or a numeric Size" % spec)
+            continue
+        entries.append(dict(pi_entry(hits[0], pool_base), why=RESOLVE_ONLY_WHY))
+    return sorted(entries, key=lambda e: e["name"]), failures
 
 
 def load_kernel(path):
@@ -133,27 +204,27 @@ def attribute(installed, pi, deb, kernel_names, kernel_ver, allow_local, pool_ba
                 failures.append("%s: both archives carry it with different bytes: pi %s, debian %s"
                                 % (where, s.get("SHA256"), ", ".join(sorted(map(str, deb_shas)))))
             continue
-        if not (s.get("Filename") and s.get("SHA256") and s.get("Size", "").isdigit()):
+        if not complete(s):
             failures.append("%s: Pi stanza lacks Filename, SHA256 or a numeric Size" % where)
             continue
-        entries.append({
-            "name": name, "version": s["Version"], "arch": s["Architecture"],
-            "filename": os.path.basename(s["Filename"]), "size": int(s["Size"]),
-            "sha256": s["SHA256"], "url": pool_base.rstrip("/") + "/" + s["Filename"],
-        })
-    seen = {}
-    for e in entries:
-        if e["filename"] in seen:
-            failures.append("%s: duplicate filename, also %s" % (e["filename"], seen[e["filename"]]))
-        seen[e["filename"]] = e["name"]
+        entries.append(pi_entry(s, pool_base))
     if not entries:
         failures.append("zero Pi-only packages attributed; refusing to write an empty manifest")
     return sorted(entries, key=lambda e: (e["name"], e["arch"])), failures, skipped
 
 
+def duplicate_filenames(entries):
+    seen, failures = {}, []
+    for e in entries:
+        if e["filename"] in seen:
+            failures.append("%s: duplicate filename, also %s" % (e["filename"], seen[e["filename"]]))
+        seen[e["filename"]] = e["name"]
+    return failures
+
+
 def flow(entry):
     return "{" + ", ".join("%s: %s" % (k, entry[k] if k == "size" else json.dumps(entry[k]))
-                           for k in KEY_ORDER) + "}"
+                           for k in KEY_ORDER if k in entry) + "}"
 
 
 def write_manifest(out, pool_base, entries, resolve_only):
@@ -176,7 +247,8 @@ def write_manifest(out, pool_base, entries, resolve_only):
 
 def cmd_generate(a):
     try:
-        installed = load_installed_reference(a.installed_reference)
+        installed = (load_installed_reference(a.installed_reference) if a.installed_reference
+                     else load_installed_status(a.installed_status))
         pi, deb = load_indexes(a.pi_list), load_indexes(a.debian_list)
         kernel_names, kernel_ver = load_kernel(a.kernel_manifest)
     except InputError as e:
@@ -184,17 +256,19 @@ def cmd_generate(a):
         return 2
     entries, failures, skipped = attribute(installed, pi, deb, kernel_names, kernel_ver,
                                            set(a.allow_local), a.pool_base)
+    extra, ro_failures = resolve_only(a.resolve_only, installed, pi, a.pool_base)
+    failures += ro_failures + duplicate_filenames(entries + extra)
     if failures:
         for f in failures:
             print("[pi-archive] FAIL %s" % f, file=sys.stderr)
         return 1
     try:
-        write_manifest(a.out, a.pool_base, entries, [])
+        write_manifest(a.out, a.pool_base, entries, extra)
     except OSError as e:
         print("[pi-archive] ERROR cannot write %s: %s" % (a.out, e), file=sys.stderr)
         return 2
-    print("[pi-archive] %d packages, 0 resolve_only; skipped: %d debian-identical, %d kernel, %d local"
-          % (len(entries), skipped["debian-identical"], skipped["kernel"], skipped["local"]))
+    print("[pi-archive] %d packages, %d resolve_only; skipped: %d debian-identical, %d kernel, %d local"
+          % (len(entries), len(extra), skipped["debian-identical"], skipped["kernel"], skipped["local"]))
     return 0
 
 
@@ -202,13 +276,16 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     g = sub.add_parser("generate", help="write the manifest from a resolved package set")
-    g.add_argument("--installed-reference", required=True)
+    installed = g.add_mutually_exclusive_group(required=True)
+    installed.add_argument("--installed-reference")
+    installed.add_argument("--installed-status")
     g.add_argument("--pi-list", action="append", required=True)
     g.add_argument("--debian-list", action="append", required=True)
     g.add_argument("--kernel-manifest", required=True)
     g.add_argument("--pool-base", required=True)
     g.add_argument("--out", required=True)
     g.add_argument("--allow-local", action="append", default=[])
+    g.add_argument("--resolve-only", action="append", default=[], metavar="NAME[=VERSION]")
     g.set_defaults(func=cmd_generate)
     a = ap.parse_args()
     return a.func(a)
