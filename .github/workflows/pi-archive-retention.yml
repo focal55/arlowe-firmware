@@ -1,0 +1,49 @@
+# Daily check that archive.raspberrypi.com still serves every pinned deb.
+#
+# Scheduled, not per PR. A prune upstream is not caused by any PR, and a
+# per-PR probe would turn every unrelated PR red until someone mirrored the
+# debs. Here it raises one issue, and later failures comment on it instead of
+# opening duplicates. bookworm is `oldstable` on the Pi archive, which makes it
+# the suite most likely to be pruned (07.3 research, Pitfall 8). Once a pinned
+# deb is gone, the build host cache and the CI cache are the only copies left.
+name: Pi archive retention
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  retention:
+    name: Pinned Pi debs still served
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the probe's manifest-reading dependency
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends python3-yaml
+      - name: HEAD every pinned deb
+        shell: bash
+        run: bash tests/phase-07.3/probe-pi-archive.sh --retention 2>&1 | tee probe.out
+      - name: Open or update the retention issue
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Pi archive pool dropped a pinned deb'
+          { echo "Retention probe failed: ${RUN_URL}"; echo; echo '```'; cat probe.out 2>/dev/null || echo 'probe produced no output'; echo '```'; } > body.md
+          existing="$(gh issue list --state open --search "in:title \"${title}\"" --json number,title \
+            --jq ".[] | select(.title == \"${title}\") | .number" | head -1)"
+          if [[ -n "${existing}" ]]; then
+            gh issue comment "${existing}" --body-file body.md
+          else
+            gh issue create --title "${title}" --body-file body.md \
+              --label type:bug --label priority:p1 --label package:infra \
+              || gh issue create --title "${title}" --body-file body.md
+          fi

@@ -131,6 +131,19 @@ jobs:
   # unit-import-bookworm states: a cache is the one thing that could hide an input
   # change from the job whose entire purpose is to notice one.
   #
+  # The ONE cache here is the pinned Pi archive debs, and it cannot hide an input
+  # change: it is keyed on the manifest hash, so any pin edit misses it, and
+  # pi-archive-fetch.py re-verifies every restored file's size and sha256 against
+  # the manifest before the flat repo is built. It exists so the Pi side costs no
+  # network per PR except on a cache miss.
+  #
+  # The Pi side is in scope: the flat repo is built on the runner (installing
+  # dpkg-dev in the resolution container would change the set measured) and
+  # bind-mounted read-only, and resolve-twice.sh fails if either run takes a
+  # package from the live archive.raspberrypi.com. Pool retention is NOT probed
+  # here; .github/workflows/pi-archive-retention.yml does that daily, so an
+  # upstream prune raises one issue instead of failing every PR.
+  #
   # The probe runs in a PRISTINE container via docker run rather than as a job
   # `container:`, and that separation is load-bearing. It measures what a fresh
   # rootfs would resolve, and `apt-get install --print-uris` omits anything already
@@ -162,10 +175,20 @@ jobs:
         run: bash tests/phase-07.3/test-pi-archive-gate.sh
       - name: Stage0 apt overlay self-test
         run: bash tests/phase-07.3/test-stage0-apt-overlay.sh
+      - name: Cache pinned Pi archive debs (content-addressed by the manifest)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/arlowe-build/pi-archive
+          key: pi-archive-${{ hashFiles('third_party/pi-archive/manifest.yml') }}
+      - name: Fetch (cache miss only) and verify pinned Pi archive debs
+        run: ARLOWE_PI_ARCHIVE_FETCH=1 python3 scripts/lib/pi-archive-fetch.py --manifest third_party/pi-archive/manifest.yml --repo-root . --paths-out build/.arlowe-pi-archive-paths
+      - name: Build the flat repo on the runner (not in the resolution container)
+        run: bash scripts/lib/pi-archive-repo.sh --manifest third_party/pi-archive/manifest.yml --paths build/.arlowe-pi-archive-paths --out build/pi-archive-repo
       - name: Two resolutions from this commit must agree
         run: |
-          docker run --rm -v "$PWD:/w" -w /w debian:bookworm \
-            bash tests/phase-07.2/resolve-twice.sh
+          docker run --rm -v "$PWD:/w" -w /w \
+            -v "$PWD/build/pi-archive-repo:/var/local/arlowe-pi-archive:ro" \
+            debian:bookworm bash tests/phase-07.2/resolve-twice.sh
 
   detect:
     name: Detect Node project
