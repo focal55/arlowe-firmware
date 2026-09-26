@@ -159,6 +159,11 @@ sed -i '/^Package: pionly-a$/,/^$/s/^Status: .*/Status: install ok half-configur
 [[ ${RC} -eq 1 && "${OUT}" == *"pionly-a: install ok half-configured"* ]]
 ok "[run-check-dpkg-unclean] a half-configured package fails the gate and is named"
 
+groot "${WORK}/c-local-unclean"
+printf 'Package: axclhost\nStatus: install ok half-configured\nArchitecture: arm64\nVersion: 3.10.2\n\n' >> "${R}/var/lib/dpkg/status"; chk
+[[ ${RC} -eq 0 ]]
+ok "[run-check-local-unclean] a half-configured local package (axclhost, as every build leaves it) passes"
+
 groot "${WORK}/c-fail"
 printf 'Package: stray\nStatus: install ok installed\nArchitecture: arm64\nVersion: 1\n\n' >> "${R}/var/lib/dpkg/status"; chk
 [[ ${RC} -eq 1 && "${OUT}" == *"stray 1 arm64: unattributed"* && "${OUT}" == *phase-07.3-pi-archive-pinning.md* ]]

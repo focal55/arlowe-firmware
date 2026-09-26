@@ -73,16 +73,25 @@ verify_pi_archive_resolution() {
     return "${rc}"
 }
 
+# Installed from a deb pinned elsewhere (third_party/axcl/manifest.yml), not from
+# either archive. stage-arlowe deliberately leaves axclhost half-configured: its
+# postinst cannot modprobe inside a chroot, so the build installs the built .ko
+# itself (01-runtime/00-run-chroot.sh). Exempting it from the dpkg-state check
+# below is safe because it is attributed as local, never to an archive.
+PI_LOCAL_PACKAGES=(axclhost)
+
 # dpkg-status stanzas in any state but `install ok installed` or `deinstall ok
-# config-files`, as "name: status". check counts only installed stanzas, so a
-# half-configured or unpacked package would otherwise escape attribution entirely.
+# config-files`, as "name: status", skipping PI_LOCAL_PACKAGES. check counts only
+# installed stanzas, so an unfinished archive package would otherwise escape
+# attribution entirely.
 _pi_unclean_status() {
-    awk '/^Package:/ { p = $2 } /^Status:/ { s = substr($0, 9) }
-         /^$/ { if (p != "" && s != "install ok installed" && s != "deinstall ok config-files")
-                    print p ": " (s == "" ? "no Status" : s)
-                p = ""; s = "" }
-         END { if (p != "" && s != "install ok installed" && s != "deinstall ok config-files")
-                   print p ": " (s == "" ? "no Status" : s) }' "$1"
+    awk -v loc="${PI_LOCAL_PACKAGES[*]}" '
+         BEGIN { n = split(loc, a, " "); for (i = 1; i <= n; i++) skip[a[i]] = 1 }
+         function emit() { if (p != "" && !(p in skip) && s != "install ok installed" && s != "deinstall ok config-files")
+                               print p ": " (s == "" ? "no Status" : s) }
+         /^Package:/ { p = $2 } /^Status:/ { s = substr($0, 9) }
+         /^$/ { emit(); p = ""; s = "" }
+         END { emit() }' "$1"
 }
 
 pi_archive_run_check() {
@@ -113,9 +122,7 @@ pi_archive_run_check() {
     args=(check --status "${status}" --manifest "${manifest}" --kernel-manifest "${kmanifest}"
           --flat-list "${flat[0]}")
     for f in "${deb[@]}"; do args+=(--debian-list "${f}"); done
-    # axclhost is installed by stage-arlowe from the deb third_party/axcl/manifest.yml
-    # pins by sha256; it belongs to neither archive.
-    args+=(--allow-local axclhost)
+    for f in "${PI_LOCAL_PACKAGES[@]}"; do args+=(--allow-local "${f}"); done
     python3 "${PI_GATE_REPO_ROOT}/scripts/lib/pi-archive-manifest.py" "${args[@]}" || rc=$?
     if (( rc == 1 )); then
         echo "[FAIL] Pi archive completeness check failed; see ${PI_RUNBOOK}, section 3 (Reading a failure)."
