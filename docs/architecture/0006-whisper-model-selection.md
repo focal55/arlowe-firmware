@@ -63,9 +63,8 @@ to `small.en`) is the mechanism for per-device overrides without reflashing.
 **Negative / known gaps:**
 - `runtime/stt/stt_server.py` currently hardcodes `base.en`; the image build (06-03) must
   set `ARLOWE_WHISPER_MODEL=small.en` in the unit environment to override it.
-- Model SHA pin in `third_party/models/manifest.yml` is a TODO placeholder until
-  the first real fetch from HuggingFace populates the hash (auth-gated for some paths;
-  CTranslate2 converted model hash must be captured at fetch time).
+- Model SHA pin in `third_party/models/manifest.yml` was a TODO placeholder until
+  #166, which pinned each of the four files by sha256 at a recorded upstream revision.
 
 ## References
 

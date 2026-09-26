@@ -119,16 +119,6 @@ fi
 all_ok=true
 
 # ---------------------------------------------------------------------------
-# Helper: compute a deterministic digest over a directory.
-# Walks all regular files under $1 in sorted order, hashes each, then hashes
-# the combined output. Reproducible across runs on the same tree.
-# ---------------------------------------------------------------------------
-dir_sha256() {
-  local dir="$1"
-  find "${dir}" -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | awk '{print $1}'
-}
-
-# ---------------------------------------------------------------------------
 # Read expected SHA-256 from manifest.yml
 # ---------------------------------------------------------------------------
 if [[ ! -f "${MANIFEST}" ]]; then
@@ -211,138 +201,58 @@ fi
 # ---------------------------------------------------------------------------
 # Check 3: Model artifacts (Qwen LLM, Whisper STT, Piper TTS)
 #
-# Path scheme (unified — B3 fix):
-#   Each manifest entry has an install_to field with the image-absolute path
-#   (e.g. /opt/arlowe/models/whisper/small.en). The gate strips MODELS_IMAGE_PREFIX
-#   to derive the relative subpath (e.g. whisper/small.en), then searches:
-#     $ARLOWE_MODELS_DIR/<subpath>
-#     third_party/models/<subpath>
-#     /var/cache/arlowe-build/models/<subpath>
-#   This matches INSTALL.md staging instructions exactly.
+# Each model's directory is looked up by its install_to subpath (install_to minus
+# /opt/arlowe/models) under, in order:
+#   $ARLOWE_MODELS_DIR/<subpath>
+#   third_party/models/<subpath>
+#   /var/cache/arlowe-build/models/<subpath>
+# and every file the manifest lists for it is verified by sha256 in
+# scripts/lib/verify-models.py. A TODO digest fails; it no longer warns (#166).
 #
-# Directory artifacts with real SHA pins (B2 fix):
-#   A real (non-placeholder) pin on a directory artifact is verified by computing
-#   a deterministic directory digest (sorted find -type f | xargs sha256sum | sha256sum).
-#   A real pin with no verifiable target (missing primary_file and not a verifiable
-#   directory) HARD-FAILS — WARN is only for TODO placeholders.
+# This checks the cache before the build. What ships is checked again after
+# 02-models stages it, by build-image.sh, because staging reads
+# ARLOWE_MODELS_CACHE, which is only this directory when ARLOWE_MODELS_DIR is set.
 # ---------------------------------------------------------------------------
 if [[ ! -f "${MODELS_MANIFEST}" ]]; then
   printf "${RED}[FAIL]${NC} third_party/models/manifest.yml  not found\n"
   echo >&2 "  Expected at: ${MODELS_MANIFEST}"
   all_ok=false
 else
-  # Emit tab-delimited fields to survive spaces in any future install_to values (S2 fix).
-  model_keys=$(python3 -c "
+  model_rows=$(python3 -c "
 import yaml
 with open('${MODELS_MANIFEST}') as f:
     m = yaml.safe_load(f)
-for key in m.get('models', {}):
-    entry = m['models'][key]
-    fields = [key, entry.get('name',''), entry.get('sha256',''), entry.get('install_to','')]
-    print('\t'.join(fields))
+for key, entry in m.get('models', {}).items():
+    print('\t'.join([key, entry.get('name', ''), entry.get('install_to', '')]))
 " 2>/dev/null) || {
     echo >&2 "ERROR: failed to parse ${MODELS_MANIFEST} (is python3-yaml installed?)"
     exit 1
   }
 
-  while IFS=$'\t' read -r model_key model_name model_sha model_install; do
+  while IFS=$'\t' read -r model_key model_name model_install; do
     [[ -z "${model_key}" ]] && continue
+    install_subpath="${model_install#"${MODELS_IMAGE_PREFIX}"/}"
 
-    # Derive the relative subpath from install_to by stripping the image prefix.
-    # install_to: /opt/arlowe/models/whisper/small.en  →  subpath: whisper/small.en
-    if [[ "${model_install}" == "${MODELS_IMAGE_PREFIX}"/* ]]; then
-      install_subpath="${model_install#"${MODELS_IMAGE_PREFIX}"/}"
-    else
-      # install_to does not start with the expected prefix — fall back to model name.
-      install_subpath="${model_name}"
-    fi
+    models_root=""
+    for m_root in "${ARLOWE_MODELS_DIR:-}" "${REPO_ROOT}/third_party/models" /var/cache/arlowe-build/models; do
+      [[ -n "${m_root}" && -e "${m_root}/${install_subpath}" ]] && { models_root="${m_root}"; break; }
+    done
 
-    # Search for the artifact using the install_to subpath.
-    artifact_path=""
-
-    if [[ -n "${ARLOWE_MODELS_DIR:-}" ]]; then
-      candidate="${ARLOWE_MODELS_DIR}/${install_subpath}"
-      if [[ -e "${candidate}" ]]; then
-        artifact_path="${candidate}"
-      fi
-    fi
-
-    if [[ -z "${artifact_path}" ]]; then
-      candidate="${REPO_ROOT}/third_party/models/${install_subpath}"
-      if [[ -e "${candidate}" ]]; then
-        artifact_path="${candidate}"
-      fi
-    fi
-
-    if [[ -z "${artifact_path}" ]]; then
-      candidate="/var/cache/arlowe-build/models/${install_subpath}"
-      if [[ -e "${candidate}" ]]; then
-        artifact_path="${candidate}"
-      fi
-    fi
-
-    # Check if the SHA pin is a TODO placeholder.
-    is_placeholder=false
-    if [[ "${model_sha}" == TODO_SHA256* ]]; then
-      is_placeholder=true
-    fi
-
-    if [[ -z "${artifact_path}" ]]; then
+    if [[ -z "${models_root}" ]]; then
       printf "${RED}[FAIL]${NC} %-50s not found\n" "${model_name}"
       echo >&2 "  Set ARLOWE_MODELS_DIR=<dir> or stage artifact at:"
       echo >&2 "    third_party/models/${install_subpath}"
       echo >&2 "    /var/cache/arlowe-build/models/${install_subpath}"
       echo >&2 "  See third_party/models/INSTALL.md for sourcing instructions."
       all_ok=false
-
-    elif [[ "${is_placeholder}" == "true" ]]; then
-      # Placeholder pin — warn and print actual hash if computable, never fail.
-      if [[ -f "${artifact_path}" ]]; then
-        actual_hash=$(sha256sum "${artifact_path}" | awk '{print $1}')
-        printf "${YELLOW}[WARN]${NC}  %-50s sha256 pin is TODO placeholder\n" "${model_name}"
-        printf "         actual hash: %s\n" "${actual_hash}"
-        printf "         Record this in third_party/models/manifest.yml to close the TODO.\n"
-      elif [[ -d "${artifact_path}" ]]; then
-        actual_hash=$(dir_sha256 "${artifact_path}")
-        printf "${YELLOW}[WARN]${NC}  %-50s sha256 pin is TODO placeholder\n" "${model_name}"
-        printf "         actual dir digest: %s\n" "${actual_hash}"
-        printf "         Record this in third_party/models/manifest.yml to close the TODO.\n"
-      else
-        printf "${YELLOW}[WARN]${NC}  %-50s sha256 pin is TODO placeholder; artifact present but unreadable\n" "${model_name}"
-      fi
-
+    elif python3 "${SCRIPT_DIR}/lib/verify-models.py" --manifest "${MODELS_MANIFEST}" \
+        --root "${models_root}" --model "${model_key}" | sed 's/^/         /'; then
+      printf "${GREEN}[OK]${NC}   %-50s every file sha256 matches\n" "${model_name}"
     else
-      # Real SHA pin — must verify; no degradation to WARN.
-      if [[ -f "${artifact_path}" ]]; then
-        actual_sha256=$(sha256sum "${artifact_path}" | awk '{print $1}')
-        if [[ "${actual_sha256}" == "${model_sha}" ]]; then
-          printf "${GREEN}[OK]${NC}   %-50s sha256 matches\n" "${model_name}"
-        else
-          printf "${RED}[FAIL]${NC} %-50s sha256 mismatch\n" "${model_name}"
-          echo >&2 "  Expected: ${model_sha}"
-          echo >&2 "  Actual:   ${actual_sha256}"
-          all_ok=false
-        fi
-      elif [[ -d "${artifact_path}" ]]; then
-        actual_sha256=$(dir_sha256 "${artifact_path}")
-        if [[ "${actual_sha256}" == "${model_sha}" ]]; then
-          printf "${GREEN}[OK]${NC}   %-50s dir digest matches\n" "${model_name}"
-        else
-          printf "${RED}[FAIL]${NC} %-50s dir digest mismatch\n" "${model_name}"
-          echo >&2 "  Expected: ${model_sha}"
-          echo >&2 "  Actual:   ${actual_sha256}"
-          echo >&2 "  Digest is sha256(sorted find -type f | xargs sha256sum | sha256sum)"
-          all_ok=false
-        fi
-      else
-        # Present as a path but neither file nor directory — treat as FAIL,
-        # same as a real pin with no verifiable target.
-        printf "${RED}[FAIL]${NC} %-50s real sha256 pin present but artifact is not a file or directory\n" "${model_name}"
-        echo >&2 "  Cannot verify ${artifact_path} — check staging."
-        all_ok=false
-      fi
+      printf "${RED}[FAIL]${NC} %-50s file verification failed (see above)\n" "${model_name}"
+      all_ok=false
     fi
-  done <<< "${model_keys}"
+  done <<< "${model_rows}"
 fi
 
 # ---------------------------------------------------------------------------

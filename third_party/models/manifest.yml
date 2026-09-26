@@ -4,15 +4,28 @@
 # Each entry pins ONE copy of the artifact for the shared models partition
 # (mounted at /opt/arlowe/models in both A and B slots — see ADR-0004).
 #
-# SHA pins marked TODO_SHA256 are placeholders: the artifact is auth-gated or
-# requires a first-fetch before the exact CTranslate2/quantized hash is known.
-# A placeholder pin emits a WARNING from verify-third-party.sh (not a hard fail)
-# so structure can land before real fetch. Close TODOs in issue #106 comments
-# when on-hardware builds (06-06) capture the real hashes.
+# PINNED PER FILE. Every file a model needs is listed with its own sha256, and
+# `filename` is relative to the models root, so the same path works for the
+# staging cache, the staged tree and /opt/arlowe/models. A single digest per
+# directory hid which file broke and depended on where the directory sat.
+# scripts/lib/verify-models.py checks these; build-image.sh also runs it with
+# --exact over the staged tree, so a file nobody listed cannot ship.
+#
+# A TODO digest is a hard failure. These pins were TODO placeholders that only
+# warned from 06-02 (#106) until #166, and every image in between shipped its
+# models unchecked.
+#
+# DIGESTS: every value below was hashed from the files shipped on the test card
+# (image from 6a4c538) on 2026-09-25, and each one matches the bytes upstream
+# serves at the pinned revision: the Hugging Face LFS sha256 for the large files,
+# a download and hash for the small ones. 36 of 36 agreed.
+#
+# UPDATE PROCEDURE: change revision and every affected sha256 in one commit, and
+# re-record docs/operations/phase-07.2-inputs.reference in the same change.
 #
 # Distribution rights:
-#   - qwen2.5-7b-int4-ax650: Axera-optimized int4 model; auth-gated, redistribution
-#     rights TBD. Obtain from Axera/arlowe provisioning kit.
+#   - qwen2.5-7b-int4-ax650: Axera-optimized int4 model; redistribution
+#     rights TBD.
 #   - faster-whisper small.en: Apache 2.0 (OpenAI Whisper weights via Systran
 #     CTranslate2 conversion). Freely redistributable.
 #   - piper en_US-lessac-medium: CC BY 4.0 (Piper voice model by rhasspy).
@@ -22,51 +35,113 @@ models:
   qwen_llm:
     name: "qwen2.5-7b-int4-ax650"
     description: "Qwen 2.5 7B int4 model optimized for Axera AX650 NPU"
-    repo: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
-    # Auth-gated Axera deployment variant — exact AX650 deployment hash must
-    # be re-verified at first fetch from the Axera provisioning kit.
-    sha256: "TODO_SHA256__capture_at_first_fetch_from_axera_provisioning_kit"
+    repo: "https://huggingface.co/AXERA-TECH/Qwen2.5-7B-Instruct"
+    revision: "97ccbbde2f2282a24ff00bb5df8e5c9eb34033fb"
+    upstream_path: "qwen2.5-7b-ctx-int4-ax650"
     url: null
     install_to: "/opt/arlowe/models/qwen2.5-7b-int4-ax650"
     notes: >
-      Axera AX650 NPU-optimized int4 quantized model. Auth-gated; obtain from
-      Axera Semiconductor or the device provisioning kit. Place at one of the
-      paths checked by verify-third-party.sh. SHA pin is a TODO placeholder —
-      record the real hash in the PR closing issue #106 comment when first fetched.
+      Public on Hugging Face, not auth-gated: the repo's qwen2.5-7b-ctx-int4-ax650/
+      directory, renamed on install. Not AXERA-TECH/Qwen2.5-7B-Instruct-GPTQ-Int4,
+      whose files share these names but none of these digests.
       See third_party/models/INSTALL.md.
+    files:
+      - filename: "qwen2.5-7b-int4-ax650/model.embed_tokens.weight.bfloat16.bin"
+        sha256: "c34b43d39b7edc9aecc96d60b2e17ca650be71174772fdf106ce4ffa141cd097"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l0_together.axmodel"
+        sha256: "ccb5ec7244b93a7e5eb96027c725592002e32e99cab09a72d3cbc26044e3400d"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l1_together.axmodel"
+        sha256: "7d6600c9cfcaf2a2e136720a2e1d9eef18f4f35b40619450f3633a33072ad981"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l2_together.axmodel"
+        sha256: "54a2d04916dd267705ccd0bbd95dc905eee12d2579a72f622f083863675dbacc"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l3_together.axmodel"
+        sha256: "c55bbfdea428bf5c75af56fe52b0b538af154c4a2efea36963acd1d82fb35842"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l4_together.axmodel"
+        sha256: "e345aefe068d8bb27f19febbb9d1b27be457780ad823940a2606880d4a94e64f"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l5_together.axmodel"
+        sha256: "ead6f3da255b150feda0801f19e9ee81922f18ee3a23dbce4d80dc47681bcdc9"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l6_together.axmodel"
+        sha256: "e8529de4f837e57d395fa037c47521a09a98a4c40aa0df3178a066471d00bd57"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l7_together.axmodel"
+        sha256: "4bd1ef84c6278a516fc5bd1c72fa0295ef38141334a4b18dd630cbc2168c99d6"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l8_together.axmodel"
+        sha256: "3128050a24e85023e634c0a58cfef10a007108e58dace8b77b24b48c73209705"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l9_together.axmodel"
+        sha256: "4749f5bbef690c76a0275fb092578c2beca7041e4f250b033a13dd532cdb7fb0"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l10_together.axmodel"
+        sha256: "2e3efb617d02ba46742b43506a926c523531523abcaf1f42799dadb57f29b539"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l11_together.axmodel"
+        sha256: "ee3f5a627de3de4cb45ee0df340cc15cdec5ed2a3193566eac6360609f9963fe"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l12_together.axmodel"
+        sha256: "f6f456be5d34fb0e56155e826aa225f8dc7f6f117b1622a94b08f7c7c0794b74"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l13_together.axmodel"
+        sha256: "34628d795642c32177266dea5be8c5823220607b9bcaaeef7ccfafdd527f2c2b"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l14_together.axmodel"
+        sha256: "8620025e2db615134ba26e8248fbf5f1188fb3e3e3a7851704f07b7b0fb5c270"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l15_together.axmodel"
+        sha256: "13213cf41003da8a949cec1f653d4baa535b2bddc5320509d1f197cfe7ee0dc9"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l16_together.axmodel"
+        sha256: "26cd72b7d1951f15d0d75d421846b81f7c97530df39fd952fcf6be546ba904e7"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l17_together.axmodel"
+        sha256: "0b211e3e401aa1da1b930a20628e8892769546d4eb2033116bae96d06e6dd743"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l18_together.axmodel"
+        sha256: "2e327e6adbc4af762945b1e5012078f3b960c89c43b431c11c600809b6042a4b"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l19_together.axmodel"
+        sha256: "7220dcd5ff701b5b81ec82d148ca212c9b8c7363246e6a4d63860a26375fdc3c"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l20_together.axmodel"
+        sha256: "b31567be9bfed7806666a70c7b45f867b1694b7ea35ec767f6a0527d1913644a"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l21_together.axmodel"
+        sha256: "aa015464b76947f09af30d33a71268b9a1698a6cba4aff38e45bf8ceacdda1a0"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l22_together.axmodel"
+        sha256: "36bd6268c44986a3869f7af5c0f6fb29b9b74b759bc37730fb4bea2756bace2c"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l23_together.axmodel"
+        sha256: "523f0ad731201ca0844d952a10130ef60c881906c8e7ef0d461850a3f2926e95"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l24_together.axmodel"
+        sha256: "c5d91ab5f9d50df13a1c4184fd11773bcda7785a66fd2d50b0d36e8c17c9d2cc"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l25_together.axmodel"
+        sha256: "0f9a16a1424210b6ec58740df2677e459bc4c9984da2c0fa76e0cd1887525eab"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l26_together.axmodel"
+        sha256: "18210c1d490a56d55c395a77738bfee498cebcd2029cf1217f120e000112c10a"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_p128_l27_together.axmodel"
+        sha256: "ce3105313cadf2db556c7b113dca71ba3c4e32153af9a87af65a6efa1b82ab90"
+      - filename: "qwen2.5-7b-int4-ax650/qwen2_post.axmodel"
+        sha256: "a5945f9095f36d8ce7f2bc547b3012c4453baee1f4bcddd8a456833537492199"
 
   whisper_stt:
     name: "faster-whisper-small.en"
     description: "faster-whisper small.en CTranslate2 model (ADR-0006)"
     repo: "https://huggingface.co/Systran/faster-whisper-small.en"
-    # CTranslate2 converted model hash — captured at first fetch from HuggingFace.
-    # The hash covers the model directory archive (or the primary model.bin file
-    # depending on fetch method). Capture with: sha256sum model.bin
-    sha256: "TODO_SHA256__capture_at_first_fetch_from_huggingface_Systran_faster-whisper-small.en"
+    revision: "d1d751a5f8271d482d14ca55d9e2deeebbae577f"
     url: null
     install_to: "/opt/arlowe/models/whisper/small.en"
     notes: >
       faster-whisper (CTranslate2) small.en model. Apache 2.0 license (see ADR-0006).
-      Fetch via: huggingface-cli download Systran/faster-whisper-small.en --local-dir <dest>
-      SHA pin is a TODO placeholder — record real hash in issue #106 comment at
-      first image build (06-06). See third_party/models/INSTALL.md.
+      README.md and .gitattributes from the repo are not needed and not shipped.
+      See third_party/models/INSTALL.md.
+    files:
+      - filename: "whisper/small.en/config.json"
+        sha256: "666a9605530ac1f61fa8177f3702b4dacec9966749e42610839fcc32661d5fae"
+      - filename: "whisper/small.en/model.bin"
+        sha256: "62b2a45b05ee59acb4a5341b33ee35e041395d378d418a18acfe4c9e768ee37a"
+      - filename: "whisper/small.en/tokenizer.json"
+        sha256: "929c5252409436dce1b38a75d1abbcb5e132d170d8e324e4e04ed915fa2d22df"
+      - filename: "whisper/small.en/vocabulary.txt"
+        sha256: "ff77588746d3a2595d32ab5b69ffd7b95ce2441ac57533cb66fc3eb575a115cf"
 
   piper_tts:
     name: "piper-en_US-lessac-medium"
     description: "Piper TTS voice model en_US-lessac-medium (ONNX)"
     repo: "https://huggingface.co/rhasspy/piper-voices"
-    # Two files required: .onnx weights + .onnx.json config.
-    # sha256 covers the .onnx file (the larger file; config is tiny).
-    sha256: "TODO_SHA256__capture_at_first_fetch_from_huggingface_rhasspy_piper-voices"
+    revision: "c10ece1aade47bb51c153c893d14e5bf8e5b7117"
+    upstream_path: "en/en_US/lessac/medium"
     url: null
-    install_to: "/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx"
-    additional_files:
-      - filename: "en_US-lessac-medium.onnx.json"
-        install_to: "/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx.json"
-        sha256: "TODO_SHA256__config_json"
+    install_to: "/opt/arlowe/models/piper-voices"
     notes: >
       Piper TTS en_US lessac medium voice. CC BY 4.0 (attribution required).
-      Fetch via: huggingface-cli download rhasspy/piper-voices --include "en/en_US/lessac/medium/*" --local-dir <dest>
       Both .onnx and .onnx.json are required (unit file: ARLOWE_PIPER_MODEL points at .onnx).
-      SHA pin is a TODO placeholder — record real hashes in issue #106 comment at
-      first image build (06-06). See third_party/models/INSTALL.md.
+      See third_party/models/INSTALL.md.
+    files:
+      - filename: "piper-voices/en_US-lessac-medium.onnx"
+        sha256: "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f"
+      - filename: "piper-voices/en_US-lessac-medium.onnx.json"
+        sha256: "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0"

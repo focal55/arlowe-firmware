@@ -22,7 +22,7 @@ If you are in a hurry and read only one section, read
 | axcl host driver | `third_party/axcl/manifest.yml` | sha256, `url: null` (rights unresolved) |
 | Node | `third_party/node/manifest.yml` | sha256, fetch-at-build |
 | ax-llm | git submodule | gitlink commit |
-| Models | `third_party/models/manifest.yml` | sha256 (three are still `TODO` placeholders) |
+| Models | `third_party/models/manifest.yml` | sha256 per file, at a recorded upstream revision |
 
 Everything that merely *resolves* — roughly 220 Debian packages nobody chose
 individually — is not pinned but is **recorded**, in

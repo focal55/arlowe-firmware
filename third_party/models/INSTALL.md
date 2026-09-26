@@ -6,8 +6,14 @@ You must obtain each artifact and place it where the build expects it before run
 
 All three model families live on the **shared read-only models partition** mounted at
 `/opt/arlowe/models` in both A and B slots (see `docs/architecture/0004-shared-models-partition.md`).
-The SHA pins in `third_party/models/manifest.yml` are currently TODO placeholders — record
-real hashes in the issue #106 PR comment when 06-06 first fetches the artifacts.
+
+Every file is pinned by sha256 in `third_party/models/manifest.yml`, with the upstream
+repo and revision it came from. Place **exactly** the files the manifest lists: the
+image build verifies the staged models tree with `--exact` and fails on any file the
+manifest does not name, because 02-models copies whole directories and an extra file
+would otherwise ship unverified. `huggingface-cli download --local-dir` leaves a
+`.cache/huggingface/` directory and repo files such as `README.md` behind, so download
+to a scratch directory and copy the listed files, as below.
 
 ---
 
@@ -27,44 +33,40 @@ the `/opt/arlowe/models/` image prefix (so `install_to` and the staging path agr
 2. `third_party/models/<install_to-subpath>`
 3. `/var/cache/arlowe-build/models/<install_to-subpath>`
 
+`scripts/build-image.sh` stages from `ARLOWE_MODELS_DIR` when it is set, and from
+`${WORK_DIR}/arlowe-models-cache` when it is not. Set it, so the directory
+`verify-third-party.sh` checks is the one that gets staged. The staged tree is
+verified again either way.
+
+The examples below use `M=/var/cache/arlowe-build/models`.
+
 ---
 
 ## 1. Qwen 2.5 7B int4 (AX650) — `qwen2.5-7b-int4-ax650`
 
-**Target on image:** `/opt/arlowe/models/qwen2.5-7b-int4-ax650`
+**Target on image:** `/opt/arlowe/models/qwen2.5-7b-int4-ax650` (30 files)
 
-**License:** Auth-gated; redistribution rights TBD — obtain from Axera Semiconductor.
+**Source:** `AXERA-TECH/Qwen2.5-7B-Instruct`, directory `qwen2.5-7b-ctx-int4-ax650/`,
+renamed on install. Public; no account needed. **Not** `AXERA-TECH/Qwen2.5-7B-Instruct-GPTQ-Int4`:
+its files have the same names and none of the pinned digests.
 
-**How to obtain:**
-
-1. Contact Axera Semiconductor or use the provisioning kit that came with your
-   AX8850 evaluation board / M.2 module.
-2. The Axera-optimized AX650 deployment variant is distinct from the base
-   HuggingFace Qwen2.5-7B weights. Do not substitute the base weights.
-3. Confirm the directory digest matches the pin in `manifest.yml` before
-   proceeding. The gate computes: `find -type f | sort | xargs sha256sum | sha256sum`.
-   The pin is currently a TODO placeholder — capture and record the real digest at
-   first fetch (the gate prints it when the pin is a placeholder).
-
-**Where to place it:**
+**License:** redistribution rights TBD — see the manifest header.
 
 ```bash
-# Option A: set the env var (recommended for CI)
-export ARLOWE_MODELS_DIR=/var/cache/arlowe-build/models
-cp -r /path/to/qwen2.5-7b-int4-ax650/ $ARLOWE_MODELS_DIR/qwen2.5-7b-int4-ax650/
-
-# Option B: repo-relative (never commit these files)
-cp -r /path/to/qwen2.5-7b-int4-ax650/ third_party/models/qwen2.5-7b-int4-ax650/
-
-# Option C: default cache location
-sudo cp -r /path/to/qwen2.5-7b-int4-ax650/ /var/cache/arlowe-build/models/qwen2.5-7b-int4-ax650/
+huggingface-cli download AXERA-TECH/Qwen2.5-7B-Instruct \
+    --revision 97ccbbde2f2282a24ff00bb5df8e5c9eb34033fb \
+    --include "qwen2.5-7b-ctx-int4-ax650/*" --local-dir /tmp/qwen-dl
+mkdir -p "$M/qwen2.5-7b-int4-ax650"
+cp /tmp/qwen-dl/qwen2.5-7b-ctx-int4-ax650/*.axmodel \
+   /tmp/qwen-dl/qwen2.5-7b-ctx-int4-ax650/model.embed_tokens.weight.bfloat16.bin \
+   "$M/qwen2.5-7b-int4-ax650/"
 ```
 
 ---
 
 ## 2. Whisper STT — `faster-whisper-small.en`
 
-**Target on image:** `/opt/arlowe/models/whisper/small.en`
+**Target on image:** `/opt/arlowe/models/whisper/small.en` (4 files)
 
 **License:** Apache 2.0 (Systran CTranslate2 conversion of OpenAI Whisper weights).
 Freely redistributable with attribution.
@@ -72,119 +74,62 @@ Freely redistributable with attribution.
 **Model choice:** `small.en` — see `docs/architecture/0006-whisper-model-selection.md` (ADR-0006)
 for rationale. This supersedes the `base.en` default in `runtime/stt/stt_server.py`.
 
-**How to obtain:**
-
 ```bash
-# Requires: pip install huggingface_hub
 huggingface-cli download Systran/faster-whisper-small.en \
-    --local-dir /var/cache/arlowe-build/models/whisper/small.en
-```
-
-Or via git-lfs:
-
-```bash
-git clone https://huggingface.co/Systran/faster-whisper-small.en \
-    /var/cache/arlowe-build/models/whisper/small.en
-```
-
-After download, capture the directory digest for the manifest.
-The gate uses a deterministic directory digest for directory artifacts
-(`find -type f | sort | xargs sha256sum | sha256sum`):
-
-```bash
-find /var/cache/arlowe-build/models/whisper/small.en -type f \
-  | LC_ALL=C sort | xargs sha256sum | sha256sum | awk '{print $1}'
-```
-
-**Where to place it** (`install_to` subpath: `whisper/small.en`):
-
-```bash
-/var/cache/arlowe-build/models/whisper/small.en/   (directory with model files)
-# or
-third_party/models/whisper/small.en/               (repo-relative, not committed)
+    --revision d1d751a5f8271d482d14ca55d9e2deeebbae577f \
+    config.json model.bin tokenizer.json vocabulary.txt --local-dir /tmp/whisper-dl
+mkdir -p "$M/whisper/small.en"
+cp /tmp/whisper-dl/{config.json,model.bin,tokenizer.json,vocabulary.txt} "$M/whisper/small.en/"
 ```
 
 ---
 
 ## 3. Piper TTS — `en_US-lessac-medium`
 
-**Target on image:**
-- `/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx`
-- `/opt/arlowe/models/piper-voices/en_US-lessac-medium.onnx.json`
+**Target on image:** `/opt/arlowe/models/piper-voices/` (2 files)
+- `en_US-lessac-medium.onnx`
+- `en_US-lessac-medium.onnx.json`
 
 **License:** CC BY 4.0 — attribution required; commercial use permitted.
 Cite: "Piper TTS en_US-lessac-medium voice by rhasspy/piper-voices contributors."
 
-**How to obtain:**
-
 ```bash
-# Requires: pip install huggingface_hub
 huggingface-cli download rhasspy/piper-voices \
-    --include "en/en_US/lessac/medium/*" \
+    --revision c10ece1aade47bb51c153c893d14e5bf8e5b7117 \
+    --include "en/en_US/lessac/medium/en_US-lessac-medium.onnx*" \
     --local-dir /tmp/piper-voices-dl
-
-# The downloaded files are nested; flatten to the expected location:
-mkdir -p /var/cache/arlowe-build/models/piper-voices
+mkdir -p "$M/piper-voices"
 cp /tmp/piper-voices-dl/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
-   /var/cache/arlowe-build/models/piper-voices/
-cp /tmp/piper-voices-dl/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json \
-   /var/cache/arlowe-build/models/piper-voices/
-```
-
-After placing, capture the SHA:
-
-```bash
-sha256sum /var/cache/arlowe-build/models/piper-voices/en_US-lessac-medium.onnx
-```
-
-**Where to place it:**
-
-```bash
-/var/cache/arlowe-build/models/piper-voices/en_US-lessac-medium.onnx
-/var/cache/arlowe-build/models/piper-voices/en_US-lessac-medium.onnx.json
-# or
-third_party/models/piper-voices/en_US-lessac-medium.onnx
-third_party/models/piper-voices/en_US-lessac-medium.onnx.json
+   /tmp/piper-voices-dl/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json \
+   "$M/piper-voices/"
 ```
 
 ---
 
 ## Verification
 
-After placing all artifacts, run the gate:
+```bash
+ARLOWE_MODELS_DIR="$M" scripts/verify-third-party.sh
+```
+
+Each model reports every file and then a summary line:
+
+```
+         [models] OK   whisper/small.en/model.bin
+         ...
+[OK]   faster-whisper-small.en        every file sha256 matches
+```
+
+A mismatch names the file with the expected and actual digests. A missing model
+directory prints the three places it was looked for.
+
+To check a tree directly, for example the models partition on a device:
 
 ```bash
-scripts/verify-third-party.sh
+python3 scripts/lib/verify-models.py --manifest third_party/models/manifest.yml \
+    --root /opt/arlowe/models --exact
 ```
 
-Expected output when SHA pins are still placeholders (TODO) and artifacts are present:
-
-```
-[WARN]  qwen2.5-7b-int4-ax650          sha256 pin is TODO placeholder
-         actual dir digest: <hash>
-         Record this in third_party/models/manifest.yml to close the TODO.
-[WARN]  faster-whisper-small.en        sha256 pin is TODO placeholder
-         actual dir digest: <hash>
-         Record this in third_party/models/manifest.yml to close the TODO.
-[WARN]  piper-en_US-lessac-medium      sha256 pin is TODO placeholder
-         actual hash: <hash>
-         Record this in third_party/models/manifest.yml to close the TODO.
-```
-
-Record the printed digests/hashes in `third_party/models/manifest.yml` to close the TODOs.
-Open a follow-up on issue #106 when all pins are captured.
-
-Expected output when artifacts are missing:
-
-```
-[FAIL]  qwen2.5-7b-int4-ax650     not found
-  See third_party/models/INSTALL.md for sourcing instructions.
-```
-
----
-
-## Closing TODO pins
-
-When the first real fetch captures all hashes, update `manifest.yml` and note
-the real SHAs in the issue #106 PR comment (or a follow-up issue). The on-hardware
-build step is issue 06-06.
+**Known gap:** `runtime/stt/stt_server.py` currently hardcodes `base.en`; the image
+build (06-03) must set `ARLOWE_WHISPER_MODEL=small.en` in the unit environment to
+override it.
