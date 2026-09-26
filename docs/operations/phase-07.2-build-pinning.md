@@ -9,6 +9,9 @@ A pin whose bump procedure is "change the number" is not a pin — it is a comme
 If you are in a hurry and read only one section, read
 [Bumping the kernel](#bumping-the-kernel).
 
+The Pi archive side (every package from `archive.raspberrypi.com` except the kernel), its
+pin bump and its security ordering are in `docs/operations/phase-07.3-pi-archive-pinning.md`.
+
 ---
 
 ## Where each pin lives
@@ -16,6 +19,7 @@ If you are in a hurry and read only one section, read
 | Input | Pinned in | Mechanism |
 |---|---|---|
 | Raspberry Pi kernel | `third_party/kernel/manifest.yml` | six pool URLs + sha256, fetch-at-build |
+| Raspberry Pi archive packages (all but the kernel) | `third_party/pi-archive/manifest.yml` | generated, sha256 per deb, local flat repo; see `docs/operations/phase-07.3-pi-archive-pinning.md` |
 | Debian packages | `overlays/pi-gen/stage0/00-configure-apt/files/sources.list`, `overlays/pi-gen/stage0/prerun.sh`, `PIGEN_SNAPSHOT` in `scripts/build-image.sh` | `snapshot.debian.org` timestamp |
 | pi-gen itself | `PIGEN_REF` in `scripts/build-image.sh` | git tag |
 | Overlay integrity | `overlays/pi-gen/MANIFEST` | upstream + overlay sha256 per file |
@@ -285,12 +289,16 @@ These are deliberately recorded rather than silently decided:
 
 - **Snapshot advance policy.** `20260915T000000Z` is fixed until someone moves it.
   Scheduled bump, or move only when a security update forces it? A pin nobody
-  advances becomes an unpatched image.
+  advances becomes an unpatched image. A Debian bump must be evaluated together with a Pi pin
+  bump: see `docs/operations/phase-07.3-pi-archive-pinning.md`, section 5.
 - **Environment rows in the diff gate.** Narrowing the diff to the observed/declared
   rows would stop the gate firing on every commit. Widening a gate's silence is
   usually wrong; this is the rarer case where the noise itself is the risk, because
   a gate that fires on noise gets switched off.
-- **Pool mirroring, and the cache that is not yet load-bearing.** The six pinned
+- **Pool mirroring, and the cache that is not yet load-bearing.** *Expected to close in
+  Phase 7.3, to be confirmed by the 07.3-09 build log:* with no Pi source visible at install
+  time, `apt-get install ./*.deb` has no archive copy to prefer and should install the cached
+  kernel debs. The mirroring half stays open (07.3 runbook, section 7). As originally recorded: The six pinned
   kernel debs currently exist only in Raspberry Pi's pool and the build host's
   cache. Neither is a project-controlled archive. Worse, the cache is not
   actually used at install time: `apt-get install ./*.deb` in
