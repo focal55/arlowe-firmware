@@ -148,6 +148,8 @@ jobs:
         run: bash tests/phase-07.2/test-pigen-overlay.sh
       - name: Build input recorder self-test
         run: bash tests/phase-07.2/test-record-build-inputs.sh
+      - name: Model pin verifier self-test
+        run: bash tests/phase-07.2/test-verify-models.sh
       - name: Two resolutions from this commit must agree
         run: |
           docker run --rm -v "$PWD:/w" -w /w debian:bookworm \
