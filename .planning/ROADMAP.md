@@ -19,6 +19,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls — 10/11 plans merged to main (PR #122, `e7dff4f`); SC4 unverified, 07-09 parked on an AWS staging account
 - [x] **Phase 7.1: Runtime substrate repair (INSERTED)** - Populate `/opt/arlowe/venvs`, build the dashboard to `server.js`, declare the missing apt packages, guard the wake-word verifier; a build gate asserts every unit's ExecStart interpreter exists in the rootfs **(complete; SC6 met on hardware from a clean image 2026-09-25)**
 - [ ] **Phase 7.2: Build input pinning (INSERTED)** - Make IMAGE-03 true: pin the kernel by checksum from the pool, resolve Debian packages from a snapshot, implement SOURCE_DATE_EPOCH, and assert the pins survive pi-gen's re-clone
+- [ ] **Phase 7.3: Pi archive snapshot (INSERTED)** - Pin every `archive.raspberrypi.com` package the image installs by sha256 and serve them from a self-hosted flat apt repo in place of the rolling archive; supersedes #146
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
 - [ ] **Phase 10: Owner-consented support access** - Dashboard "Support Mode" toggle provisions a time-bound founder SSH key; auto-revokes; full audit log
@@ -315,6 +316,31 @@ produce a false PASS as readily as this false FAIL. Needs a Phase 7.1 gap-closur
 patched here, because loosening a gate from inside a verification plan is the move this phase
 exists to distrust.
 
+### Phase 7.3: Pi archive snapshot (INSERTED)
+
+**Goal**: Every package the image installs from `archive.raspberrypi.com` is pinned by sha256 and installed from bytes the project controls, not from whatever the rolling archive serves on build day.
+
+**Depends on**: Phase 7.2 (overlay mechanism, Debian snapshot pin, kernel pool-fetch pattern, recorded-input diff gate)
+
+**Requirements**: No new REQ-IDs. Makes IMAGE-03 true for the Pi-archive side, which Phase 7.2 closed only for the kernel.
+
+**Why inserted**: Found 2026-09-25 while starting #146's install-path half. Measured on the test card (image from `6a4c538`) against the live `dists/bookworm/main/binary-arm64/Packages.gz`: **97** installed packages match a Pi-archive entry by exact name and version. Six are the pinned kernel; **90 are not pinned**, including `libc6`, `libssl3`/`openssl`, `dpkg`, `network-manager`, `rpi-eeprom` and the GPIO stack. Most enter through upstream pi-gen `stage2`, not through anything this repo declares. `third_party/rpt-packages/manifest.yml` pins three of them and claims they were "the last unpinned build inputs"; that claim is false, and `python3-lgpio` hard-depends on `liblgpio1 (= 0.2.2-1~rpt1)`, which is in no manifest. Today the only defence is the 7.2 input diff gate: drift is detected and stops the build, but every unrelated archive publish forces a re-record, and nothing verifies the installed bytes. Kept out of #146 because pinning three packages would read as done while about 86 stay rolling.
+
+**Success Criteria** (what must be TRUE):
+  1. A manifest records pool URL, size and sha256 for every Pi-archive package the image installs, generated from a real build's resolution rather than typed by hand, and a check fails when the image installs a Pi-archive package the manifest does not name.
+  2. pi-gen resolves Pi-archive packages only from a local flat repo built from digest-verified debs; the rootfs build sees no `archive.raspberrypi.com` source, asserted in the build like the Debian snapshot's "0 off-pin".
+  3. The kernel and the three `rpt-packages` pins are folded into the same mechanism, or the reason either stays separate is recorded.
+  4. Two builds on different days, with archive publishes between them, produce identical Pi-archive package sets without a re-record.
+  5. A pin-bump runbook covers the security side: `libc6` and `openssl` come from this archive, so a pinned image gets their fixes only when the pins move.
+
+**Plans**: 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 7.3 to break down)
+
+**Details:**
+[To be added during planning]
+
 ### Phase 8: First-boot pairing and wake word
 
 **Goal**: A factory-fresh image boots into a pairing daemon, captures Wi-Fi + owner account + device name, requests a device cert, writes the config overlay, and starts the runtime services. The generic "Hey Arlowe" model ships in the image. Factory reset returns the unit to the pairing state.
@@ -406,7 +432,7 @@ exists to distrust.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -> 7.3 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -419,6 +445,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -
 | 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
 | 7.1 Runtime substrate repair (INSERTED) | 6/6 | **Complete. SC6 met on hardware 2026-09-25: all six units `active` from a clean flash, no hand changes** (image from `6a4c538`). Results in `docs/operations/phase-7.1-substrate.md` §SC6 re-run from a clean image. Nine defects found, none container-reproducible | 2026-09-25 |
 | 7.2 Build input pinning (INSERTED) | Complete | Kernel pinned to 6.12.96 by pool URL + sha256; Debian snapshot pinned; input manifest diff gate green (#137 closed). Pi-archive packages pinned by digest, install path still via apt (#146 open) | 2026-09-21 |
+| 7.3 Pi archive snapshot (INSERTED) | 0/TBD | Not planned | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |
