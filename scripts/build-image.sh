@@ -10,7 +10,8 @@
 # that Docker Desktop on macOS cannot provide.
 #
 # Required host packages: parted, losetup, rsync, ripgrep (rg), mkfs.vfat,
-#   mkfs.ext4, python3-yaml (for verify-third-party).
+#   mkfs.ext4, python3-yaml (for verify-third-party), dpkg-dev
+#   (dpkg-scanpackages, for the Pi flat repo).
 #
 # Environment knobs (set before running):
 #   AXCL_DEB              Path to axcl_host_aarch64_V3.10.2.deb
@@ -18,6 +19,10 @@
 #   ARLOWE_MODELS_STAGE   Override models staging tree output dir
 #   CARD_SIZE_GB          Target card size in GB (default: 32; 16 is supported)
 #   OUTPUT_IMG            Output .img path (default: build/arlowe.img)
+#   ARLOWE_PI_ARCHIVE_MODE  pinned (default; the only accepted value until record
+#                         mode lands with its stop-before-partitioning)
+#   ARLOWE_PI_ARCHIVE_DIR   Extra cache dir searched first for the pinned Pi debs
+#   ARLOWE_PI_ARCHIVE_FETCH 1 = download missing Pi debs (verify-third-party check 9)
 #
 # Extension hooks for boot config + recovery stub:
 #   If scripts/lib/boot-config.sh exists, it is sourced and its
@@ -38,6 +43,8 @@ PI_GEN_DIR="${REPO_ROOT}/pi-gen"
 source "${SCRIPT_DIR}/lib/identity-store-check.sh"
 
 SUBSTRATE_LIB="${SCRIPT_DIR}/lib/verify-unit-execstart.sh"
+# Never sourced into this shell: only under `sudo bash -c`, like the substrate gates.
+PI_GATE_LIB="${SCRIPT_DIR}/lib/pi-archive-gate.sh"
 # shellcheck source=scripts/lib/verify-unit-execstart.sh
 source "${SUBSTRATE_LIB}"
 
@@ -89,6 +96,15 @@ if [[ -n "$(git -C "${REPO_ROOT}" status --porcelain --untracked-files=no)" ]]; 
 fi
 export ARLOWE_WORKTREE_CLEAN
 
+ARLOWE_PI_ARCHIVE_MODE="${ARLOWE_PI_ARCHIVE_MODE:-pinned}"
+if [[ "${ARLOWE_PI_ARCHIVE_MODE}" != pinned ]]; then
+    fail "ARLOWE_PI_ARCHIVE_MODE='${ARLOWE_PI_ARCHIVE_MODE}' is not accepted; only 'pinned' is."
+    fail "Record mode resolves from the live Pi archive and is not available until"
+    fail "its stop-before-partitioning exists, so that no record build can emit an image."
+    exit 1
+fi
+export ARLOWE_PI_ARCHIVE_MODE
+
 # date -u -d @N is GNU (the build host); -r N is BSD. Neither is load-bearing —
 # this is a log line — so a failure to render it must not abort the build.
 SOURCE_DATE_HUMAN="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
@@ -132,6 +148,28 @@ if [[ ! -d "${ARLOWE_KERNEL_CACHE}" ]]; then
     exit 1
 fi
 ok "Pinned kernel cache: ${ARLOWE_KERNEL_CACHE}"
+
+# The rootfs resolves Pi packages from a flat repo of the manifest's debs, built
+# here from the paths map check 9 wrote once every deb verified.
+PI_ARCHIVE_PATHS_FILE="${REPO_ROOT}/build/.arlowe-pi-archive-paths"
+if ! command -v dpkg-scanpackages >/dev/null; then
+    fail "dpkg-scanpackages not found. Run: sudo apt-get install -y --no-install-recommends dpkg-dev"
+    exit 1
+fi
+if [[ ! -f "${PI_ARCHIVE_PATHS_FILE}" ]]; then
+    fail "Pi archive paths map missing: ${PI_ARCHIVE_PATHS_FILE}"
+    fail "verify-third-party.sh check 9 writes it once every pinned Pi deb verifies. Run:"
+    fail "  ARLOWE_PI_ARCHIVE_FETCH=1 scripts/verify-third-party.sh"
+    exit 1
+fi
+export ARLOWE_PI_REPO="${REPO_ROOT}/build/pi-archive-repo"
+if ! bash "${SCRIPT_DIR}/lib/pi-archive-repo.sh" \
+        --manifest "${REPO_ROOT}/third_party/pi-archive/manifest.yml" \
+        --paths "${PI_ARCHIVE_PATHS_FILE}" --out "${ARLOWE_PI_REPO}"; then
+    fail "Pi flat repo build failed (see above) — aborting before pi-gen."
+    exit 1
+fi
+ok "Pi flat repo: ${ARLOWE_PI_REPO}"
 
 # ---------------------------------------------------------------------------
 # Step 2: drive pi-gen to produce the model-free rootfs + models staging tree
@@ -221,13 +259,18 @@ log "models stage:    ${ARLOWE_MODELS_STAGE}"
     # Every variable stage0/stage-arlowe needs must be named HERE. sudo builds a
     # fresh environment, so an exported-but-unlisted variable simply does not
     # cross this boundary -- and stage0/02-firmware/00-run.sh hard-fails rather
-    # than silently building a rootfs with no kernel.
+    # than silently building a rootfs with no kernel. The same holds for
+    # ARLOWE_PI_ARCHIVE_MODE and ARLOWE_PI_REPO: an unlisted one reaches the
+    # stage0 overlay unset, and it hard-fails rather than falling back to the
+    # live Pi archive.
     sudo SKIP_IMAGES=1 \
         WORK_DIR="${WORK_DIR}" \
         AXCL_DEB="${AXCL_DEB}" \
         SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
         ARLOWE_KERNEL_CACHE="${ARLOWE_KERNEL_CACHE}" \
         ARLOWE_KERNEL_MANIFEST="${ARLOWE_KERNEL_MANIFEST}" \
+        ARLOWE_PI_ARCHIVE_MODE="${ARLOWE_PI_ARCHIVE_MODE}" \
+        ARLOWE_PI_REPO="${ARLOWE_PI_REPO}" \
         ARLOWE_MODELS_CACHE="${ARLOWE_MODELS_CACHE}" \
         ARLOWE_MODELS_STAGE="${ARLOWE_MODELS_STAGE}" \
         ./build.sh
@@ -317,6 +360,20 @@ if (( ROLLING_LISTS > 0 )); then
 fi
 
 ok "Debian resolution pinned: ${SNAPSHOT_LISTS} snapshot list files, 0 off-pin."
+
+# ---------------------------------------------------------------------------
+# Pi archive: gate (07.3-05b) then swap-back
+#
+# The Pi gate and completeness check read the apt lists, so they go here, above
+# the swap-back and the lists rm below. The swap-back replaces the flat repo
+# with upstream's raspi.list before anything is measured; the image must not
+# ship the repo (~170 MiB) or its file: source.
+# ---------------------------------------------------------------------------
+PIGEN_RELEASE="$(sed -n 's/^RELEASE="\(.*\)"$/\1/p' "${PI_GEN_DIR}/config" | head -1)"
+[[ -n "${PIGEN_RELEASE}" ]] || { fail "No RELEASE=\"...\" line in ${PI_GEN_DIR}/config."; exit 1; }
+sudo bash -c 'set -uo pipefail; source "$1"; pi_archive_swap_back "$2" "$3" "$4" "$5"' \
+    _ "${PI_GATE_LIB}" "${PIGEN_ROOTFS}" "${PI_GEN_DIR}" "${PIGEN_RELEASE}" "${SOURCE_DATE_EPOCH}" \
+    || { fail "Pi flat repo swap-back failed (see above) — the image would ship it."; exit 1; }
 
 # The apt index is ~136 MB and must not ship, but it is also the ONLY evidence
 # the gate above has. stage-arlowe/01-runtime/00-run-chroot.sh used to delete it
