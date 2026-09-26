@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ -n "${MANIFEST}" && -n "${PATHS}" && -n "${OUT}" ]] || die "usage: --manifest M --paths P --out O"
-[[ -f "${PATHS}" ]] || die "paths map ${PATHS} missing; run scripts/verify-third-party.sh (check 9) first"
+[[ -f "${PATHS}" ]] || die "paths map ${PATHS} missing; run scripts/verify-third-party.sh (check 8) first"
 
 # A previous run's repo is removed up front, so a failed run leaves none behind.
 OUT="${OUT%/}"
