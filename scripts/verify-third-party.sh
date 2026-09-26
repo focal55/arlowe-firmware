@@ -13,6 +13,8 @@ set -euo pipefail
 #   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
 #   6. WM8960 audio HAT redistribution rights (non-blocking warning)
 #   7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
+#   8. Raspberry Pi archive packages (rpt-packages) SHA-256 match third_party/rpt-packages/manifest.yml (ADR-0009)
+#   9. Raspberry Pi archive debs SHA-256 match third_party/pi-archive/manifest.yml (Phase 7.3)
 #
 # Usage: scripts/verify-third-party.sh [--help]
 
@@ -56,6 +58,8 @@ Checks:
   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
   6. WM8960 audio HAT redistribution rights (non-blocking warning)
   7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
+  8. Raspberry Pi archive packages (rpt-packages) SHA-256 match third_party/rpt-packages/manifest.yml (ADR-0009)
+  9. Raspberry Pi archive debs SHA-256 match third_party/pi-archive/manifest.yml (Phase 7.3)
 
 Kernel deb search order (per deb, six of them):
   - \$ARLOWE_KERNEL_DIR/<filename>
@@ -99,7 +103,12 @@ WhisPlay driver search order:
   - third_party/whisplay-driver/WhisPlay.py
   - /var/cache/arlowe-build/whisplay-driver/WhisPlay.py
 
+Pi archive debs (check 9): search order and ARLOWE_PI_ARCHIVE_FETCH=1 are in
+third_party/pi-archive/INSTALL.md. Once every deb verifies, the path of each is
+written to build/.arlowe-pi-archive-paths for scripts/build-image.sh.
+
 See also:
+  third_party/pi-archive/INSTALL.md
   third_party/kernel/INSTALL.md
   third_party/kernel/manifest.yml
   third_party/axcl/INSTALL.md
@@ -703,6 +712,24 @@ for e in m['packages']:
       all_ok=false
     fi
   done <<< "${rpt_rows}"
+fi
+
+# ---------------------------------------------------------------------------
+# Check 9: every Raspberry Pi archive deb the image installs (Phase 7.3)
+#
+# The logic lives in scripts/lib/pi-archive-fetch.py rather than a third copy of
+# the bash fetch/verify loop above; check 8 is retired once nothing reads it.
+# The helper removes the paths map before verifying, so a failed run leaves none.
+# ---------------------------------------------------------------------------
+PI_ARCHIVE_PATHS_FILE="${REPO_ROOT}/build/.arlowe-pi-archive-paths"
+mkdir -p "${REPO_ROOT}/build"
+if python3 "${SCRIPT_DIR}/lib/pi-archive-fetch.py" \
+     --manifest "${REPO_ROOT}/third_party/pi-archive/manifest.yml" \
+     --repo-root "${REPO_ROOT}" --paths-out "${PI_ARCHIVE_PATHS_FILE}"; then
+  printf "${GREEN}[OK]${NC}   %-50s all debs verified\n" "third_party/pi-archive"
+else
+  printf "${RED}[FAIL]${NC} %-50s see above\n" "third_party/pi-archive"
+  all_ok=false
 fi
 
 
