@@ -369,6 +369,15 @@ ok "Debian resolution pinned: ${SNAPSHOT_LISTS} snapshot list files, 0 off-pin."
 # with upstream's raspi.list before anything is measured; the image must not
 # ship the repo (~170 MiB) or its file: source.
 # ---------------------------------------------------------------------------
+log "=== Pi archive pin observation (built rootfs) ==="
+PI_RC=0
+sudo bash -c 'set -uo pipefail; source "$1"; verify_pi_archive_resolution "$2"' \
+    _ "${PI_GATE_LIB}" "${PIGEN_ROOTFS}" || PI_RC=$?
+(( PI_RC == 0 )) || { fail "Pi archive gate: $([[ ${PI_RC} == 2 ]] && echo 'could not test' || echo 'off-pin') — see above."; exit 1; }
+sudo bash -c 'set -uo pipefail; source "$1"; pi_archive_run_check "$2" "$3" "$4"' \
+    _ "${PI_GATE_LIB}" "${PIGEN_ROOTFS}" "${REPO_ROOT}/third_party/pi-archive/manifest.yml" "${KERNEL_MANIFEST}" \
+    || { fail "Pi archive completeness check failed — see above."; exit 1; }
+
 PIGEN_RELEASE="$(sed -n 's/^RELEASE="\(.*\)"$/\1/p' "${PI_GEN_DIR}/config" | head -1)"
 [[ -n "${PIGEN_RELEASE}" ]] || { fail "No RELEASE=\"...\" line in ${PI_GEN_DIR}/config."; exit 1; }
 sudo bash -c 'set -uo pipefail; source "$1"; pi_archive_swap_back "$2" "$3" "$4" "$5"' \
