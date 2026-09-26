@@ -54,6 +54,14 @@ jobs:
           path: /var/cache/arlowe-build/axcl
           key: arlowe-axcl-${{ hashFiles('third_party/axcl/manifest.yml') }}
 
+      # verify-third-party.sh check 9 needs every pinned Pi archive deb. Keyed on
+      # the manifest hash; the fetch helper re-verifies restored files by sha256.
+      - name: Restore Pi archive deb cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/arlowe-build/pi-archive
+          key: pi-archive-${{ hashFiles('third_party/pi-archive/manifest.yml') }}
+
       # Install required host packages for the build.
       - name: Install build dependencies
         run: |
@@ -65,6 +73,12 @@ jobs:
             rsync ripgrep python3-yaml \
             e2fsprogs cloud-guest-utils \
             kpartx zerofree
+
+      - name: Fetch (cache miss only) and verify pinned Pi archive debs
+        run: |
+          ARLOWE_PI_ARCHIVE_FETCH=1 python3 scripts/lib/pi-archive-fetch.py --manifest third_party/pi-archive/manifest.yml \
+            --repo-root . --paths-out build/.arlowe-pi-archive-paths
+          echo "ARLOWE_PI_ARCHIVE_DIR=${HOME}/.cache/arlowe-build/pi-archive" >> "$GITHUB_ENV"
 
       # Locate AXCL deb from cache or secret path.
       # If neither is present, verify-third-party.sh will fail fast with a clear message.
@@ -118,7 +132,7 @@ jobs:
           AXCL_DEB: ${{ env.AXCL_DEB }}
           ARLOWE_MODELS_DIR: /var/cache/arlowe-build/models
         run: |
-          sudo --preserve-env=CARD_SIZE_GB,AXCL_DEB,ARLOWE_MODELS_DIR \
+          sudo --preserve-env=CARD_SIZE_GB,AXCL_DEB,ARLOWE_MODELS_DIR,ARLOWE_PI_ARCHIVE_DIR \
             bash scripts/build-image.sh
 
       - name: Show final image
