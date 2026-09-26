@@ -34,12 +34,16 @@
 #
 # SCOPE OF THE DETERMINISM CLAIM, stated rather than implied.
 #
-# The two resolutions run against the Debian snapshot ONLY. The Raspberry Pi
-# archive is a rolling, unpinned source; the kernel deliberately does not come
-# from apt resolution at all (six digest-pinned debs, 07.2-02), so folding a
-# rolling source into the determinism comparison would import precisely the drift
-# this phase exists to contain. The Pi archive is queried separately, at the end,
-# by the madison controls -- which assert facts about it rather than determinism.
+# Both sides are in scope. The Debian side resolves against the snapshot; the
+# Pi side resolves against the digest-pinned flat repo (07.3), which CI builds on
+# the runner from sha256-verified debs and bind-mounts read-only at
+# /var/local/arlowe-pi-archive. The live archive.raspberrypi.com is never a
+# resolution source here: step 2 and the per-run URI counts both fail if it is.
+# The kernel still comes from its six pinned debs, not from resolution. The
+# upstream pi-gen stage1/stage2 package lists are not in the checkout, so their
+# Pi packages are covered by the full build's completeness check instead. The
+# madison controls at the end query the live Pi archive only to assert facts
+# about it, after both resolutions.
 #
 # Runs inside a debian:bookworm arm64 container. Apt-resolution evidence must
 # never come from the trixie build host.
@@ -88,8 +92,14 @@ rm -f /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list
 sed "s/RELEASE/${RELEASE}/g" "${OVERLAY_APT}/sources.list" > /etc/apt/sources.list
 cp "${OVERLAY_APT}/99arlowe-pinned" /etc/apt/apt.conf.d/99arlowe-pinned
 
+# The Pi side: the same flat repo the build installs from. Built on the runner,
+# not here -- installing dpkg-dev in this container would change the set measured.
+PI_REPO_DIR="/var/local/arlowe-pi-archive"
+[[ -f "${PI_REPO_DIR}/Packages" ]] || die "no flat repo at ${PI_REPO_DIR}/Packages; mount it read-only (CI: -v build/pi-archive-repo:${PI_REPO_DIR}:ro), built by scripts/lib/pi-archive-repo.sh"
+echo "deb [trusted=yes] file:${PI_REPO_DIR} ./" > /etc/apt/sources.list.d/arlowe-pi-archive.list
+
 echo "=== active apt sources ==="
-grep -vE '^[[:space:]]*(#|$)' /etc/apt/sources.list
+grep -vE '^[[:space:]]*(#|$)' /etc/apt/sources.list /etc/apt/sources.list.d/arlowe-pi-archive.list
 
 # ---------------------------------------------------------------------------
 # Step 2: update, then assert it actually fetched the snapshot.
@@ -130,35 +140,24 @@ else
     pass "[index] 0 off-pin index files -- the resolution can only use the snapshot"
 fi
 
+FLAT_LISTS="$(find /var/lib/apt/lists -maxdepth 1 -type f \
+    -regextype posix-extended -regex '.*/_var_local_arlowe-pi-archive_\._Packages(\..*)?' | wc -l)"
+PI_LIVE_LISTS="$(find /var/lib/apt/lists -maxdepth 1 -type f -name 'archive.raspberrypi.com_*' | wc -l)"
+if (( FLAT_LISTS >= 1 && PI_LIVE_LISTS == 0 )); then
+    pass "[index] flat repo index present (${FLAT_LISTS}), 0 live Pi archive indexes"
+else
+    fail "[index] flat repo required" \
+         "${FLAT_LISTS} flat-repo and ${PI_LIVE_LISTS} archive.raspberrypi.com index file(s); the Pi side would not be measuring the pin"
+fi
+
 # ---------------------------------------------------------------------------
 # Step 3: the package set, read from the two shipping lists.
 # ---------------------------------------------------------------------------
-# Packages that exist ONLY in archive.raspberrypi.com and therefore cannot take
-# part in a snapshot.debian.org resolution. This is not a waiver of the pin -- it
-# is the pin's boundary. There is no Raspberry Pi snapshot service (the reason
-# Phase 7.2 pinned the kernel debs by pool URL and sha256 rather than by suite),
-# so a package with no Debian counterpart has nothing to resolve against here and
-# apt exits 100 on the whole set, taking the other 26 with it.
-#
-# Both are the Pi 5 GPIO stack: python3-rpi.gpio is in Debian but its 0.7.1
-# predates BCM2712 and cannot address the Pi 5 at all, so there is no Debian
-# package that does this job.
-#
-# They are NOT unpinned. third_party/rpt-packages/manifest.yml pins both by pool
-# URL and sha256, and scripts/verify-third-party.sh check 8 hard-fails the build
-# if the archive serves different bytes. That is the kernel's mechanism, applied
-# to the packages this resolution cannot reach. Excluding them here is therefore
-# a statement about WHERE they are pinned, not a gap.
-RPT_ONLY_PACKAGES=$'python3-lgpio\npython3-rpi-lgpio'
-
 PACKAGES="$( { sed 's/#.*//' "${ARLOWE_PKGS}"
                sed 's/#.*//' "${FIRMWARE_PKGS}"
                echo initramfs-tools
              } | tr -s '[:space:]' '\n' | grep -v '^$' \
-               | grep -vxF "${RPT_ONLY_PACKAGES}" \
                | LC_ALL=C sort -u )"
-echo "=== excluded (Pi-archive only, no Debian snapshot to resolve against; #146) ==="
-printf '%s\n' "${RPT_ONLY_PACKAGES}" | sed 's/^/  /'
 PACKAGE_COUNT="$(printf '%s\n' "${PACKAGES}" | wc -l)"
 echo "=== resolving ${PACKAGE_COUNT} declared packages ==="
 printf '%s\n' "${PACKAGES}" | tr '\n' ' '; echo
@@ -182,6 +181,8 @@ resolve_once() {
     # here as a resolver failure. Under `set -o pipefail` the bare grep would
     # fail the pipeline on zero matches and conflate the two.
     { grep "^'" "${out}.raw" || true; } | awk '{print $2}' | LC_ALL=C sort -u > "${out}"
+    grep -c "^'file:${PI_REPO_DIR}" "${out}.raw" > "${out}.flat" || true
+    grep -c "^'http://archive\.raspberrypi\.com" "${out}.raw" > "${out}.live" || true
 }
 
 # Each status captured explicitly and immediately. `resolve_once ... || die` would
@@ -202,6 +203,15 @@ if (( RC_A != 0 || RC_B != 0 )); then
     exit 1
 fi
 pass "[resolve] both resolutions exited 0"
+
+FLAT_A="$(cat /tmp/resolve-a.flat)"; FLAT_B="$(cat /tmp/resolve-b.flat)"
+LIVE_A="$(cat /tmp/resolve-a.live)"; LIVE_B="$(cat /tmp/resolve-b.live)"
+if (( FLAT_A >= 1 && FLAT_B >= 1 && LIVE_A == 0 && LIVE_B == 0 )); then
+    pass "[pi-side] flat-repo URIs ${FLAT_A}/${FLAT_B}, live Pi archive URIs ${LIVE_A}/${LIVE_B}"
+else
+    fail "[pi-side] flat-repo URIs ${FLAT_A}/${FLAT_B}, live Pi archive URIs ${LIVE_A}/${LIVE_B}" \
+         "each run must take >= 1 package from the flat repo and none from archive.raspberrypi.com"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 4: floor FIRST, then compare. The order is the whole point.
