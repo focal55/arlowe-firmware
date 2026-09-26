@@ -8,6 +8,8 @@
 # therefore must be pinned. [different-both] is the load-bearing case: a
 # name/version both archives carry with different bytes is resolved by apt's
 # tie-breaking, which is not a pin.
+# awk programs are passed as single-quoted arguments.
+# shellcheck disable=SC2016
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
