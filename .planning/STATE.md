@@ -9,7 +9,7 @@ See: .planning/PROJECT.md (updated 2026-04-30)
 
 ## Current Position
 
-**Active: Phase 7.3 (Pi archive snapshot)**, local branch `phase/07.3-pi-archive`, GitHub skipped for this phase by owner choice. Plan 1 of 13 complete (07.3-01a: generator core, 14/14 self-test assertions). Next: 07.3-01b (compressed indexes, dpkg status input, resolve_only).
+**Active: Phase 7.3 (Pi archive snapshot)**, local branch `phase/07.3-pi-archive`, GitHub skipped for this phase by owner choice. Plans 2 of 13 complete (07.3-01a: generator core; 07.3-01b: .gz/.xz indexes, `--installed-status`, `--resolve-only`; self-test 22/22). Next: 07.3-02 (bootstrap the real manifest, prestera as resolve_only).
 
 Phase: 7 of 12 (Device identity and PKI) — MERGED TO MAIN, NOT COMPLETE (SC4 unverified). Phase 6 COMPLETE in code; its hardware checkpoint is separately blocked (SC3, F7 #25/#28).
 Plan: 10 of 11 in Phase 7 (waves 1-6 complete: 07-01 through 07-08b). 07-09 PARKED on an AWS staging account.
@@ -107,6 +107,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - **Pi archive manifest format** (Phase 7.3, 07.3-01a): one JSON-quoted flow mapping per line, sorted by (name, arch), `version` keeps the epoch, `filename` does not, and `url` = archive-root `pool_base` + index `Filename`. A package both archives carry with different bytes, a Pi-index sha256 conflict, an unattributable package, an armhf package, an off-pin kernel package and zero entries are all hard failures.
+- **Pi archive generator inputs** (Phase 7.3, 07.3-01b): index compression is chosen by suffix (plain, `.gz`, `.xz`). `.lz4`/`.bz2`/`.zst`/`.lzma`/`.Z` exit 2, and the message points at `docker-gzip-indexes`. `--resolve-only` fails unless exactly one (version, sha256) remains, so two Pi lists that agree on the version but not the bytes also fail.
 - **ADR-0001** (resolved): option-2 chosen for `openai_wrapper.py`. Router points at ax-llm `/api/chat` native (`localhost:8000`), not `/v1/chat/completions`. `qwen-openai.service` deprecated.
 - **ADR-0002** (resolved): `arlowe-scheduled-summary.service` stripped from firmware.
 - **ADR-0003** (resolved, Phase 4): loosen-perms for dashboard→/etc/arlowe/config.yml write; `ota.channel_url` + `support_mode.*` flagged for Phase 10 re-hardening.
@@ -165,9 +166,11 @@ Workforce-infra debt tracked in Claude's memory store:
 
 ## Session Continuity
 
-Last session: 2026-09-26 (Phase 7.3 wave 1)
+Last session: 2026-09-26 (Phase 7.3 wave 2)
 
-Stopped at: Completed 07.3-01a-PLAN.md. `scripts/lib/pi-archive-manifest.py generate` + `tests/phase-07.3/test-pi-archive-manifest.sh` (14 passed) + CI step. Diff vs main is 397 lines. Resume file: None.
+Stopped at: Completed 07.3-01b-PLAN.md. Generator reads .gz/.xz and dpkg status, and emits resolve_only; self-test 22 passed. Plan diff vs d7ea180: 193+/36-. Resume file: None.
+
+Previously: Completed 07.3-01a-PLAN.md. `scripts/lib/pi-archive-manifest.py generate` + `tests/phase-07.3/test-pi-archive-manifest.sh` (14 passed) + CI step. Diff vs main is 397 lines. Resume file: None.
 
 Last session: 2026-09-20 (Phase 7.2 wave 4 — the one full build; SC1–SC6 met, no .img emitted)
 
