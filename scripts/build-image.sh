@@ -19,8 +19,9 @@
 #   ARLOWE_MODELS_STAGE   Override models staging tree output dir
 #   CARD_SIZE_GB          Target card size in GB (default: 32; 16 is supported)
 #   OUTPUT_IMG            Output .img path (default: build/arlowe.img)
-#   ARLOWE_PI_ARCHIVE_MODE  pinned (default; the only accepted value until record
-#                         mode lands with its stop-before-partitioning)
+#   ARLOWE_PI_ARCHIVE_MODE  pinned (default) or record: resolve Pi packages from the
+#                         live archive, write build/pi-archive.manifest.candidate,
+#                         exit 3 before partitioning (never produces an image)
 #   ARLOWE_PI_ARCHIVE_DIR   Extra cache dir searched first for the pinned Pi debs
 #   ARLOWE_PI_ARCHIVE_FETCH 1 = download missing Pi debs (verify-third-party check 8)
 #
@@ -97,13 +98,15 @@ fi
 export ARLOWE_WORKTREE_CLEAN
 
 ARLOWE_PI_ARCHIVE_MODE="${ARLOWE_PI_ARCHIVE_MODE:-pinned}"
-if [[ "${ARLOWE_PI_ARCHIVE_MODE}" != pinned ]]; then
-    fail "ARLOWE_PI_ARCHIVE_MODE='${ARLOWE_PI_ARCHIVE_MODE}' is not accepted; only 'pinned' is."
-    fail "Record mode resolves from the live Pi archive and is not available until"
-    fail "its stop-before-partitioning exists, so that no record build can emit an image."
+if [[ "${ARLOWE_PI_ARCHIVE_MODE}" != pinned && "${ARLOWE_PI_ARCHIVE_MODE}" != record ]]; then
+    fail "ARLOWE_PI_ARCHIVE_MODE='${ARLOWE_PI_ARCHIVE_MODE}' is not accepted; use 'pinned' or 'record'."
     exit 1
 fi
 export ARLOWE_PI_ARCHIVE_MODE
+if [[ "${ARLOWE_PI_ARCHIVE_MODE}" == record ]]; then
+    warn "RECORD MODE: Pi packages resolve from the live archive.raspberrypi.com, unpinned."
+    warn "The build stops after the Debian gate with exit 3 and produces no image."
+fi
 
 # date -u -d @N is GNU (the build host); -r N is BSD. Neither is load-bearing —
 # this is a log line — so a failure to render it must not abort the build.
@@ -149,27 +152,35 @@ if [[ ! -d "${ARLOWE_KERNEL_CACHE}" ]]; then
 fi
 ok "Pinned kernel cache: ${ARLOWE_KERNEL_CACHE}"
 
-# The rootfs resolves Pi packages from a flat repo of the manifest's debs, built
-# here from the paths map check 8 wrote once every deb verified.
-PI_ARCHIVE_PATHS_FILE="${REPO_ROOT}/build/.arlowe-pi-archive-paths"
-if ! command -v dpkg-scanpackages >/dev/null; then
-    fail "dpkg-scanpackages not found. Run: sudo apt-get install -y --no-install-recommends dpkg-dev"
-    exit 1
+# Record mode has no flat repo: stage0 keeps the live raspi.list. Step 1 above
+# still verified the currently pinned Pi debs (check 8); that is deliberate, a
+# gate a mode flag can switch off is a gate that gets switched off.
+export ARLOWE_PI_REPO=""
+if [[ "${ARLOWE_PI_ARCHIVE_MODE}" == record ]]; then
+    log "Record mode: Step 1 verified the currently pinned Pi debs anyway, by design; no flat repo is built."
+else
+    # The rootfs resolves Pi packages from a flat repo of the manifest's debs, built
+    # here from the paths map check 8 wrote once every deb verified.
+    PI_ARCHIVE_PATHS_FILE="${REPO_ROOT}/build/.arlowe-pi-archive-paths"
+    if ! command -v dpkg-scanpackages >/dev/null; then
+        fail "dpkg-scanpackages not found. Run: sudo apt-get install -y --no-install-recommends dpkg-dev"
+        exit 1
+    fi
+    if [[ ! -f "${PI_ARCHIVE_PATHS_FILE}" ]]; then
+        fail "Pi archive paths map missing: ${PI_ARCHIVE_PATHS_FILE}"
+        fail "verify-third-party.sh check 8 writes it once every pinned Pi deb verifies. Run:"
+        fail "  ARLOWE_PI_ARCHIVE_FETCH=1 scripts/verify-third-party.sh"
+        exit 1
+    fi
+    export ARLOWE_PI_REPO="${REPO_ROOT}/build/pi-archive-repo"
+    if ! bash "${SCRIPT_DIR}/lib/pi-archive-repo.sh" \
+            --manifest "${REPO_ROOT}/third_party/pi-archive/manifest.yml" \
+            --paths "${PI_ARCHIVE_PATHS_FILE}" --out "${ARLOWE_PI_REPO}"; then
+        fail "Pi flat repo build failed (see above) — aborting before pi-gen."
+        exit 1
+    fi
+    ok "Pi flat repo: ${ARLOWE_PI_REPO}"
 fi
-if [[ ! -f "${PI_ARCHIVE_PATHS_FILE}" ]]; then
-    fail "Pi archive paths map missing: ${PI_ARCHIVE_PATHS_FILE}"
-    fail "verify-third-party.sh check 8 writes it once every pinned Pi deb verifies. Run:"
-    fail "  ARLOWE_PI_ARCHIVE_FETCH=1 scripts/verify-third-party.sh"
-    exit 1
-fi
-export ARLOWE_PI_REPO="${REPO_ROOT}/build/pi-archive-repo"
-if ! bash "${SCRIPT_DIR}/lib/pi-archive-repo.sh" \
-        --manifest "${REPO_ROOT}/third_party/pi-archive/manifest.yml" \
-        --paths "${PI_ARCHIVE_PATHS_FILE}" --out "${ARLOWE_PI_REPO}"; then
-    fail "Pi flat repo build failed (see above) — aborting before pi-gen."
-    exit 1
-fi
-ok "Pi flat repo: ${ARLOWE_PI_REPO}"
 
 # ---------------------------------------------------------------------------
 # Step 2: drive pi-gen to produce the model-free rootfs + models staging tree
@@ -360,6 +371,25 @@ if (( ROLLING_LISTS > 0 )); then
 fi
 
 ok "Debian resolution pinned: ${SNAPSHOT_LISTS} snapshot list files, 0 off-pin."
+
+# Record mode ends here, before the Pi gate (which would rightly fail it) and
+# long before partitioning. Exit 3 is deliberate even when the candidate is
+# written: a record build is not a successful build, and nothing downstream may
+# mistake its rootfs for an image input.
+if [[ "${ARLOWE_PI_ARCHIVE_MODE}" == record ]]; then
+    PI_CANDIDATE="${REPO_ROOT}/build/pi-archive.manifest.candidate"
+    log "=== Pi archive record mode: candidate manifest ==="
+    sudo bash -c 'set -uo pipefail; source "$1"; pi_archive_record_candidate "$2" "$3" "$4" "$5"' _ "${PI_GATE_LIB}" \
+        "${PIGEN_ROOTFS}" "${REPO_ROOT}/third_party/pi-archive/manifest.yml" "${KERNEL_MANIFEST}" "${PI_CANDIDATE}" \
+        || { fail "Record mode could not generate a candidate (see above)."; exit 1; }
+    sudo chown "$(id -u):$(id -g)" "${PI_CANDIDATE}"
+    log "Candidate: ${PI_CANDIDATE}"
+    log "Next: review the diff above, then follow docs/operations/phase-07.3-pi-archive-pinning.md"
+    log "(copy the candidate over third_party/pi-archive/manifest.yml, fetch and verify the new"
+    log "debs with ARLOWE_PI_ARCHIVE_FETCH=1 scripts/verify-third-party.sh, rebuild in pinned mode)."
+    fail "RECORD MODE: candidate written; no image is produced from the live archive."
+    exit 3
+fi
 
 # ---------------------------------------------------------------------------
 # Pi archive: gate (07.3-05b) then swap-back
