@@ -9,7 +9,7 @@ See: .planning/PROJECT.md (updated 2026-04-30)
 
 ## Current Position
 
-**Active: Phase 7.3 (Pi archive snapshot)**, local branch `phase/07.3-pi-archive`, GitHub skipped for this phase by owner choice. Plans 4 of 13 complete (07.3-01a: generator core; 07.3-01b: .gz/.xz indexes, `--installed-status`, `--resolve-only`; 07.3-02: committed `third_party/pi-archive/manifest.yml`, 91 packages + prestera resolve_only, from the live gpgv-verified Pi index, CI-held to the 07.2 reference; 07.3-03: `scripts/lib/pi-archive-fetch.py` + verify-third-party check 9 prove all 92 debs and write `build/.arlowe-pi-archive-paths`). Next: 07.3-04a (flat repo builder). **No build may run with ARLOWE_INPUTS_ACCEPT=1 until 07.3-08.**
+**Active: Phase 7.3 (Pi archive snapshot)**, local branch `phase/07.3-pi-archive`, GitHub skipped for this phase by owner choice. Plans 5 of 13 complete (07.3-01a: generator core; 07.3-01b: .gz/.xz indexes, `--installed-status`, `--resolve-only`; 07.3-02: committed `third_party/pi-archive/manifest.yml`, 91 packages + prestera resolve_only, from the live gpgv-verified Pi index, CI-held to the 07.2 reference; 07.3-03: `scripts/lib/pi-archive-fetch.py` + verify-third-party check 9 prove all 92 debs and write `build/.arlowe-pi-archive-paths`; 07.3-04a: `scripts/lib/pi-archive-repo.sh` flat repo builder + `pi_archive_swap_back` in `scripts/lib/pi-archive-gate.sh`, not yet wired). Next: 07.3-04b (stage0 overlay + build-image.sh wiring, one change). **No build may run with ARLOWE_INPUTS_ACCEPT=1 until 07.3-08.**
 
 Phase: 7 of 12 (Device identity and PKI) — MERGED TO MAIN, NOT COMPLETE (SC4 unverified). Phase 6 COMPLETE in code; its hardware checkpoint is separately blocked (SC3, F7 #25/#28).
 Plan: 10 of 11 in Phase 7 (waves 1-6 complete: 07-01 through 07-08b). 07-09 PARKED on an AWS staging account.
@@ -107,6 +107,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - **Pi archive manifest format** (Phase 7.3, 07.3-01a): one JSON-quoted flow mapping per line, sorted by (name, arch), `version` keeps the epoch, `filename` does not, and `url` = archive-root `pool_base` + index `Filename`. A package both archives carry with different bytes, a Pi-index sha256 conflict, an unattributable package, an armhf package, an off-pin kernel package and zero entries are all hard failures.
+- **Pi flat repo + swap-back** (Phase 7.3, 07.3-04a): the repo is indexed by dpkg-scanpackages (no override file; any stderr other than `Wrote N entries` fails) and each stanza is cross-checked against the manifest; a failed run leaves no repo, not a stale one. `pi_archive_swap_back` refuses to remove the flat repo unless pi-gen's `raspi.list` template exists, and it asserts removal, the stock line, and the mtime clamp. The device ships stock `raspi.list`, so an on-device `apt upgrade` is unsupported.
 - **Pi archive verify helper** (Phase 7.3, 07.3-03): the build gets a paths map (`build/.arlowe-pi-archive-paths`, `filename<TAB>abs path`, written only when all debs verify, removed first on every run) rather than a single-directory pointer. Fetch is opt-in (`ARLOWE_PI_ARCHIVE_FETCH=1`), verifies the `.part` before renaming. A live fetch on 2026-09-26 verified 92/92, so the pool still serves every pin.
 - **Pi archive manifest source** (Phase 7.3, 07.3-02): bootstrapped from `docs/operations/phase-07.2-inputs.reference` crossed with the live Pi index, which apt verified against the pi-gen key (fpr `CF8A1AF502A2AA2D763BAE7E82B129927FA3303E`). No retained index was needed. The set is 178,122,788 B (~170 MiB), not the ~230 MiB the research estimated. `[real-build]` in `test-pi-archive-committed.sh` is permanent: a pin bump re-records the reference in the same change.
 - **Pi archive generator inputs** (Phase 7.3, 07.3-01b): index compression is chosen by suffix (plain, `.gz`, `.xz`). `.lz4`/`.bz2`/`.zst`/`.lzma`/`.Z` exit 2, and the message points at `docker-gzip-indexes`. `--resolve-only` fails unless exactly one (version, sha256) remains, so two Pi lists that agree on the version but not the bytes also fail.
@@ -168,9 +169,11 @@ Workforce-infra debt tracked in Claude's memory store:
 
 ## Session Continuity
 
-Last session: 2026-09-26 (Phase 7.3 wave 4)
+Last session: 2026-09-26 (Phase 7.3 wave 5)
 
-Stopped at: Completed 07.3-03-PLAN.md. Helper + check 9 + CI self-test (11/11). Real fetch verified 92/92. Plan diff vs b4417b0: 341+. Resume file: None.
+Stopped at: Completed 07.3-04a-PLAN.md. Repo builder 7/7, swap-back 4/4 (root: 3 + SKIP without CAP_LINUX_IMMUTABLE), both in CI. Real 92-deb repo built in 4.2 s (171 MiB), apt reads it. Plan diff vs ab28dd5: 345+/1-. Resume file: None.
+
+Previously: Completed 07.3-03-PLAN.md. Helper + check 9 + CI self-test (11/11). Real fetch verified 92/92. Plan diff vs b4417b0: 341+. Resume file: None.
 
 Previously: Completed 07.3-02-PLAN.md. Manifest committed (91 + 1 resolve_only); committed-manifest self-test 8/8 and in CI. Plan diff vs b8290c3: 348+. Resume file: None.
 
