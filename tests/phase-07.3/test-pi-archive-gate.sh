@@ -87,7 +87,10 @@ groot() {
         > "${R}/etc/apt/sources.list"
     echo 'deb [trusted=yes] file:/var/local/arlowe-pi-archive ./' > "${R}/${LIST}"
     touch "${L}/lock"
-    stanza pionly-a 1.0 arm64 ./pionly-a_1.0_arm64.deb > "${L}/${FLATL}"
+    # The shape apt really leaves: an absolute symlink into the rootfs's repo.
+    mkdir -p "${R}/var/local/arlowe-pi-archive"
+    stanza pionly-a 1.0 arm64 ./pionly-a_1.0_arm64.deb > "${R}/var/local/arlowe-pi-archive/Packages"
+    ln -s /var/local/arlowe-pi-archive/./Packages "${L}/${FLATL}"
     stanza debonly 5.0 arm64 pool/main/d/debonly/debonly_5.0_arm64.deb > "${L}/${SNAP}_main_binary-arm64_Packages"
     stanza fwonly 2.0 all pool/non-free-firmware/f/fwonly/fwonly_2.0_all.deb \
         > "${L}/${SNAP}_non-free-firmware_binary-arm64_Packages"
@@ -150,7 +153,7 @@ groot "${WORK}/c-nosnap"; rm "$(L_)/${SNAP}"_*; chk
 [[ ${RC} -eq 2 && "${OUT}" == *snapshot.debian.org* ]]
 ok "[run-check-no-snapshot-lists] no snapshot list: rc 2, checker never called without --debian-list"
 
-groot "${WORK}/c-twoflat"; cp "$(L_)/${FLATL}" "$(L_)/${FLATL}.xz"; chk
+groot "${WORK}/c-twoflat"; cp -P "$(L_)/${FLATL}" "$(L_)/${FLATL}.xz"; chk
 [[ ${RC} -eq 2 && "${OUT}" == *"2 flat-repo list files"* ]]
 ok "[run-check-two-flat-lists] two files match the flat-list prefix: rc 2, ambiguous"
 

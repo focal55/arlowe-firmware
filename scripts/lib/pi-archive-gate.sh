@@ -39,8 +39,20 @@ PI_REPO_LIST_PREFIX="_var_local_arlowe-pi-archive_._Packages"
 PI_GATE_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PI_RUNBOOK="docs/operations/phase-07.3-pi-archive-pinning.md"
 
-# _pi_lists <lists_dir> <name glob>: matching regular files, NUL-separated, sorted
-_pi_lists() { find "$1" -maxdepth 1 -type f -name "$2" -print0 | sort -z; }
+# _pi_lists <lists_dir> <name glob>: matching files, NUL-separated, sorted.
+# Symlinks count: apt records a file: source's index as a symlink to the repo's
+# own Packages, so the flat repo's list is never a regular file.
+_pi_lists() { find "$1" -maxdepth 1 \( -type f -o -type l \) -name "$2" -print0 | sort -z; }
+
+# _pi_in_rootfs <rootfs> <path>: the file a list path names, read inside the
+# rootfs. apt's link target is absolute, and following it from the host would
+# read the build host's /var/local instead.
+_pi_in_rootfs() {
+    local target
+    [[ -L "$2" ]] || { printf '%s' "$2"; return; }
+    target="$(readlink "$2")"
+    if [[ "${target}" == /* ]]; then printf '%s' "$1${target}"; else printf '%s' "$(dirname "$2")/${target}"; fi
+}
 
 verify_pi_archive_resolution() {
     local rootfs="$1" apt="$1/etc/apt" lists="$1/var/lib/apt/lists" declared rc=0
@@ -121,7 +133,7 @@ pi_archive_run_check() {
         return 2
     fi
     args=(check --status "${status}" --manifest "${manifest}" --kernel-manifest "${kmanifest}"
-          --flat-list "${flat[0]}")
+          --flat-list "$(_pi_in_rootfs "${rootfs}" "${flat[0]}")")
     for f in "${deb[@]}"; do args+=(--debian-list "${f}"); done
     for f in "${PI_LOCAL_PACKAGES[@]}"; do args+=(--allow-local "${f}"); done
     python3 "${PI_GATE_REPO_ROOT}/scripts/lib/pi-archive-manifest.py" "${args[@]}" || rc=$?
