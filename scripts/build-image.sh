@@ -194,6 +194,12 @@ log "=== Step 2: pi-gen build ==="
 # packages -- both break a RELEASE=bookworm build (F6).
 PIGEN_REF="2026-06-18-raspios-bookworm-arm64"
 PIGEN_MARKER="${PI_GEN_DIR}/.arlowe-pigen-ref"
+# The applier accepts a cached tree only as pristine upstream or as the CURRENT
+# overlay's output. After an overlay edit the cached tree holds the previous
+# overlay, which looks like upstream drift and stops the build. Keying the
+# marker on the MANIFEST as well re-clones pristine upstream whenever the
+# overlay changes, so the drift alarm keeps meaning "upstream moved".
+PIGEN_PROVISION_KEY="${PIGEN_REF} $(sha256sum "${REPO_ROOT}/overlays/pi-gen/MANIFEST" | awk '{print $1}')"
 
 # Debian snapshot timestamp the rootfs must resolve from. The overlay under
 # overlays/pi-gen/ declares it; this constant is what the post-build gate below
@@ -203,11 +209,11 @@ PIGEN_MARKER="${PI_GEN_DIR}/.arlowe-pigen-ref"
 # happens to say, which is not a measurement.
 PIGEN_SNAPSHOT="20260915T000000Z"
 
-if [[ -f "${PIGEN_MARKER}" && "$(cat "${PIGEN_MARKER}")" == "${PIGEN_REF}" ]]; then
+if [[ -f "${PIGEN_MARKER}" && "$(cat "${PIGEN_MARKER}")" == "${PIGEN_PROVISION_KEY}" ]]; then
     ok "pi-gen pinned at ${PIGEN_REF}"
 else
     if [[ -f "${PI_GEN_DIR}/build.sh" ]]; then
-        log "pi-gen present but not at the pinned ref — re-provisioning"
+        log "pi-gen present but not at the pinned ref and overlay — re-provisioning"
     fi
     log "Cloning pi-gen at ${PIGEN_REF}..."
     PIGEN_TMP="$(mktemp -d)"
@@ -221,7 +227,7 @@ else
     cp -a "${PI_GEN_DIR}/stage-arlowe" "${PIGEN_TMP}/pi-gen/stage-arlowe"
     sudo rm -rf "${PI_GEN_DIR}"
     mv "${PIGEN_TMP}/pi-gen" "${PI_GEN_DIR}"
-    printf '%s\n' "${PIGEN_REF}" > "${PIGEN_MARKER}"
+    printf '%s\n' "${PIGEN_PROVISION_KEY}" > "${PIGEN_MARKER}"
     trap - EXIT
     rm -rf "${PIGEN_TMP}"
     ok "pi-gen provisioned at ${PIGEN_REF}"
