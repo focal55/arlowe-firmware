@@ -21,6 +21,8 @@
 #   - Verifies the target is a removable block device on Linux.
 #   - Prompts for confirmation unless --yes is passed.
 #   - Uses bmaptool if available (fast sparse write), falls back to dd.
+#   - Reads the card back against the image before reporting success
+#     (scripts/lib/verify-flash.py); a mismatch fails the script.
 #   - Prints flash time on completion.
 set -euo pipefail
 
@@ -184,8 +186,15 @@ fi
 # Flash: prefer bmaptool (fast sparse write), fall back to dd
 # ---------------------------------------------------------------------------
 FLASH_START="$(date +%s)"
+VERIFY_DEV="${DEV}"
+[[ "${OS}" == "Darwin" ]] && VERIFY_DEV="${DEV/\/dev\/disk//dev/rdisk}"
+VERIFY_ARGS=()
 
 if command -v bmaptool >/dev/null 2>&1; then
+    # bmaptool skips the holes, so only the mapped ranges can be compared.
+    for bmap in "${IMG}.bmap" "${IMG%.*}.bmap"; do
+        if [[ -f "${bmap}" ]]; then VERIFY_ARGS=(--bmap "${bmap}"); break; fi
+    done
     printf '\nFlashing with bmaptool (sparse, fast)...\n'
     if [[ "${OS}" == "Darwin" ]]; then
         bmaptool copy "${IMG}" "${DEV}"
@@ -204,10 +213,16 @@ else
     sync
 fi
 
+sync
+printf '\nReading the card back against the image...\n'
+if ! sudo python3 "$(dirname "$0")/lib/verify-flash.py" "${IMG}" "${VERIFY_DEV}" ${VERIFY_ARGS[@]+"${VERIFY_ARGS[@]}"}; then
+    die "the card does not match the image. Do not boot it. A reader that drops or misplaces writes causes this; reflash through a different reader."
+fi
+
 FLASH_END="$(date +%s)"
 FLASH_ELAPSED=$(( FLASH_END - FLASH_START ))
 FLASH_MIN=$(( FLASH_ELAPSED / 60 ))
 FLASH_SEC=$(( FLASH_ELAPSED % 60 ))
 
-printf '\nFlash complete in %dm %ds.\n' "${FLASH_MIN}" "${FLASH_SEC}"
+printf '\nFlashed and verified in %dm %ds.\n' "${FLASH_MIN}" "${FLASH_SEC}"
 printf 'Eject the SD card and insert into the device.\n'
