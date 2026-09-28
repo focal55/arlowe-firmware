@@ -19,7 +19,7 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [ ] **Phase 7: Device identity and PKI** - Managed-PKI provisioning server selected; X.509 device cert issued at first boot; cert-based auth for cloud calls — 10/11 plans merged to main (PR #122, `e7dff4f`); SC4 unverified, 07-09 parked on an AWS staging account
 - [x] **Phase 7.1: Runtime substrate repair (INSERTED)** - Populate `/opt/arlowe/venvs`, build the dashboard to `server.js`, declare the missing apt packages, guard the wake-word verifier; a build gate asserts every unit's ExecStart interpreter exists in the rootfs **(complete; SC6 met on hardware from a clean image 2026-09-25)**
 - [ ] **Phase 7.2: Build input pinning (INSERTED)** - Make IMAGE-03 true: pin the kernel by checksum from the pool, resolve Debian packages from a snapshot, implement SOURCE_DATE_EPOCH, and assert the pins survive pi-gen's re-clone
-- [ ] **Phase 7.3: Pi archive snapshot (INSERTED)** - Pin every `archive.raspberrypi.com` package the image installs by sha256 and serve them from a self-hosted flat apt repo in place of the rolling archive; supersedes #146
+- [ ] **Phase 7.3: Pi archive snapshot (INSERTED)** - Pin every `archive.raspberrypi.com` package the image installs by sha256 and serve them from a self-hosted flat apt repo in place of the rolling archive; supersedes #146 — 13/14 plans merged (PR #188); SC1, SC2, SC3, SC5 met by build A; **SC4 unverified**, 07.3-09 waits for the live archive to move a pinned package (#187, daily watch)
 - [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
 - [ ] **Phase 10: Owner-consented support access** - Dashboard "Support Mode" toggle provisions a time-bound founder SSH key; auto-revokes; full audit log
@@ -338,20 +338,30 @@ exists to distrust.
 Sequential by necessity. `scripts/build-image.sh` is owned in turn by 04b, 05b and 07a; the `build-inputs-resolve` CI job gains steps from 01a, 02, 03, 04a, 04b and 06a; and each plan consumes the one before it. Every plan was split to an honest estimate under 400 net lines, and the arithmetic is in each plan's objective. Only 08 and 09 touch hardware: 08 is build A plus a reference PR merged by the owner; 09 is build B, which does not start until the live archive has moved at least one pinned package.
 
 Plans:
-- [ ] 07.3-01a-PLAN.md — Generator core: attribution to Pi archive / Debian snapshot / kernel pin / local (~355) (Wave 1)
-- [ ] 07.3-01b-PLAN.md — Generator input variants: .gz/.xz (refuses lz4), dpkg-status input, resolve-only (~150) (Wave 2)
-- [ ] 07.3-02-PLAN.md — Committed `third_party/pi-archive/manifest.yml` built from the 07.2 reference plus an apt-verified Pi index; INSTALL.md; committed-manifest test (~342) (Wave 3)
-- [ ] 07.3-03-PLAN.md — Fetch/verify helper as verify-third-party check 9; header lists 8 and 9 (~305) (Wave 4)
-- [ ] 07.3-04a-PLAN.md — Flat repo builder + `pi_archive_swap_back` library function, both fixture-tested, not yet wired (~345) (Wave 5)
-- [ ] 07.3-04b-PLAN.md — stage0 overlay swap + MANIFEST digest + build-image.sh wiring (repo build, sudo env, swap-back call), all in one PR (~200) (Wave 6)
-- [ ] 07.3-05a-PLAN.md — Completeness `check` subcommand, both directions (~250) (Wave 7)
-- [ ] 07.3-05b-PLAN.md — Gate (`0 off-pin`) and check-invocation library functions, plus build-image.sh calls (~245) (Wave 8)
-- [ ] 07.3-06a-PLAN.md — CI resolution through the flat repo, the probe script, a daily retention workflow that files an issue (~285) (Wave 9)
-- [ ] 07.3-06b-PLAN.md — Retire rpt-packages and old check 8 (~200) (Wave 10)
-- [ ] 07.3-07a-PLAN.md — Record mode (tested library function, exit 3) + ADR-0010 (~330) (Wave 11)
-- [ ] 07.3-07b-PLAN.md — Pin-bump and security runbook, SC5 (~250) (Wave 12)
-- [ ] 07.3-08-PLAN.md — Build A: evidence with a positive control, pin-row-only reference re-record, owner merge (~95) (Wave 13, checkpoint)
-- [ ] 07.3-09-PLAN.md — Build B once the archive has moved at least one pinned package: diff gate exit 0 without accept (SC4), records closed (~45) (Wave 14, checkpoint)
+- [x] 07.3-01a-PLAN.md — Generator core: attribution to Pi archive / Debian snapshot / kernel pin / local (~355) (Wave 1)
+- [x] 07.3-01b-PLAN.md — Generator input variants: .gz/.xz (refuses lz4), dpkg-status input, resolve-only (~150) (Wave 2)
+- [x] 07.3-02-PLAN.md — Committed `third_party/pi-archive/manifest.yml` built from the 07.2 reference plus an apt-verified Pi index; INSTALL.md; committed-manifest test (~342) (Wave 3)
+- [x] 07.3-03-PLAN.md — Fetch/verify helper as verify-third-party check 9; header lists 8 and 9 (~305) (Wave 4)
+- [x] 07.3-04a-PLAN.md — Flat repo builder + `pi_archive_swap_back` library function, both fixture-tested, not yet wired (~345) (Wave 5)
+- [x] 07.3-04b-PLAN.md — stage0 overlay swap + MANIFEST digest + build-image.sh wiring (repo build, sudo env, swap-back call), all in one PR (~200) (Wave 6)
+- [x] 07.3-05a-PLAN.md — Completeness `check` subcommand, both directions (~250) (Wave 7)
+- [x] 07.3-05b-PLAN.md — Gate (`0 off-pin`) and check-invocation library functions, plus build-image.sh calls (~245) (Wave 8)
+- [x] 07.3-06a-PLAN.md — CI resolution through the flat repo, the probe script, a daily retention workflow that files an issue (~285) (Wave 9)
+- [x] 07.3-06b-PLAN.md — Retire rpt-packages and old check 8 (~200) (Wave 10)
+- [x] 07.3-07a-PLAN.md — Record mode (tested library function, exit 3) + ADR-0010 (~330) (Wave 11)
+- [x] 07.3-07b-PLAN.md — Pin-bump and security runbook, SC5 (~250) (Wave 12)
+- [x] 07.3-08-PLAN.md — Build A: evidence with a positive control, pin-row-only reference re-record, owner merge (~95) (Wave 13, checkpoint)
+- [ ] 07.3-09-PLAN.md — Build B once the archive has moved at least one pinned package: diff gate exit 0 without accept (SC4), records closed (~45) (Wave 14, checkpoint) **(WAITING — `pinned_moved 0` as of 2026-09-28; the retention workflow comments on #187 when it moves)**
+
+**Status after build A (2026-09-27).** Build A (`573957b`, clean work dir) emitted an image: 153 apt lines from the flat repo (positive control), **0** `archive.raspberrypi.com` fetches including the kernel, `1 flat-repo list files, 0 off-pin`, `91 manifest packages installed at the pinned version, 662 installed packages attributed, 0 unattributed`, both slots ship the stock `raspi.list`. The re-recorded reference changed 0 pkg rows. Flashed through the Mac's SD slot with a full read-back, the image boots 6/6 units active with 0 restarts and `dpkg --verify` 0 mismatches (07.3-08-SUMMARY.md).
+
+| SC | Verdict |
+|---|---|
+| SC1 manifest from a real resolution + completeness check | **MET** — 91 + 1 resolve-only, gpgv-verified index; `check` passes on build A's rootfs |
+| SC2 flat repo only, no live Pi source, asserted | **MET** — `0 off-pin`, 0 Pi fetches |
+| SC3 kernel and rpt-packages folded or reasons recorded | **MET** — rpt folded and deleted; kernel kept separate, ADR-0010 |
+| SC4 two builds on different days, archive moved, identical without re-record | **UNVERIFIED** — an archive publish happened (InRelease 2026-09-28) but moved 0 pinned packages, so a build now could not fail. 07.3-09 runs when #187 is notified |
+| SC5 pin-bump and security runbook | **MET** — `docs/operations/phase-07.3-pi-archive-pinning.md`; cadence is #193 |
 
 **Details:**
 SC3 decision: `third_party/rpt-packages/` is folded into the Pi-archive manifest; the kernel keeps its own manifest and installer (bump procedure needs the axcl compile re-proof, meta packages are deliberately in no repo, and a wholesale Pi regeneration must not move the kernel), while sharing the no-live-source guarantee and the completeness check. Recorded in ADR-0010 by plan 07a.
@@ -460,7 +470,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -
 | 7. Device identity and PKI | 10/11 | Waves 1-6 executed; 07-09 PARKED (needs AWS staging account). SC1-SC3 satisfied, SC4 unverified | - |
 | 7.1 Runtime substrate repair (INSERTED) | 6/6 | **Complete. SC6 met on hardware 2026-09-25: all six units `active` from a clean flash, no hand changes** (image from `6a4c538`). Results in `docs/operations/phase-7.1-substrate.md` §SC6 re-run from a clean image. Nine defects found, none container-reproducible | 2026-09-25 |
 | 7.2 Build input pinning (INSERTED) | Complete | Kernel pinned to 6.12.96 by pool URL + sha256; Debian snapshot pinned; input manifest diff gate green (#137 closed). Pi-archive packages pinned by digest, install path still via apt (#146 open) | 2026-09-21 |
-| 7.3 Pi archive snapshot (INSERTED) | 0/TBD | Not planned | - |
+| 7.3 Pi archive snapshot (INSERTED) | 13/14 | SC1-3, SC5 met by build A (boots 6/6); **SC4 unverified**, 07.3-09 waits on the archive moving a pinned package (#187) | - |
 | 8. First-boot pairing and wake word | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |
