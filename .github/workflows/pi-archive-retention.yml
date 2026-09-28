@@ -47,3 +47,35 @@ jobs:
               --label type:bug --label priority:p1 --label package:infra \
               || gh issue create --title "${title}" --body-file body.md
           fi
+
+  build-b-watch:
+    # 07.3-09 (build B) proves SC4 only after the live index serves a different
+    # version of a package this image pins; otherwise an unpinned build would
+    # match too. Says so once on the 07.3-09 issue, then stays quiet.
+    name: Has the archive moved a pinned package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the probe's manifest-reading dependency
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends python3-yaml
+      - name: Fingerprint the archive
+        shell: bash
+        run: bash tests/phase-07.3/probe-pi-archive.sh --state | tee state.out
+      - name: Tell the 07.3-09 issue when build B can start
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          moved="$(awk -F'\t' '$1 == "pinned_moved" {print $2}' state.out)"
+          echo "pinned_moved=${moved}"
+          [[ "${moved:-0}" -ge 1 ]] || exit 0
+          issue="$(gh issue list --state open --search 'in:title "07.3-09"' --json number,title \
+            --jq '.[] | select(.title | startswith("07.3-09")) | .number' | head -1)"
+          [[ -n "${issue}" ]] || { echo "no open 07.3-09 issue"; exit 0; }
+          marker='<!-- build-b-ready -->'
+          if gh issue view "${issue}" --json comments --jq '.comments[].body' | grep -qF "${marker}"; then
+            echo "already announced on #${issue}"; exit 0
+          fi
+          { echo "${marker}"; echo "Build B can start: the live Pi archive now serves a different version of ${moved} pinned package(s)."; echo; echo '```'; cat state.out; echo '```'; } > body.md
+          gh issue comment "${issue}" --body-file body.md
