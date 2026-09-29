@@ -205,15 +205,10 @@ class PairingFlow:
     def _recover(self, kind):
         """Delete every saved Wi-Fi profile and bring the setup AP back."""
         try:
-            profiles = self._net.wifi_profiles()
-        except NetManError as exc:
-            log.error("listing profiles failed: %s", exc)
-            profiles = []
-        for uuid_ in profiles:
-            try:
+            for uuid_ in self._net.wifi_profiles():
                 self._net.delete_profile(uuid_)
-            except NetManError as exc:
-                log.error("deleting a profile failed: %s", exc)
+        except NetManError as exc:
+            log.error("deleting saved profiles failed: %s", exc)
         try:
             self._net.ap_up(self._session.ssid, self._session.psk)
         except NetManError as exc:
