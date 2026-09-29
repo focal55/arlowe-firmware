@@ -1,0 +1,42 @@
+[Unit]
+Description=Arlowe pairing: apply the owner's name as the hostname
+# Started on demand by the pairing daemon (as arlowe, through the arlowe- polkit
+# prefix) after it writes /run/arlowe-pair/commit-request.json. Never enabled.
+
+[Service]
+Type=oneshot
+# Root: /etc/hosts is root-owned and hostnamed only accepts set-hostname from
+# root without a polkit grant. The helper re-validates everything it reads.
+Environment=PYTHONUNBUFFERED=1
+Environment=ARLOWE_LIB=/opt/arlowe/runtime/lib
+ExecStart=/usr/bin/python3 /opt/arlowe/runtime/cli/pair-commit
+StandardOutput=journal
+StandardError=journal
+
+# Sandbox hardening -- mirrors arlowe-identity-init.service, except where noted.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+# Off: changing the hostname is this unit's job. hostnamed performs the write
+# over D-Bus, so =yes may also work; that is unproven on the image, so do not
+# tighten it without a bench run.
+ProtectHostname=no
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# Pi 5 boots with numa=fake=8; see arlowe-identity-init.service.
+SystemCallFilter=mbind
+# D-Bus to hostnamed and systemd, and the journal. Nothing else.
+RestrictAddressFamilies=AF_UNIX
+# ProtectSystem=strict leaves this single file as the only writable path.
+ReadWritePaths=/etc/hosts

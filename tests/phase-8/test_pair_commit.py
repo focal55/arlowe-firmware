@@ -4,7 +4,6 @@ Banned names are built from scripts/sanitize/banlist.txt at run time so no
 banlist literal is written into this file.
 """
 import json
-import os
 import re
 import stat
 import subprocess
