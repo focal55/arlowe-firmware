@@ -5,7 +5,8 @@ ErrorKind from any step after the submission. Every collaborator is injected:
 `net` (NetMan), `display.show(screen)` where screen is a state name or an
 ErrorKind, `identity(broker_url, ca_path, claim_code) -> (exit, json)`,
 `commit(form, provisioned)`, `broker() -> (url, ca_path | None) | None`,
-`ntp_synced()`, `on_paired(provisioned)` and the session's ssid/psk.
+`ntp_synced()`, `on_paired(provisioned)` and the session's ssid/psk. `view`
+is the portal's state mapping; the flow keeps its status keys current.
 
 On any failure after the AP drops, every saved Wi-Fi profile is deleted (an
 unpaired unit has none), the AP returns with the same session password, and the
@@ -103,7 +104,7 @@ def run_identity(broker_url, ca_bundle_path, claim_code, binary=IDENTITY_BIN,
 class PairingFlow:
     def __init__(self, net, display, commit, broker, ntp_synced, session,
                  identity=run_identity, on_paired=lambda provisioned: None,
-                 clock=time.monotonic, sleep=time.sleep):
+                 clock=time.monotonic, sleep=time.sleep, view=None):
         self._net, self._display, self._commit = net, display, commit
         self._broker, self._ntp_synced, self._session = broker, ntp_synced, session
         self._identity, self._on_paired = identity, on_paired
@@ -112,16 +113,27 @@ class PairingFlow:
         self.state = State.WAITING
         self._error = None
         self._held = None
+        self._view = view if view is not None else {}
+        self._set(State.WAITING)
+
+    def _set(self, state, error=None, held=False):
+        """Change state and republish the portal's view (08-12's `state` mapping)."""
+        with self._lock:
+            self.state, self._error = state, error
+            if held is not False:
+                self._held = held
+            h = self._held or {}
+            self._view.update({
+                "status": state.value,
+                "error_kind": error.value if error else None,
+                "message": MESSAGES[error] if error else None,
+                "last_form": {"ssid": h["ssid"], "name": h["display_name"]} if h else {},
+                "has_previous": {k: bool(h.get(k)) for k in SECRET_FIELDS}})
 
     def status(self):
         """A snapshot for the portal: no secret, only whether one is held."""
         with self._lock:
-            held = self._held or {}
-            return {"status": self.state.value,
-                    "error_kind": self._error.value if self._error else None,
-                    "message": MESSAGES[self._error] if self._error else None,
-                    "last_form": {k: v for k, v in held.items() if k not in SECRET_FIELDS},
-                    "has_previous": {k: bool(held.get(k)) for k in SECRET_FIELDS}}
+            return dict(self._view)
 
     def submit(self, form):
         """Run one pairing attempt on the caller's thread; False if one is running."""
@@ -130,7 +142,8 @@ class PairingFlow:
                 log.warning("submission refused: pairing is %s", self.state.value)
                 return False
             form = self._with_held(dict(form))
-            self._held, self._error, self.state = form, None, State.CONNECTING
+            self.state = State.CONNECTING
+        self._set(State.CONNECTING, held=form)
         try:
             self._pair(form)
         except _Failed as exc:
@@ -141,18 +154,19 @@ class PairingFlow:
         return True
 
     def _with_held(self, form):
+        """Fill secrets the portal sent as None (blank, "reuse") from the held form."""
         held = self._held or {}
         for key in ("password", "claim_code"):
-            if not form.get(key) and held.get(key):
-                form[key] = held[key]
-        # A blank PSK for a different network means an open network, not "reuse".
-        if not form.get("psk") and held.get("psk") and held.get("ssid") == form.get("ssid"):
-            form["psk"] = held["psk"]
+            if form.get(key) is None:
+                form[key] = held.get(key)
+        if form.get("psk") is None:
+            # The held PSK belongs to the held SSID; on another network, blank means open.
+            same = held.get("ssid") == form["ssid"]
+            form["psk"] = (held.get("psk") if same else None) or ""
         return form
 
     def _enter(self, state):
-        with self._lock:
-            self.state = state
+        self._set(state)
         log.info("pairing: %s", state.value)
         self._display.show(state.value)
 
@@ -187,8 +201,7 @@ class PairingFlow:
             log.error("commit failed: %s", type(exc).__name__)
             raise _Failed(ErrorKind.setup_failed)
 
-        with self._lock:
-            self.state, self._held = State.PAIRED, None
+        self._set(State.PAIRED, held=None)
         log.info("pairing: paired")
         self._display.show(State.PAIRED.value)
         self._on_paired(provisioned)
@@ -216,7 +229,6 @@ class PairingFlow:
         self._set_error(kind)
 
     def _set_error(self, kind):
-        with self._lock:
-            self.state, self._error = State.ERROR, kind
+        self._set(State.ERROR, error=kind)
         log.warning("pairing failed: %s", kind.value)
         self._display.show(kind)

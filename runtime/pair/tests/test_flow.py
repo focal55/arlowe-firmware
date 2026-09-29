@@ -176,13 +176,15 @@ def test_ntp_gate_stops_waiting_once_synced(h):
 
 def test_resubmit_reuses_held_secrets(h):
     h.identity_result = (3, {"http_status": 401})
-    h.flow = h.build()
+    view = {"networks": ["kept"]}
+    h.flow = h.build(view=view)
     h.flow.submit(dict(FORM))
-    st = h.flow.status()
-    assert st["has_previous"] == {"psk": True, "password": True, "claim_code": True}
-    assert st["last_form"] == {"ssid": "Home", "display_name": "Kitchen"}
+    assert view["status"] == "error" and view["error_kind"] == "claim_rejected"
+    assert view["has_previous"] == {"psk": True, "password": True, "claim_code": True}
+    assert view["last_form"] == {"ssid": "Home", "name": "Kitchen"}
+    assert view["networks"] == ["kept"] and h.flow.status() == view
     h.identity_result = (0, dict(ISSUED))
-    h.flow.submit({**FORM, "psk": "", "password": "", "claim_code": "NEWCODE"})
+    h.flow.submit({**FORM, "psk": None, "password": None, "claim_code": "NEWCODE"})
     assert h.net.calls[-1] == ("join", "Home", FORM["psk"])
     assert h.identity_calls[-1][2] == "NEWCODE"
     assert h.commits[0][0]["password"] == FORM["password"]
@@ -192,7 +194,10 @@ def test_held_psk_not_reused_for_other_network(h):
     h.net.join_error = JoinError("wifi_rejected")
     h.flow = h.build()
     h.flow.submit(dict(FORM))
-    h.flow.submit({**FORM, "ssid": "OpenCafe", "psk": ""})
+    h.flow.submit({**FORM, "psk": ""})
+    assert h.net.calls[-2] == ("join", "Home", "")
+    h.flow.submit(dict(FORM))
+    h.flow.submit({**FORM, "ssid": "OpenCafe", "psk": None})
     assert h.net.calls[-2] == ("join", "OpenCafe", "")
 
 

@@ -18,10 +18,10 @@ The optimistic-handoff flow: WAITING -> CONNECTING -> PROVISIONING -> COMMITTING
 
 ## Interface for later plans (differs from or fills gaps in the plan text)
 
-- `PairingFlow(net, display, commit, broker, ntp_synced, session, identity=run_identity, on_paired=noop, clock=time.monotonic, sleep=time.sleep)`. `broker()` is called at each submission and returns `(url, ca_path | None)` or None, which is `resolve_broker`'s shape (08-18). None means `not_configured`: the AP stays up and identity is never called.
+- `PairingFlow(net, display, commit, broker, ntp_synced, session, identity=run_identity, on_paired=noop, clock=time.monotonic, sleep=time.sleep, view=None)`. `broker()` is called at each submission and returns `(url, ca_path | None)` or None, which is `resolve_broker`'s shape (08-18). None means `not_configured`: the AP stays up and identity is never called.
 - `submit(form)` runs **synchronously on the caller's thread** (the portal already calls `on_submit` on a new thread) and returns False when refused (single flight).
-- Form keys: `ssid`, `psk`, `display_name`, `password`, `claim_code`. Secrets are `psk`, `password`, `claim_code`. A blank `password`/`claim_code` reuses the held value. A blank `psk` reuses the held one **only for the same SSID**; for a different SSID it means an open network.
-- `status()` -> `{status, error_kind, message, last_form (no secrets), has_previous: {psk, password, claim_code}}` for 08-12's portal.
+- Form: 08-12's `on_submit` payload `{ssid, psk, display_name, slug, password, claim_code}`. A secret of `None` means "reuse the held value". For `psk`, `None` reuses the held PSK **only when the SSID is unchanged**; on another SSID it becomes `""` (open network). An explicit `""` PSK is always an open network.
+- `view`: pass 08-12's portal `state` mapping. The flow updates its `status`, `error_kind`, `message`, `last_form` (`{ssid, name}`) and `has_previous` keys in place at every transition. `networks`, `ap_ssid` and `ip_hint` are left to 08-23. `status()` returns a copy.
 - `display.show(screen)`: `screen` is `"connecting" | "provisioning" | "committing" | "paired"` or an `ErrorKind` member. 08-11 has no committing screen, so 08-23's adapter must map it (e.g. to provisioning). The flow shows `"paired"` without URL/IP; 08-23 draws the full paired screen from `on_paired`.
 - `commit(form, provisioned)`: `provisioned` is identity's JSON plus `broker_url`, which 08-20 needs for `identity.provisioning_url`.
 - `net`: uses `ap_down`, `join` (08-07b: raises `JoinError`), `wifi_profiles`, `delete_profile`, `ap_up`. It does **not** call `saved_ssid_profile`.
@@ -32,7 +32,7 @@ The optimistic-handoff flow: WAITING -> CONNECTING -> PROVISIONING -> COMMITTING
 2. **[Rule 2] `NetManError` during `ap_down`/`join` maps to `wifi_failed`.** Any unexpected exception maps to `setup_failed` and still runs recovery, so the AP always comes back. Logs carry only the exception type.
 3. **[Rule 2] Identity exit codes outside the N6 table** (2, 6, an exit-0 run with unparsable JSON) map to `cert_failed`. When the CLI cannot be launched (OSError), the result is `(5, {})`, which also maps to `cert_failed`.
 4. `sleep` is injected alongside `clock`, which lets the tests drive the 2 s handoff delay and the 30 s NTP cap with a fake clock.
-5. Size: 516 net lines of code plus this summary, against ~355 planned. The tests (21 cases, a PATH shim) are larger than the estimate. The PR is under the 600 cap.
+5. Size: 533 net lines of code plus this summary, against ~355 planned. The tests (21 cases, a PATH shim) are larger than the estimate. The PR is under the 600 cap.
 
 ## Verification
 
