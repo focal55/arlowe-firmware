@@ -24,3 +24,7 @@ export class Throttle {
     this.lockedUntil = 0;
   }
 }
+
+// One process serves the dashboard, so an in-memory counter is the whole throttle.
+// Tests reset it with loginThrottle.succeed().
+export const loginThrottle = new Throttle();
