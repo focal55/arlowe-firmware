@@ -165,6 +165,7 @@ mkexec "${PREFIX}/opt/arlowe/runtime/llm/run_api.sh"
 mkexec "${PREFIX}/opt/arlowe/runtime/cli/identity"
 mkexec "${PREFIX}/usr/bin/python3"
 mkexec "${PREFIX}/opt/arlowe/runtime/cli/radio-init"
+mkexec "${PREFIX}/opt/arlowe/runtime/cli/pair-commit"
 mkexec "${PREFIX}/opt/arlowe/runtime/cli/factory-reset"
 
 run_gate verify_unit_execstart "${PREFIX}" prefix-image
