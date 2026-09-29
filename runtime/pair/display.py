@@ -40,7 +40,7 @@ DARK, LIGHT = (0, 0, 0), (255, 255, 255)
 MESSAGE_IDLE = "Press the button to start setup"
 
 BLUE = (0, 0, 255)
-LED = {"waiting": BLUE, "connecting": BLUE, "provisioning": BLUE,
+LED = {"waiting": BLUE, "connecting": BLUE, "provisioning": BLUE, "committing": BLUE,
        "paired": (0, 255, 0), "idle": (0, 0, 40), "error": (255, 0, 0)}
 
 
@@ -143,8 +143,10 @@ def lines(screen):
         return ["Connecting", "Joining your Wi-Fi network"]
     if screen.kind == "provisioning":
         return ["Setting up", "Registering this Arlowe"]
+    if screen.kind == "committing":
+        return ["Setting up", "Saving your settings"]
     if screen.kind == "paired":
-        return ["Paired", "Open", screen.url, "or", screen.ip]
+        return ["Paired", "Open", screen.url, "or", screen.ip] if screen.url else ["Paired"]
     if screen.kind == "idle":
         return ["Arlowe", MESSAGE_IDLE]
     if screen.kind == "error":
@@ -206,13 +208,26 @@ def _load_board():
 
 
 class Display:
-    """The Whisplay while pairing owns it. Construction claims every board pin."""
+    """The Whisplay while pairing owns it. Construction claims every board pin.
 
-    def __init__(self, board=None):
+    show() also takes pair.flow's contract, a state name or an ErrorKind, and
+    fills in the session's ssid/psk and the paired url/ip held here.
+    """
+
+    def __init__(self, board=None, ssid="", psk="", url="", ip=""):
         self.board = board if board is not None else _load_board()
+        self.ssid, self.psk, self.url, self.ip = ssid, psk, url, ip
         self.board.set_backlight(100)
 
+    def _screen(self, screen):
+        if isinstance(screen, Screen):
+            return screen
+        if isinstance(screen, ErrorKind):
+            return Screen.error(screen)
+        return Screen(screen, ssid=self.ssid, psk=self.psk, url=self.url, ip=self.ip)
+
     def show(self, screen):
+        screen = self._screen(screen)
         self.board.draw_image(0, 0, DISP_WIDTH, DISP_HEIGHT, list(to_rgb565(render(screen))))
         self.board.set_rgb(*LED[screen.kind])
 

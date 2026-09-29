@@ -219,3 +219,16 @@ def test_display_loads_the_driver_lazily_and_releases_it(display, fake_driver):
     names = [n for n, _ in board.calls]
     assert names[-1] == "cleanup"
     assert ("set_backlight", (0,)) in board.calls and ("set_rgb", (0, 0, 0)) in board.calls
+
+
+def test_show_takes_the_flow_contract(display):
+    from pair.flow import State
+
+    board = FakeBoard()
+    d = display.Display(board=board, ssid=SSID, psk=PSK)
+    for screen in [*(s.value for s in State if s is not State.ERROR), *ErrorKind]:
+        d.show(screen)
+    assert len(board.named("draw_image")) == len(State) - 1 + len(ErrorKind)
+    shown = display.render(display.Screen.waiting(SSID, PSK))
+    d.show("waiting")
+    assert board.named("draw_image")[-1][4] == list(display.to_rgb565(shown))
