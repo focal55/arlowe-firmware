@@ -64,7 +64,7 @@ def portal_server():
         called.set()
 
     srv = portal.make_server(state, on_submit, "127.0.0.1", 0)
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t = threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True)
     t.start()
 
     class Portal:
