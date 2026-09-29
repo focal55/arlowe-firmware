@@ -5,7 +5,9 @@ Environment:
   FAKE_NMCLI_SCENARIO  JSON object, inline or a path to a file. Keys:
                          scan   [{"ssid", "signal", "security"}] for `device wifi list`
                          ap_up  "ok" (default) or "fail"
-                         (08-07b adds the join keys)
+                         join   {"correct_psk": S} fails `up` of a non-AP profile
+                                with (7) unless the passwd-file psk equals S;
+                                {"exit": N, "stderr": S} fails it as scripted
   FAKE_NMCLI_LOG       every argv is appended here as one JSON line
   FAKE_NMCLI_STATE     JSON profile list {"profiles": [...]}, keyed by uuid;
                        `connection add` creates, `delete` removes, `show` prints
@@ -14,13 +16,60 @@ A passwd-file secret is read and never stored: the profile records only
 "secret_supplied". The real rules are nmc_utils_parse_passwd_file
 (src/libnmc-base/nm-client-utils.c) and nm_utils_buf_utf8safe_unescape with
 STRIP_SPACES (src/libnm-glib-aux/nm-shared-utils.c) at NetworkManager tag 1.42.4;
-this reader is a plain split, enough for the fixed setup-AP alphabet.
+read_passwd_file ports both, so the daemon's escaping is tested against them.
 """
 import json
 import os
+import re
 import sys
 
 NOT_FOUND = 10
+SPACE = b" \t\n\v\f\r"
+ESCAPES = {ord(k): ord(v) for k, v in zip("bfnrtv", "\b\f\n\r\t\v")}
+
+
+def unescape(s):
+    s = s.lstrip(SPACE)
+    out, i = bytearray(), 0
+    while True:
+        j = s.find(b"\\", i)
+        if j < 0:
+            return bytes(out + s[i:].rstrip(SPACE))
+        out += s[i:j]
+        j += 1
+        if j == len(s):
+            return bytes(out)
+        if 0x30 <= s[j] <= 0x39:
+            v, j = s[j] - 0x30, j + 1
+            for _ in range(2):
+                if j < len(s) and 0x30 <= s[j] <= 0x37:
+                    v, j = v * 8 + s[j] - 0x30, j + 1
+            out.append(v & 0xFF)
+        else:
+            out.append(ESCAPES.get(s[j], s[j]))
+            j += 1
+        i = j
+
+
+def read_passwd_file(path):
+    with open(path, "rb") as f:
+        data = f.read()
+    pwds = {}
+    for line in re.split(rb"\r\n|\r|\n", data):
+        line = line.lstrip(SPACE)
+        if not line or line.startswith(b"#"):
+            continue
+        m = re.search(rb"[:=]", line)
+        if not m:
+            fail(2, "passwd-file: missing colon")
+        value = unescape(line[m.end():])
+        try:
+            if b"\0" in value:
+                raise UnicodeError
+            pwds[line[:m.start()].strip(SPACE).decode()] = value.decode()
+        except UnicodeError:
+            fail(2, "passwd-file: value is not valid UTF-8")
+    return pwds
 
 
 def load(path, default):
@@ -73,16 +122,25 @@ def main(argv):
         props = dict(zip(argv[2::2], argv[3::2]))
         profiles.append({"uuid": props["connection.uuid"], "name": props["con-name"],
                          "type": "802-11-wireless", "save": props.get("save", "yes"),
+                         "ap": props.get("802-11-wireless.mode") == "ap",
                          "active": False})
+        if "wifi-sec.psk-flags" in props:
+            profiles[-1]["psk_flags"] = int(props["wifi-sec.psk-flags"])
     elif argv[:2] == ["connection", "up"]:
         p = find(argv[2:4] if argv[2] in ("uuid", "id") else argv[2:3])
+        psk = None
         if "passwd-file" in argv:
-            with open(argv[argv.index("passwd-file") + 1]) as f:
-                p["secret_supplied"] = any(
-                    line.split(":", 1)[0] == "802-11-wireless-security.psk"
-                    for line in f.read().splitlines())
-        if scenario.get("ap_up", "ok") != "ok":
+            pwds = read_passwd_file(argv[argv.index("passwd-file") + 1])
+            psk = pwds.get("802-11-wireless-security.psk")
+            p["secret_supplied"] = psk is not None
+        join = scenario.get("join", {})
+        if p["ap"] and scenario.get("ap_up", "ok") != "ok":
             fail(4, "Connection activation failed: (10) The device could not be readied.")
+        if not p["ap"] and "exit" in join:
+            fail(join["exit"], join.get("stderr", ""))
+        if not p["ap"] and "correct_psk" in join and psk != join["correct_psk"]:
+            fail(4, "Connection activation failed: (7) Secrets were required, "
+                    "but not provided.")
         p["active"] = True
     elif argv[:2] == ["connection", "down"]:
         p = find(argv[2:4] if argv[2] in ("uuid", "id") else argv[2:3])
