@@ -16,7 +16,10 @@ must_haves:
     - "SC2: submitting Wi-Fi, device name, dashboard password and claim code gets the unit a certificate from the local broker, writes config.yml, starts all six units, and the phone reaches http://<name>.local:3000, which asks for and accepts the pairing password."
     - "SC3: wrong Wi-Fi password, broker stopped, unminted claim code and broker issuance failure each show a different message on the Whisplay and on the page, and after each the setup network comes back and the unit holds no saved Wi-Fi profile."
     - "SC4: a reset from the dashboard and a reset from the button each end, after reboot, in pairing mode with no config.yml, a new device id, an emptied identity store and owner data, no saved Wi-Fi profile, a revoked old certificate (or an orphaned-cert record when offline), and one audit line."
-    - "A paired unit that reboots starts all six units and skips arlowe-pair (ConditionResult=no): no Conflicts= cancels the face."
+    - "A paired unit that reboots starts all six units and skips arlowe-pair (ConditionResult=no): no Conflicts= cancels the face. This holds when power is pulled during the 30 s paired hold."
+    - "A SIGKILL of arlowe-pair mid-provisioning leaves no saved Wi-Fi profile after the unit restarts it."
+    - "With an ethernet uplink attached, a phone on the setup AP has no internet (the forward drop works)."
+    - "/etc/arlowe on the booted unit is 770 root:arlowe."
     - "The paired screen (URL and IP) stays on the Whisplay for about 30 s before the face takes over."
     - "The home PSK never crossed argv yet persisted: it is in the system connection after the join, and the unit rejoins after a reboot."
     - "A dashboard audio save after pairing leaves identity, owner, network and device.hostname in config.yml."
@@ -37,12 +40,12 @@ Prove SC1-SC4 on hardware with the 08-27a image, following the 08-17 runbook, th
 
 Purpose: the radio, the Whisplay, a real phone's captive-portal handling, avahi, polkit under a real systemd, and the reset's reboot cannot be proven anywhere else.
 
-**Honest PR size: ~140 lines** (evidence in the runbook; `.planning` excluded).
+**Honest PR size: ~155 lines** (evidence in the runbook; `.planning` excluded).
 - SC1-SC4 evidence blocks: 4 × 20 = 80
-- revision checks (paired reboot twice, paired hold, PSK persistence, audio-save survival, forward-drop table): 30
+- revision checks (paired reboot, power pull during the hold, SIGKILL mid-provisioning, PSK persistence, audio-save survival, forward-drop table and the phone-side no-internet check, `/etc/arlowe` mode): 45
 - runbook corrections the hardware forces: ~30
 
-80 + 30 + 30 = 140.
+80 + 45 + 30 = 155.
 </objective>
 
 <execution_context>
@@ -63,6 +66,7 @@ Purpose: the radio, the Whisplay, a real phone's captive-portal handling, avahi,
 - Before booting, put `arlowe-broker.json` on the FAT partition with the dev machine's LAN URL and the stub CA (08-15 README). Start the local broker on the dev machine with `--stub-iot`, and mint two claim codes.
 - Capture disconfirming evidence while at the hardware (memory): for every claim, run the command that would falsify it, with sudo where permissions could hide the truth, before writing the finding.
 - Hardware-only checks carried from earlier plans: `lsmod | grep cfg80211` and `iw reg get` (08-08's modprobe assumption); `systemd-run --uid=arlowe --pipe nmcli general permissions` shows `yes` for the five granted actions (08-08); `sudo nft list table inet arlowe_setup` shows the two wlan0 drops (08-08); the brcmfmac reason code for a wrong PSK is 7, 8 or 11 (08-07b); the radio-init unit's sysfs write works under its sandbox; `sudo ss -ltnp 'sport = :80'` while pairing shows `10.42.0.1:80`, not `0.0.0.0:80` (08-23).
+- **"No saved Wi-Fi profile" means, everywhere below:** `sudo grep -l '^type=wifi' /etc/NetworkManager/system-connections/* 2>/dev/null | wc -l` → 0, and `nmcli -t -f NAME,TYPE connection show | grep 802-11-wireless` lists only `arlowe-setup` (the in-memory AP profile, which exists whenever pairing is showing its waiting screen) or nothing. A bare count of `802-11-wireless` rows is 1 while the AP is up, so it cannot be the check.
 - Never print a secret into the evidence. PSK checks test presence (`grep -c`, `[ -n … ]`), never the value.
 - If a defect needs a code fix, stop the checkpoint, fix it through a normal plan-sized PR, rebuild via 08-27a's Task 2 (without accept, which also proves the reference), and resume here.
 </execution_notes>
@@ -84,13 +88,15 @@ Purpose: the radio, the Whisplay, a real phone's captive-portal handling, avahi,
   <what-built>A Phase 8 image: pairing daemon, captive portal, Whisplay screens, certificate from the local broker, dashboard login, and factory reset from the dashboard and the button.</what-built>
   <how-to-verify>
 Claude runs every command over SSH and records output; the owner does the phone and button steps.
-1. **SC1.** `systemctl is-active arlowe-pair` → active; `systemctl show -p ConditionResult arlowe-face arlowe-dashboard` → `no`; `sudo arlowe-boot-check` (the `/usr/local/sbin` symlink) → READY TO PAIR. Owner: the Whisplay shows the SSID, the password and a QR; scan the QR with an iPhone camera → it joins and the captive sheet opens the setup page. Repeat on an Android phone.
-2. **SC3 (run before SC2, from the pairing state).** Provoke each of the four failures per the runbook table, in order: wrong Wi-Fi password, broker stopped, unminted claim code, broker restarted with `--stub-fail issuance`. For each: the Whisplay message, the page message after rejoining the setup network with the same password, and `nmcli -t -f TYPE connection show | grep -c 802-11-wireless` → 0. The four messages must differ. Restore the broker to normal afterwards.
+1. **SC1.** `systemctl is-active arlowe-pair` → active; `systemctl show -p ConditionResult arlowe-face arlowe-dashboard` → `no`; `sudo arlowe-boot-check` (the `/usr/local/sbin` symlink) → READY TO PAIR; `stat -c '%a %U:%G' /etc/arlowe` → `770 root:arlowe` (08-29). Owner: the Whisplay shows the SSID, the password and a QR; scan the QR with an iPhone camera → it joins and the captive sheet opens the setup page. Repeat on an Android phone.
+   **Forward drop (I2).** With the ethernet cable attached, Claude: `ip route show default` → a default route via `eth0` (so an uplink exists and the test means something). Owner, on the phone still joined to the setup AP: open `http://1.1.1.1` (an IP literal, because captive DNS answers every name with 10.42.0.1) → it does not load. Claude: `sudo nft list table inet arlowe_setup` shows both `wlan0` drops.
+2. **SC3 (run before SC2, from the pairing state).** Provoke each of the four failures per the runbook table, in order: wrong Wi-Fi password, broker stopped, unminted claim code, broker restarted with `--stub-fail issuance`. For each: the Whisplay message, the page message after rejoining the setup network with the same password, and no saved Wi-Fi profile (execution notes). The four messages must differ. Restore the broker to normal afterwards.
+   **SIGKILL mid-provisioning (W1); run it before the four provocations above, so SC2 still starts from the last SC3 error.** Submit the correct home Wi-Fi with code A (a code bound by a completed issuance re-binds idempotently to the same device id in SC2); when the Whisplay shows provisioning (the join profile is saved by then), Claude runs `sudo systemctl kill -s KILL arlowe-pair`. Within ~10 s: `systemctl show -p NRestarts,ActiveState arlowe-pair` → NRestarts ≥ 1, `active`; the Whisplay shows the waiting screen with a new password; no saved Wi-Fi profile (execution notes); `journalctl -u arlowe-pair -b` shows the start-up sweep's deletes before `radio wifi on`.
 3. **SC2.** From the last SC3 error, correct the form and resubmit (this also proves recovery without a power cycle). Owner submits home Wi-Fi, name "Kitchen Test", a dashboard password, code A. Whisplay: connecting → provisioning → paired with `http://kitchen-test.local:3000` and an IP; the owner times the paired screen (expect about 30 s, or until a button press) before the face appears. Claude: `test -f /etc/arlowe/config.yml`; `hostnamectl --static` → `kitchen-test`; all six `active`; `systemctl show -p ActiveState,Result arlowe-pair` → `inactive`/`success` (it exited 0); `arlowe-identity status --json` shows a certificate. PSK persistence (M3): `sudo grep -c '^psk=' "/etc/NetworkManager/system-connections/<home SSID>.nmconnection"` → 1 (count only, never the value). That argv never carried it is proven by 08-07/08-07b's tests, not observable after the fact here; the reboot rejoin below proves the persisted PSK works. Owner: the phone opens the URL, sees the login page, logs in with the password, sees the dashboard. Audio-save survival (M1): the owner changes the audio output on the dashboard and saves; Claude: `sudo python3 -c "import yaml;c=yaml.safe_load(open('/etc/arlowe/config.yml'));print(c['device']['hostname'], bool(c['identity']['provisioning_url']), 'owner' in c, 'network' in c)"` → `kitchen-test True True True`. Claude: the journal secret grep from the runbook → 0.
    **Paired reboot (B1).** `sudo reboot`; after it: `systemctl is-active arlowe-face arlowe-voice arlowe-dashboard qwen-tokenizer qwen-api whisper-stt` → six `active`; `systemctl show -p ConditionResult arlowe-pair` → `no`; `nmcli -t -f GENERAL.CONNECTION device show wlan0` → the home SSID (the persisted PSK rejoined).
 4. **SC4.**
-   a. Dashboard reset (password re-entry). After the reboot: pairing mode; `config.yml` absent; `cat /var/lib/arlowe/identity/device-id` differs from before; identity store has no `device.crt`; `sudo ls -A /var/lib/arlowe/conversations` empty; no Wi-Fi profile; `sudo tail -1 /var/lib/arlowe/reset-ledger/resets.log` → `trigger: dashboard, revoke: ok`; broker log shows the revoke and the claim store shows code A `unused`.
-   b. Pair again with code A (proves the release). Repeat the paired reboot check from step 3 (six `active`, `arlowe-pair` ConditionResult `no`). Then the button: hold 10 s (countdown from 3 s, LED red), release, press within 5 s. Same checks, `trigger: button`.
+   a. Dashboard reset (password re-entry). After the reboot: pairing mode; `config.yml` absent; `cat /var/lib/arlowe/identity/device-id` differs from before; identity store has no `device.crt`; `sudo ls -A /var/lib/arlowe/conversations` empty; no saved Wi-Fi profile (execution notes); `sudo tail -1 /var/lib/arlowe/reset-ledger/resets.log` → `trigger: dashboard, revoke: ok`; broker log shows the revoke and the claim store shows code A `unused`.
+   b. Pair again with code A (proves the release). **Power pull during the hold (I1):** when the paired screen appears, the owner pulls power about 10 s into the 30 s hold, then restores it. After boot: `systemctl is-active` on the six → six `active`; `systemctl show -p ConditionResult arlowe-pair` → `no`; `nmcli -t -f GENERAL.CONNECTION device show wlan0` → the home SSID. Then the button: hold 10 s (countdown from 3 s, LED red), release, press within 5 s. Same checks, `trigger: button`.
    c. Offline reset: pair with code B, stop the broker, reset from the dashboard. `orphaned-certs.jsonl` gains a line; `resets.log` says `revoke: failed`; the unit still lands in pairing.
    d. Recovery SD: documentation only; confirm the runbook section reads correctly.
 5. The hardware-only checks from the execution notes.
@@ -105,7 +111,7 @@ Claude runs every command over SSH and records output; the owner does the phone 
   <verify>
     grep -c 'SC4' docs/operations/phase-8-pairing.md       # expect: >= 1
     scripts/sanitize/check.sh --grep-only
-    git diff --shortstat main -- . ':(exclude).planning/**' # expect: ~140
+    git diff --shortstat main -- . ':(exclude).planning/**' # expect: ~155
   </verify>
   <done>Every SC has hardware evidence in the runbook, and the records say exactly what was and was not proven.</done>
 </task>

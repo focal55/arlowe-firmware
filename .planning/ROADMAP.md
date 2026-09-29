@@ -376,23 +376,24 @@ SC3 decision: `third_party/rpt-packages/` is folded into the Pi-archive manifest
 
 **Scope change (2026-09-28):** research sized the original phase at ~24 plans, so the wake word (WAKE-01..03, old SC5) moved to Phase 8.1. SC4 is amended: factory reset also clears the saved Wi-Fi profiles, since NetworkManager stores the owner's PSK in plaintext. Prerequisite: #200 (default `pi`/`raspberry` login with passwordless sudo and SSH on, in every image) lands before any Phase 8 plan executes. Decisions: `08-CONTEXT.md`.
 
-**Plans**: 31 plans in 8 waves (29 PRs, including the 08-27a reference re-record; one hardware checkpoint; one owner-gated real-cloud run)
+**Plans**: 32 plans in 8 waves (30 PRs, including the 08-27a reference re-record; one hardware checkpoint; one owner-gated real-cloud run)
 
-Parallel where files allow: 11 plans in wave 1, 9 in wave 2. Every plan is an honest estimate under 400 net lines with the arithmetic in its objective; later plans add test files to directories the 08-02 workflow globs, so no two parallel plans edit the same CI file (08-09's Node 24 bump is the only other CI edit; 08-20 adds one job to 08-02's `phase-8.yml`, sequentially). **Merge gate (research N10):** 08-11 and 08-20 add new `pkg` rows (`python3-qrcode` and its two deps, `python3-argon2`), so they, and every plan downstream of them, merge only after 07.3-09 closes or after 07.3-09 Task 2 is amended to build from `c008e84` instead of main (recommended: it decouples the phases, and 07.3-09 already says "from the commit containing 08's reference"). All other plans, including 08-08's declaration of already-installed `iw`/`wireless-regdb`/`nftables`, move no reference rows and merge freely. The reference is re-recorded once, on 08-27a's build. **Precondition for wave 1:** PR #201 (the fix for #200) is merged and `main:pi-gen/config` has no `FIRST_USER_PASS`.
+Parallel where files allow: 12 plans in wave 1, 9 in wave 2. Every plan is an honest estimate under 400 net lines with the arithmetic in its objective; later plans add test files to directories the 08-02 workflow globs, so no two parallel plans edit the same CI file (08-09's Node 24 bump and 08-29's one `pr-checks.yml` step are the only other CI edits, each in its own file; 08-20 adds one job to 08-02's `phase-8.yml`, sequentially). **Merge gate (research N10):** 08-11 and 08-20 add new `pkg` rows (`python3-qrcode` and its two deps, `python3-argon2`), so they, and every plan downstream of them, merge only after 07.3-09 closes or after 07.3-09 Task 2 is amended to build from `c008e84` instead of main (recommended: it decouples the phases, and 07.3-09 already says "from the commit containing 08's reference"). All other plans, including 08-08's declaration of already-installed `iw`/`wireless-regdb`/`nftables`, move no reference rows and merge freely. The reference is re-recorded once, on 08-27a's build. **Precondition for wave 1:** PR #201 (the fix for #200) is merged and `main:pi-gen/config` has no `FIRST_USER_PASS`.
 
 Plans:
-- [ ] 08-01-PLAN.md — ADRs 0011 setup channel (WPA2 per-session hotspot, secrets off argv, paired handoff without Conflicts=, setup-AP forward drop, discretion values, error strings), 0012 credential and claim codes, 0013 factory reset (~350) (Wave 1)
+- [ ] 08-01-PLAN.md — ADRs 0011 setup channel (WPA2 per-session hotspot, secrets off argv, paired handoff without Conflicts=, setup-AP forward drop, discretion values, error strings), 0012 credential and claim codes, 0013 factory reset (~365) (Wave 1)
 - [ ] 08-02-PLAN.md — Schema: `device.display_name`, `owner`, `network`; defaults and save-body; audio save keeps the pairing overlay; Phase 8 CI workflow with the apt set derived from `00-packages-nr` (~265) (Wave 1)
 - [ ] 08-03-PLAN.md — Display name to hostname slug with a hashed, generator-checked banlist (~275) (Wave 1)
 - [ ] 08-04-PLAN.md — Gate the six units on `config.yml`; paired-aware `boot-check`; stale "ships disabled" comments (~250) (Wave 1)
 - [ ] 08-05-PLAN.md — Claim-code store and CLI: bind on first use, idempotent, release, revoke, flock (~260) (Wave 1)
 - [ ] 08-06-PLAN.md — `arlowe-identity`: structured `--json` failure detail (N6) and device-signed `revoke`, TLS-fixture CLI tests (~360) (Wave 1)
-- [ ] 08-07-PLAN.md — `pair/netman.py` (in-memory WPA2 AP brought up with `passwd-file` on stdin, scan, profile cleanup), shared error kinds and `JoinError`, fake nmcli (~350) (Wave 1)
+- [ ] 08-07-PLAN.md — `pair/netman.py` (in-memory WPA2 AP brought up with `passwd-file` on stdin, scan, profile cleanup), shared error kinds and `JoinError`, fake nmcli; profiles addressed by uuid (~376) (Wave 1)
 - [ ] 08-08-PLAN.md — Network substrate: `radio-init` oneshot, NetworkManager polkit rule (`wifi.share.protected`), captive DNS, US regdomain, nftables forward drop on `wlan0` (~330) (Wave 1)
 - [ ] 08-09-PLAN.md — Dashboard auth primitives on Node 24 `crypto.argon2`: PHC verify, HMAC session, throttle; CI to Node 24 (~290) (Wave 1)
 - [ ] 08-10-PLAN.md — Factory-reset engine: ledger marker, commit point, wipe list incl. Wi-Fi profiles, resume (~310) (Wave 1)
 - [ ] 08-15b-PLAN.md — Stub IoT backend and local TLS pair generator for the dev broker (~200) (Wave 1)
-- [ ] 08-07b-PLAN.md — Home-network join with the PSK on stdin, reason-code classification, failure cleanup (~165) (Wave 2)
+- [ ] 08-29-PLAN.md — Keep `/etc/arlowe` at `root:arlowe 0770` through build step 4b (boot-config and recovery-stub reset it to 0755 in both slots; also fixes the dashboard's overlay write on current images), pr-checks self-test, layout doc (~85) (Wave 1)
+- [ ] 08-07b-PLAN.md — Home-network join with the PSK on stdin, reason-code classification, failure cleanup, NetworkManager-exact passwd-file escaping, uuid addressing (~251) (Wave 2)
 - [ ] 08-11-PLAN.md — Whisplay pairing screens and WPA QR; shared RGB565 conversion; `python3-qrcode` [merge-gated] (~360) (Wave 2)
 - [ ] 08-12-PLAN.md — Captive portal: probe redirects, setup form, validation, status (~360) (Wave 2)
 - [ ] 08-13-PLAN.md — Pairing state machine: optimistic handoff, SC3 error mapping, AP restore, `on_paired` hand-off (~355) (Wave 2)
@@ -405,12 +406,12 @@ Plans:
 - [ ] 08-20-PLAN.md — Pairing commit: Argon2id credential, session key, atomic `config.yml`, `start_runtime()`; Python-to-Node hash cross-check in CI; `python3-argon2` [merge-gated] (~370) (Wave 3)
 - [ ] 08-21-PLAN.md — `proxy.ts` session gate, `requireSession` on every mutating route, `verifyAuth` removed (~250) (Wave 3)
 - [ ] 08-22-PLAN.md — Whisplay long-press reset gesture in the face service (~260) (Wave 3)
-- [ ] 08-23-PLAN.md — `python3 -m pair` wiring on 10.42.0.1, shared broker resolver, 30-minute idle timeout, paired hold then release then start the six (~285) (Wave 4)
+- [ ] 08-23-PLAN.md — `python3 -m pair` wiring on 10.42.0.1, shared broker resolver, 30-minute idle timeout, stale Wi-Fi profile sweep at start, paired hold then release then start the six (~300) (Wave 4)
 - [ ] 08-24-PLAN.md — Dashboard factory reset (password re-entry) and settings page (~210) (Wave 4)
 - [ ] 08-25-PLAN.md — `arlowe-pair.service`, no `Conflicts=`, face's groups and syscall filter (~175) (Wave 5)
 - [ ] 08-26-PLAN.md — Container E2E: SC2 happy path and the four SC3 failures, and reset's revoke, with the real CLI and a TLS broker (~375) (Wave 5)
-- [ ] 08-27a-PLAN.md — Phase 8 image build, one inputs re-record, read-only rootfs inspection (~50) (Wave 6)
-- [ ] 08-27b-PLAN.md — Hardware checkpoint: SC1-SC4 on a unit, flashed through the Mac SD slot with read-back; paired reboots, PSK persistence, audio-save survival (~140) (Wave 7, checkpoint)
+- [ ] 08-27a-PLAN.md — Phase 8 image build, one inputs re-record, read-only rootfs inspection incl. `/etc/arlowe` mode in both slots (~55) (Wave 6)
+- [ ] 08-27b-PLAN.md — Hardware checkpoint: SC1-SC4 on a unit, flashed through the Mac SD slot with read-back; paired reboots, power pull during the hold, SIGKILL mid-provisioning, setup-AP forward drop, PSK persistence, audio-save survival (~155) (Wave 7, checkpoint)
 - [ ] 08-28-PLAN.md — Real-cloud pairing and revoke against AWS staging; blocked on 07-09's account, does not gate the phase (~40) (Wave 8, checkpoint)
 
 ### Phase 8.1: Hey Arlowe wake model (INSERTED)
