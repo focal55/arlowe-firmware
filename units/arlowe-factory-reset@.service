@@ -1,0 +1,41 @@
+[Unit]
+Description=Arlowe factory reset (%i trigger)
+# One instance per trigger: arlowe-factory-reset@dashboard and @button. The instance
+# name is the trigger recorded in resets.log; the helper rejects any other value.
+# Started on demand by the arlowe user through 50-arlowe-systemctl.rules' arlowe-
+# prefix, so there is no [Install] section.
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+# Root: the reset removes /etc/arlowe/config.yml, rewrites /etc/hosts, deletes
+# NetworkManager profiles and empties root- and arlowe-owned state.
+Environment=PYTHONUNBUFFERED=1
+Environment=ARLOWE_BROKER_FILE=/boot/firmware/arlowe-broker.json
+ExecStart=/usr/bin/python3 /opt/arlowe/runtime/cli/factory-reset --trigger %i
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+# yes, not full or strict: the wipe writes /etc/arlowe, /etc/hosts,
+# /var/lib/arlowe, /var/lib/NetworkManager and the journal, and full would make
+# /etc read-only. yes still keeps /usr and /boot read-only.
+ProtectSystem=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# Pi 5 boots with numa=fake=8; see arlowe-identity-init.service.
+SystemCallFilter=mbind
+# AF_UNIX for systemctl, nmcli and hostnamectl over D-Bus; AF_INET/AF_INET6 for
+# the certificate revoke.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

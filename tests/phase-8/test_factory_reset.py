@@ -70,7 +70,7 @@ def env(tmp_path):
     _write(tmp_path / "nm-list", NM_LIST)
     return {"root": root, "log": tmp_path / "calls.log", "vars": {
         "PATH": f"{bindir}:{os.environ['PATH']}", "ARLOWE_ROOT": str(root),
-        "SHIM_LOG": str(tmp_path / "calls.log"), "NM_LIST": str(tmp_path / "nm-list")}}
+        "ARLOWE_LIB": str(SCRIPT.parents[1] / "lib"), "SHIM_LOG": str(tmp_path / "calls.log"), "NM_LIST": str(tmp_path / "nm-list")}}
 
 
 def run(env, *args, **extra):

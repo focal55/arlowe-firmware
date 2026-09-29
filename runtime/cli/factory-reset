@@ -22,6 +22,8 @@ Testing hooks (not for use on a device):
                            set when ARLOWE_ROOT is unset.
   ARLOWE_RESET_FAIL_AFTER  raise after step N (1-based) runs and before it is
                            recorded; exists for the resume-from-every-step test.
+  ARLOWE_RESET_REVOKE_TIMEOUT  seconds the revoke may take (default 20).
+  ARLOWE_BROKER_FILE       the FAT broker file, ARLOWE_ROOT-prefixed like every path.
   --no-reboot              skip the final `systemctl reboot`.
 
 Never logs file contents.
@@ -30,12 +32,21 @@ Never logs file contents.
 import argparse
 import glob
 import json
+import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+import yaml
+
+sys.path.insert(0, os.environ.get("ARLOWE_LIB", "/opt/arlowe/runtime/lib"))
+
+from arlowe_broker import resolve_broker  # noqa: E402
 
 ROOT = os.environ.get("ARLOWE_ROOT", "")
 TRIGGERS = ("dashboard", "button")
@@ -60,7 +71,12 @@ STATE = path("/var/lib/arlowe")
 LEDGER = STATE / "reset-ledger"
 MARKER = LEDGER / "in-progress"
 AUDIT = LEDGER / "resets.log"
+ORPHANS = LEDGER / "orphaned-certs.jsonl"
 CONFIG = path("/etc/arlowe/config.yml")
+IDENTITY = path("/var/lib/arlowe/identity/identity.json")
+BROKER_FILE = path(os.environ.get("ARLOWE_BROKER_FILE", "/boot/firmware/arlowe-broker.json"))
+REVOKE_TIMEOUT = float(os.environ.get("ARLOWE_RESET_REVOKE_TIMEOUT", "20"))
+REVOKE_REASONS = {3: "rejected", 4: "unavailable", 5: "local_state"}
 NM_STATE = path("/var/lib/NetworkManager")
 HOSTS = path("/etc/hosts")
 
@@ -106,9 +122,83 @@ def stop_units(ctx):
         raise RuntimeError("systemctl stop exited %d" % rc)
 
 
+def _now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _provisioning_url():
+    try:
+        config = yaml.safe_load(CONFIG.read_text()) or {}
+        return str((config.get("identity") or {}).get("provisioning_url") or "").strip()
+    except (OSError, yaml.YAMLError, AttributeError):
+        return ""
+
+
+def _run_revoke(url, ca_path):
+    """Return None on success, else the failure reason recorded in the orphan ledger."""
+    env = dict(os.environ)
+    env.pop("ARLOWE_BROKER_CA_BUNDLE", None)
+    if ca_path:
+        env["ARLOWE_BROKER_CA_BUNDLE"] = str(ca_path)
+    # Own session so a timeout kills the whole group: a surviving grandchild holding
+    # stdout open would block communicate() past the timeout.
+    proc = subprocess.Popen(["arlowe-identity", "revoke", "--json", "--ca-broker-url", url],
+                            stdout=subprocess.PIPE, env=env, text=True, start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=REVOKE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        return "timeout"
+    if proc.returncode == 0:
+        return None
+    try:
+        error = json.loads(out).get("error")
+    except (ValueError, AttributeError):
+        error = None
+    return error or REVOKE_REASONS.get(proc.returncode, "exit_%d" % proc.returncode)
+
+
+def _record_orphan(meta, reason):
+    entry = {k: meta.get(k) for k in ("certificate_id", "thing_name", "device_id")}
+    line = json.dumps({**entry, "at": _now(), "reason": reason}, sort_keys=True)
+    fd = os.open(ORPHANS, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a") as f:
+        f.write(line + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    fsync_dir(LEDGER)
+
+
 def revoke_or_record(ctx):
-    """Best-effort certificate revoke: "ok" | "failed" | "skipped". Stubbed until 08-18."""
-    return "skipped"
+    """Best-effort certificate revoke: "ok" | "failed" | "skipped" (ADR-0013 step 3).
+
+    Runs before the commit point, so config.yml still names the broker. Every failure
+    leaves an orphaned-certs line; nothing is ever silently abandoned.
+    """
+    try:
+        meta = json.loads(IDENTITY.read_text())
+    except (OSError, ValueError):
+        meta = {}
+    if not isinstance(meta, dict) or not meta.get("certificate_id"):
+        return "skipped"
+    ca_dir = tempfile.mkdtemp(prefix="arlowe-reset-")
+    try:
+        broker = resolve_broker(BROKER_FILE, _provisioning_url(), ca_dir)
+        reason = _run_revoke(*broker) if broker else "no_broker_url"
+    except OSError as exc:
+        reason = "local_error"
+        log("revoke could not run: %s" % exc.strerror)
+    finally:
+        shutil.rmtree(ca_dir, ignore_errors=True)
+    if reason is None:
+        return "ok"
+    log("revoke failed (%s); recording certificate in the orphan ledger" % reason)
+    _record_orphan(meta, reason)
+    return "failed"
 
 
 def revoke(ctx):
@@ -196,6 +286,7 @@ def parse_args(argv):
 
 def main(argv):
     args = parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="factory-reset: %(message)s")
     if MARKER.exists():
         ctx = json.loads(MARKER.read_text())
         log("resuming %s reset after step %d" % (ctx["trigger"], ctx["step"]))
@@ -206,7 +297,7 @@ def main(argv):
         LEDGER.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(LEDGER, 0o700)
         ctx = {"trigger": args.trigger, "step": 0, "revoke": "skipped",
-               "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+               "started_at": _now()}
         save_marker(ctx)
         log("starting %s reset" % args.trigger)
     fail_after = int(os.environ.get("ARLOWE_RESET_FAIL_AFTER", "0"))
