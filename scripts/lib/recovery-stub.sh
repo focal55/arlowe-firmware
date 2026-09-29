@@ -243,7 +243,9 @@ _rstub_write_partuuid_map() {
     local mnt_b="$1"
     local partuuid_map="$2"
 
-    sudo install -d -m 0755 "${mnt_b}/etc/arlowe"
+    # mkdir -p, not install -d: install -d would reset the chroot's root:arlowe
+    # 0770 on the existing directory, and arlowe could no longer write the overlay.
+    sudo mkdir -p "${mnt_b}/etc/arlowe"
     sudo install -m 0644 "${partuuid_map}" "${mnt_b}/etc/arlowe/ab-partuuid-map"
     echo "[recovery-stub] PARTUUID map installed at /etc/arlowe/ab-partuuid-map"
 }

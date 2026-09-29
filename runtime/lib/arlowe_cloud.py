@@ -32,7 +32,10 @@ from arlowe_identity import read_metadata
 LOG = logging.getLogger("arlowe.cloud")
 
 BROKER_PATH = "/v1/certificates"
+REVOKE_PATH = "/v1/certificates/revoke"
 TIMEOUT = (5, 30)
+REVOKE_TIMEOUT = 20
+TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 EXPIRY_MARGIN_SECONDS = 60
 POLL_INTERVAL_FLOOR = 900
 BROKER_FIELDS = ("certificate_pem", "certificate_id", "certificate_arn",
@@ -58,18 +61,26 @@ class CertificateRevoked(CloudError):
 
 
 class CloudUnavailable(CloudError):
-    """Transport failure, timeout, or a 5xx from the broker or AWS."""
+    """Transport failure, timeout, or a 5xx from the broker or AWS.
+
+    .status is the broker's 5xx, or None when no response arrived at all; the
+    pairing daemon tells an issuance failure from an unreachable server by it.
+    """
+
+    def __init__(self, msg, status=None):
+        super().__init__(msg)
+        self.status = status
 
 
 class ProvisioningRejected(CloudError):
-    """The broker refused the CSR or answered with a half-populated body.
+    """The broker refused the request or answered with a half-populated body.
 
     Carries .status and .reason so a caller can tell a retryable request bug
     (malformed_request) from a real identity fault (csr_subject_mismatch).
     """
 
     def __init__(self, reason, status=None):
-        super().__init__("broker rejected the CSR: %s (status %s)" % (reason, status))
+        super().__init__("broker rejected the request: %s (status %s)" % (reason, status))
         self.reason = reason
         self.status = status
 
@@ -227,17 +238,52 @@ def request_certificate(broker_url, owner_token, device_id, csr_pem):
 
     LOG.info("POST %s%s device=%s -> %s", host, BROKER_PATH, device_id, response.status_code)
     if response.status_code >= 500:
-        raise CloudUnavailable("broker %s returned %s" % (host, response.status_code))
+        raise CloudUnavailable("broker %s returned %s" % (host, response.status_code),
+                               status=response.status_code)
+    body = _broker_body(response)
+    absent = [field for field in BROKER_FIELDS if not body.get(field)]
+    if absent:
+        raise ProvisioningRejected("response is missing " + ", ".join(absent), status=200)
+    return {field: body[field] for field in BROKER_FIELDS}
 
+
+def _broker_body(response):
+    """Return a 200's JSON body; raise ProvisioningRejected for any other status."""
     try:
         body = response.json()
     except ValueError as exc:
         raise ProvisioningRejected("unparseable broker response: %s" % exc,
                                    status=response.status_code) from exc
-
     if response.status_code != 200:
         raise ProvisioningRejected(body.get("error", "unknown"), status=response.status_code)
-    absent = [field for field in BROKER_FIELDS if not body.get(field)]
-    if absent:
-        raise ProvisioningRejected("response is missing " + ", ".join(absent), status=200)
-    return {field: body[field] for field in BROKER_FIELDS}
+    return body
+
+
+def revoke_certificate(broker_url, device_id, certificate_id, sign):
+    """Ask the broker to revoke this unit's certificate; return the broker's reply.
+
+    No bearer token: the request is authenticated by `sign`, which returns the
+    base64 device-key signature over the canonical JSON of the three signed fields
+    (arlowe_pki.sign_payload). issued_at bounds replay; the broker (08-19) rejects
+    a stale one with 401. Failures map as for request_certificate.
+    """
+    if urlparse(broker_url).scheme != "https":
+        raise ProvisioningRejected("broker URL must be https://, got %r" % broker_url)
+
+    url = broker_url.rstrip("/") + REVOKE_PATH
+    host = urlparse(url).netloc
+    fields = {"certificate_id": certificate_id, "device_id": device_id,
+              "issued_at": datetime.now(timezone.utc).strftime(TIMESTAMP_FORMAT)}
+    try:
+        response = requests.post(url, json={**fields, "signature": sign(fields)},
+                                 verify=_ca_bundle("ARLOWE_BROKER_CA_BUNDLE"),
+                                 timeout=REVOKE_TIMEOUT)
+    except requests.RequestException as exc:
+        raise CloudUnavailable("broker %s unreachable: %s" % (host, exc)) from exc
+
+    LOG.info("POST %s%s device=%s certificate=%s -> %s", host, REVOKE_PATH, device_id,
+             certificate_id, response.status_code)
+    if response.status_code >= 500:
+        raise CloudUnavailable("broker %s returned %s" % (host, response.status_code),
+                               status=response.status_code)
+    return _broker_body(response)

@@ -8,7 +8,7 @@ The file is deliberately named `identity`, not `arlowe-identity`: the installer
 links arlowe-${cli} -> ${TARGET_DIR}/${cli}, and the one file that carried the
 prefix in its own name shipped as a dangling symlink (F7 #21).
 
-Subcommands: init, status, provision, check-cloud, reset.
+Subcommands: init, status, provision, check-cloud, revoke, reset.
 
 `provision` is the stubbed pairing trigger. Phase 8's pairing daemon calls exactly
 this command instead of a human, so it is non-interactive by contract: no prompts,
@@ -21,6 +21,12 @@ Exit codes are a contract plan 07-09 asserts against, so they are distinct and
 stable: 0 ok, 2 usage, 3 rejected, 4 cloud unavailable, 5 local state,
 6 certificate revoked. 6 must mean "refused because revoked", never merely
 "the call failed" -- that distinction is the whole of SC4.
+
+Detail rides on the payload, not on new codes: a failed provision or revoke run
+with --json prints {"ok": false, "exit", "error", "http_status"} to stdout, where
+error is the broker's reason (or "unavailable") and http_status is null when no
+response arrived. `revoke` is factory reset's first step: it asks the broker to
+revoke the current certificate with a request signed by device.key.
 
 The private key is never printed. The owner token is never printed or logged.
 Credential secrets are never printed, not even truncated; only the access key id
@@ -215,7 +221,10 @@ def cmd_provision(args):
     token = _owner_token(args)
     device_id = _ensure_identity()
 
-    issued = cloud.request_certificate(url, token, device_id, pki.load_csr_pem())
+    try:
+        issued = cloud.request_certificate(url, token, device_id, pki.load_csr_pem())
+    except (cloud.ProvisioningRejected, cloud.CloudUnavailable) as exc:
+        return _cloud_failure(args, exc)
     pki.store_certificate(issued["certificate_pem"])
 
     # identity.json already exists -- ensure_device_id created it above -- so these
@@ -256,6 +265,24 @@ def cmd_check_cloud(args):
           ["credentials issued for thing %s" % (payload["thing_name"] or "(unknown)"),
            "access key id: %s..." % payload["access_key_id_prefix"],
            "expiration:    %s" % payload["expiration"]])
+    return EXIT_OK
+
+
+def cmd_revoke(args):
+    """Revoke the current certificate at the broker. No token: device.key signs."""
+    url = _broker_url(args)
+    metadata = ident.read_metadata()
+    certificate_id, device_id = metadata.get("certificate_id"), metadata.get("device_id")
+    if not certificate_id or not device_id:
+        return _failure(args, cloud.NotProvisioned("identity.json records no certificate; "
+                                                   "nothing to revoke"),
+                        EXIT_LOCAL, "not_provisioned")
+    try:
+        cloud.revoke_certificate(url, device_id, certificate_id, pki.sign_payload)
+    except (cloud.ProvisioningRejected, cloud.CloudUnavailable) as exc:
+        return _cloud_failure(args, exc)
+    _emit(args, {"ok": True, "certificate_id": certificate_id},
+          ["revoked certificate %s" % certificate_id])
     return EXIT_OK
 
 
@@ -307,6 +334,12 @@ def build_parser():
                           help="exchange the certificate for credentials; exit 6 if revoked"
                           ).set_defaults(handler=cmd_check_cloud)
 
+    revoke = subparsers.add_parser("revoke", parents=[common],
+                                   help="ask the broker to revoke the current certificate")
+    revoke.add_argument("--ca-broker-url",
+                        help="CSR broker; defaults to identity.provisioning_url")
+    revoke.set_defaults(handler=cmd_revoke)
+
     reset = subparsers.add_parser("reset", parents=[common],
                                   help="erase the identity store (factory reset)")
     reset.add_argument("--force", action="store_true", help="required; this is destructive")
@@ -336,6 +369,21 @@ def main(argv=None):
 def _fail(exc, code):
     print("arlowe-identity: %s" % exc, file=sys.stderr)
     return code
+
+
+def _failure(args, exc, code, error):
+    """_fail, plus the structured payload on stdout under --json."""
+    if args.json:
+        print(json.dumps({"ok": False, "exit": code, "error": error,
+                          "http_status": getattr(exc, "status", None)},
+                         indent=2, sort_keys=True))
+    return _fail(exc, code)
+
+
+def _cloud_failure(args, exc):
+    if isinstance(exc, cloud.ProvisioningRejected):
+        return _failure(args, exc, EXIT_REJECTED, exc.reason)
+    return _failure(args, exc, EXIT_UNAVAILABLE, "unavailable")
 
 
 if __name__ == "__main__":
