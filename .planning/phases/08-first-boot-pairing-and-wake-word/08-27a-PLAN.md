@@ -62,14 +62,14 @@ Purpose: the build loop is the only test of chroot-level changes (memory). Four 
   <files>(none; evidence only)</files>
   <action>
 All must hold; record each with its evidence:
-1. #200 has landed on main: `grep -cE '^FIRST_USER_PASS="?raspberry' pi-gen/config` is 0 and #200's build gate exists (name it from #200's merged diff).
-2. Plans 08-01 through 08-26 are merged to main (each SUMMARY exists; `git log main --oneline` shows each plan's commits).
+1. PR #201 (the fix for #200) is merged on main: `grep -c FIRST_USER_PASS pi-gen/config` is 0 and #201's build gate exists (name it from #201's merged diff).
+2. Plans 08-01 through 08-26, including 08-07b and 08-15b, are merged to main (each SUMMARY exists; `git log main --oneline` shows each plan's commits).
 3. N10: either 07.3-09 is closed (its SUMMARY exists and ADR-0010 is Accepted), or 07.3-09 was amended to build from `c008e84` and that amendment is on main. If neither, report `WAITING: 07.3-09 build B has not run and is not pinned to c008e84` and stop.
 4. `bash tests/phase-8/test-*.sh` all pass and `pytest runtime/pair/tests tests/phase-8` passes in the bookworm container on main's head.
   </action>
   <verify>
-    grep -cE '^FIRST_USER_PASS="?raspberry' pi-gen/config   # expect: 0
-    ls .planning/phases/08-first-boot-pairing-and-wake-word/08-2[0-6]-SUMMARY.md
+    grep -c FIRST_USER_PASS pi-gen/config   # expect: 0
+    ls .planning/phases/08-first-boot-pairing-and-wake-word/08-2[0-6]-SUMMARY.md .planning/phases/08-first-boot-pairing-and-wake-word/08-07b-SUMMARY.md .planning/phases/08-first-boot-pairing-and-wake-word/08-15b-SUMMARY.md
   </verify>
   <done>Every precondition is proven, or the plan stopped WAITING with the reason.</done>
 </task>
