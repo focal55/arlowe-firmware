@@ -1,0 +1,232 @@
+#!/usr/bin/python3
+"""
+factory-reset -- return the unit to its unpaired, out-of-box state (ADR-0013).
+
+Runs as root: `--trigger dashboard|button` starts a reset, `--resume` finishes one a
+power cut interrupted (the boot-time resume unit runs it when the marker exists).
+If a marker already exists, `--trigger` also resumes it, keeping its original trigger.
+
+Order is ADR-0013's and is load-bearing:
+  marker -> stop units -> revoke (best effort) -> rm config.yml -> Wi-Fi profiles
+  -> identity -> state dirs -> journal -> hostname -> audit line -> reboot.
+Removing /etc/arlowe/config.yml is the commit point: from that step on the six
+units' ConditionPathExists fails and the next boot pairs.
+
+The marker, reset-ledger/in-progress, holds {"trigger", "started_at", "step",
+"revoke"} and is rewritten with fsync after every step, so a resume skips what is
+done. A step that ran but was not recorded reruns, so every step is idempotent.
+
+Testing hooks (not for use on a device):
+  ARLOWE_ROOT              prefixes every filesystem path; external commands are
+                           found on PATH so tests can shim them. Ownership is only
+                           set when ARLOWE_ROOT is unset.
+  ARLOWE_RESET_FAIL_AFTER  raise after step N (1-based) runs and before it is
+                           recorded; exists for the resume-from-every-step test.
+  --no-reboot              skip the final `systemctl reboot`.
+
+Never logs file contents.
+"""
+
+import argparse
+import glob
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = os.environ.get("ARLOWE_ROOT", "")
+TRIGGERS = ("dashboard", "button")
+UNITS = ("arlowe-dashboard.service", "arlowe-face.service", "arlowe-voice.service",
+         "qwen-api.service", "qwen-tokenizer.service", "whisper-stt.service",
+         "arlowe-pair.service")
+# Owners and modes mirror scripts/provision/install-arlowe-fs.sh; keep them in step.
+WIPED = ("conversations", "wake-word", "state", "dashboard", "logs", "cache")
+SKELETON = (("conversations", 0o700), ("identity", 0o700), ("wake-word", 0o750),
+            ("state", 0o750), ("dashboard", 0o750), ("dashboard/cache", 0o750),
+            ("logs", 0o750), *((f"logs/{s}", 0o750) for s in
+                               ("voice", "face", "stt", "tts", "llm", "dashboard")),
+            ("cache", 0o750), ("cache/huggingface", 0o750))
+HOSTNAME = "arlowe"
+
+
+def path(p):
+    return Path(ROOT + p)
+
+
+STATE = path("/var/lib/arlowe")
+LEDGER = STATE / "reset-ledger"
+MARKER = LEDGER / "in-progress"
+AUDIT = LEDGER / "resets.log"
+CONFIG = path("/etc/arlowe/config.yml")
+NM_STATE = path("/var/lib/NetworkManager")
+HOSTS = path("/etc/hosts")
+
+
+def log(msg):
+    print("factory-reset: " + msg, file=sys.stderr, flush=True)
+
+
+def run(*argv):
+    subprocess.run(argv, check=True, stdout=subprocess.PIPE)
+
+
+def fsync_dir(d):
+    fd = os.open(d, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def write_atomic(target, text, mode):
+    tmp = target.with_name(target.name + ".tmp")
+    with open(tmp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, target)
+    fsync_dir(target.parent)
+
+
+def save_marker(ctx):
+    write_atomic(MARKER, json.dumps(ctx, sort_keys=True) + "\n", 0o600)
+
+
+def stop_units(ctx):
+    rc = subprocess.run(["systemctl", "stop", *UNITS]).returncode
+    if rc:
+        log("systemctl stop exited %d; continuing (a unit may not be installed)" % rc)
+
+
+def revoke_or_record(ctx):
+    """Best-effort certificate revoke: "ok" | "failed" | "skipped". Stubbed until 08-18."""
+    return "skipped"
+
+
+def revoke(ctx):
+    ctx["revoke"] = revoke_or_record(ctx)
+
+
+def commit(ctx):
+    CONFIG.unlink(missing_ok=True)
+    fsync_dir(CONFIG.parent)
+
+
+def forget_networks(ctx):
+    listing = subprocess.run(["nmcli", "-t", "-f", "UUID,TYPE", "connection", "show"],
+                             check=True, stdout=subprocess.PIPE, text=True).stdout
+    wifi = [uuid for uuid, _, kind in (line.rpartition(":") for line in listing.splitlines())
+            if kind == "802-11-wireless"]
+    if wifi:
+        run("nmcli", "connection", "delete", *wifi)
+    for name in ("seen-bssids", "timestamps", *glob.glob("*.lease", root_dir=NM_STATE)):
+        (NM_STATE / name).unlink(missing_ok=True)
+
+
+def reset_identity(ctx):
+    run("arlowe-identity", "reset", "--force")
+
+
+def empty(d):
+    for child in d.iterdir() if d.is_dir() else ():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def wipe_state(ctx):
+    for name in WIPED:
+        empty(STATE / name)
+    for rel, mode in SKELETON:
+        d = STATE / rel
+        d.mkdir(exist_ok=True)
+        os.chmod(d, mode)
+        if not ROOT:
+            shutil.chown(d, "arlowe", "arlowe")
+
+
+def vacuum_journal(ctx):
+    run("journalctl", "--rotate")
+    run("journalctl", "--vacuum-time=1s")
+
+
+def reset_hostname(ctx):
+    run("hostnamectl", "set-hostname", HOSTNAME)
+    lines = HOSTS.read_text().splitlines() if HOSTS.exists() else []
+    kept = [line for line in lines if not line.split()[:1] == ["127.0.1.1"]]
+    write_atomic(HOSTS, "\n".join(kept + ["127.0.1.1\t" + HOSTNAME]) + "\n", 0o644)
+
+
+def audit(ctx):
+    # `at` is the reset's start time, so a rerun of this step can recognise its own line.
+    line = json.dumps({"at": ctx["started_at"], "trigger": ctx["trigger"],
+                       "revoke": ctx["revoke"]}, sort_keys=True)
+    if AUDIT.exists() and line in AUDIT.read_text().splitlines()[-1:]:
+        return
+    with open(AUDIT, "a") as f:
+        f.write(line + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+STEPS = (("stop", stop_units), ("revoke", revoke), ("commit", commit),
+         ("network", forget_networks), ("identity", reset_identity),
+         ("wipe", wipe_state), ("journal", vacuum_journal),
+         ("hostname", reset_hostname), ("audit", audit))
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(prog="factory-reset", description=__doc__.split("\n")[1])
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--trigger", choices=TRIGGERS)
+    mode.add_argument("--resume", action="store_true",
+                      help="finish an interrupted reset; no marker means nothing to do")
+    parser.add_argument("--no-reboot", action="store_true", help="tests only")
+    return parser.parse_args(argv)
+
+
+def main(argv):
+    args = parse_args(argv)
+    if MARKER.exists():
+        ctx = json.loads(MARKER.read_text())
+        log("resuming %s reset after step %d" % (ctx["trigger"], ctx["step"]))
+    elif args.resume:
+        log("no reset in progress")
+        return 0
+    else:
+        LEDGER.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(LEDGER, 0o700)
+        ctx = {"trigger": args.trigger, "step": 0, "revoke": "skipped",
+               "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        save_marker(ctx)
+        log("starting %s reset" % args.trigger)
+    fail_after = int(os.environ.get("ARLOWE_RESET_FAIL_AFTER", "0"))
+    for index, (name, fn) in enumerate(STEPS, start=1):
+        if index <= ctx["step"]:
+            continue
+        log("step %d/%d: %s" % (index, len(STEPS), name))
+        fn(ctx)
+        if index == fail_after:
+            raise RuntimeError("injected failure after step %d" % index)
+        ctx["step"] = index
+        save_marker(ctx)
+    MARKER.unlink()
+    fsync_dir(LEDGER)
+    os.sync()
+    log("done; revoke %s" % ctx["revoke"])
+    if not args.no_reboot:
+        run("systemctl", "reboot")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, subprocess.CalledProcessError, RuntimeError) as exc:
+        log("aborted, marker kept for --resume: %s" % exc)
+        sys.exit(1)
