@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Factory-reset units: one template instance per trigger, plus the boot-time resume.
 # The helpers below are invoked through check "$@", which shellcheck cannot see.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
