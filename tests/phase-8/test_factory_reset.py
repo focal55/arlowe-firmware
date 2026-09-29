@@ -18,6 +18,7 @@ SHIM = """#!/bin/sh
 cfg=absent; [ -e "$ARLOWE_ROOT/etc/arlowe/config.yml" ] && cfg=present
 conv=absent; [ -e "$ARLOWE_ROOT/var/lib/arlowe/conversations/c1.json" ] && conv=present
 echo "$(basename "$0") $* |config=$cfg conv=$conv" >> "$SHIM_LOG"
+[ "$(basename "$0") $1" = "systemctl stop" ] && exit "${SHIM_STOP_RC:-0}"
 case "$(basename "$0") $*" in "nmcli -t -f UUID,TYPE connection show") cat "$NM_LIST";; esac
 """
 # Owners and modes from scripts/provision/install-arlowe-fs.sh; identity is emptied by
@@ -157,6 +158,17 @@ def test_stop_then_commit_then_wipe(env):
                        "arlowe-pair.service"}
     assert all("config=absent" in x for x in c[1:])
     assert any("conv=present" in x for x in c[1:])
+
+
+def test_stop_tolerates_unit_not_installed(env):
+    assert run(env, "--trigger", "dashboard", "--no-reboot", SHIM_STOP_RC="5") == 0
+    assert not (env["root"] / "etc/arlowe/config.yml").exists()
+
+
+def test_stop_failure_aborts_before_commit(env):
+    assert run(env, "--trigger", "dashboard", "--no-reboot", SHIM_STOP_RC="1") == 1
+    assert (env["root"] / "etc/arlowe/config.yml").exists()
+    assert (env["root"] / "var/lib/arlowe/reset-ledger/in-progress").exists()
 
 
 def test_ledger_created_on_demand(env):
