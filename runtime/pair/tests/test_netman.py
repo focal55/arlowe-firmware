@@ -53,7 +53,7 @@ def test_session_credentials():
 
 def test_radio_on(nm, fake):
     nm.radio_on()
-    assert fake.argvs() == [[str(FAKE), "radio", "wifi", "on"]]
+    assert fake.argvs() == [["radio", "wifi", "on"]]
 
 
 def test_scan(nm, fake):
@@ -67,7 +67,7 @@ def test_scan(nm, fake):
         {"ssid": "Cafe", "signal": 70, "secure": False},
         {"ssid": "Home", "signal": 65, "secure": True},
     ]
-    assert fake.argvs()[0][1:] == ["-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi",
+    assert fake.argvs()[0] == ["-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi",
                                    "list", "--rescan", "yes"]
 
 
@@ -79,7 +79,7 @@ def test_scan_escaped_colon(nm, fake):
 def test_ap_up_and_down(nm, fake):
     nm.ap_up("Arlowe-Setup-ab12", PSK)
     add, up = fake.argvs()
-    assert add[1:3] == ["connection", "add"]
+    assert add[:2] == ["connection", "add"]
     for pair in (["ssid", "Arlowe-Setup-ab12"], ["802-11-wireless.mode", "ap"],
                  ["wifi-sec.key-mgmt", "wpa-psk"], ["wifi-sec.proto", "rsn"],
                  ["ipv4.method", "shared"], ["ipv4.addresses", "10.42.0.1/24"]):
@@ -87,33 +87,29 @@ def test_ap_up_and_down(nm, fake):
     assert "wifi-sec.psk" not in add
     assert fake.profiles()[0]["active"] is True
     nm.ap_down()
-    assert [a[1:3] for a in fake.argvs()[2:]] == [["connection", "down"],
+    assert [a[:2] for a in fake.argvs()[2:4]] == [["connection", "down"],
                                                   ["connection", "delete"]]
     assert fake.profiles() == []
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.delete_profile(fake.profiles()[0]["uuid"])
     nm.ap_down()
 
 
-def test_ap_up_failure_raises(nm, fake):
+def test_ap_up_failure_raises_and_cleans_up(nm, fake):
     fake.scenario(ap_up="fail")
     with pytest.raises(netman.NetManError):
         nm.ap_up("Arlowe-Setup-ab12", PSK)
+    assert fake.profiles() == []
 
 
 def test_ap_profile_not_saved(nm, fake):
     nm.ap_up("Arlowe-Setup-ab12", PSK)
     add = fake.argvs()[0]
-    assert add[3:5] == ["save", "no"]
+    assert add[2:4] == ["save", "no"]
     assert fake.profiles()[0]["save"] == "no"
 
 
-def test_no_secret_in_argv(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
-    nm.ap_down()
-    assert not any(PSK in arg for argv in fake.argvs() for arg in argv)
-    assert fake.argvs()[1][-2:] == ["passwd-file", "/dev/stdin"]
-
-
-def test_secret_reaches_stdin(fake):
+def test_no_secret_in_argv(fake):
     seen = []
 
     def runner(argv, input=None):
@@ -122,8 +118,12 @@ def test_secret_reaches_stdin(fake):
 
     nm = NetMan(runner=runner, nmcli=str(FAKE))
     nm.ap_up("Arlowe-Setup-ab12", PSK)
+    (ap,) = fake.profiles()
+    assert ap["name"] == "arlowe-setup" and ap["secret_supplied"] is True
     assert seen == [None, b"802-11-wireless-security.psk:" + PSK.encode() + b"\n"]
-    assert fake.profiles()[0]["secret_supplied"] is True
+    nm.ap_down()
+    assert not any(PSK in arg for argv in fake.argvs() for arg in argv)
+    assert fake.argvs()[1][-2:] == ["passwd-file", "/dev/stdin"]
 
 
 def test_ap_addressed_by_uuid(nm, fake):
@@ -133,16 +133,16 @@ def test_ap_addressed_by_uuid(nm, fake):
     u = add[add.index("connection.uuid") + 1]
     assert uuid.UUID(u).version == 4
     for argv in (up, down, delete):
-        assert argv[3:5] == ["uuid", u]
+        assert argv[2:4] == ["uuid", u]
         assert "arlowe-setup" not in argv
 
 
 def test_wifi_profiles_and_delete(nm, fake):
     nm.ap_up("Arlowe-Setup-ab12", PSK)
     (u,) = nm.wifi_profiles()
-    assert fake.argvs()[-1][1:] == ["-t", "-f", "UUID,TYPE", "connection", "show"]
+    assert fake.argvs()[-1] == ["-t", "-f", "UUID,TYPE", "connection", "show"]
     nm.delete_profile(u)
-    assert fake.argvs()[-1][1:] == ["connection", "delete", "uuid", u]
+    assert fake.argvs()[-1] == ["connection", "delete", "uuid", u]
     assert nm.wifi_profiles() == []
     nm.delete_profile(u)
 
@@ -162,7 +162,7 @@ def test_no_shell(fake, monkeypatch):
     nm.ap_up("Arlowe-Setup-ab12", PSK)
     nm.wifi_profiles()
     nm.ap_down()
-    assert len(calls) == 6
+    assert len(calls) == 7
     for args, kwargs in calls:
         assert isinstance(args[0], list) and all(isinstance(a, str) for a in args[0])
         assert not kwargs.get("shell")
