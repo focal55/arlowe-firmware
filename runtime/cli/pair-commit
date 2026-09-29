@@ -1,0 +1,125 @@
+#!/usr/bin/python3
+"""
+pair-commit -- apply the owner's chosen name as the unit's hostname. Root.
+
+Run only as arlowe-pair-commit.service. The unprivileged pairing daemon writes
+/run/arlowe-pair/commit-request.json = {"display_name": "<as typed>"} and starts
+the unit through the arlowe- polkit prefix; that is its entire authority here
+(ADR-0011 privilege split). Nothing in the request is trusted: the file must be
+a regular non-symlink of at most 4 KiB, and the name is re-validated with the
+same arlowe_hostname validator the daemon used. The slug is derived here, never
+accepted from the daemon.
+
+Order: validate everything, then hostnamectl, then /etc/hosts, then avahi, so a
+refused or failed request changes nothing on disk.
+
+Exit codes: 0 applied; 2 bad request (missing, symlink, too big, not JSON);
+3 name rejected; 4 a system command failed. The daemon maps any non-zero to
+setup_failed.
+
+ARLOWE_ROOT prefixes the request and hosts paths (tests only); ARLOWE_LIB
+locates the runtime library.
+"""
+
+import json
+import os
+import stat
+import subprocess
+import sys
+
+sys.path.insert(0, os.environ.get("ARLOWE_LIB", "/opt/arlowe/runtime/lib"))
+
+from arlowe_hostname import HostnameRejected, validate_display_name  # noqa: E402
+
+EXIT_OK = 0
+EXIT_REQUEST = 2
+EXIT_REJECTED = 3
+EXIT_SYSTEM = 4
+
+ROOT = os.environ.get("ARLOWE_ROOT", "")
+REQUEST = ROOT + "/run/arlowe-pair/commit-request.json"
+HOSTS = ROOT + "/etc/hosts"
+MAX_REQUEST = 4096
+LOOPBACK = "127.0.1.1"
+
+
+class Fail(Exception):
+    def __init__(self, code, msg):
+        self.code = code
+        super().__init__(msg)
+
+
+def read_request():
+    try:
+        fd = os.open(REQUEST, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as exc:
+        raise Fail(EXIT_REQUEST, f"cannot open request: {exc.strerror}") from None
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise Fail(EXIT_REQUEST, "request is not a regular file")
+        raw = f.read(MAX_REQUEST + 1)
+    if len(raw) > MAX_REQUEST:
+        raise Fail(EXIT_REQUEST, f"request exceeds {MAX_REQUEST} bytes")
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise Fail(EXIT_REQUEST, "request is not JSON") from None
+    name = body.get("display_name") if isinstance(body, dict) else None
+    if not isinstance(name, str):
+        raise Fail(EXIT_REQUEST, "request has no display_name string")
+    return name
+
+
+def run(*argv):
+    try:
+        rc = subprocess.run(argv, stdin=subprocess.DEVNULL).returncode
+    except OSError as exc:
+        raise Fail(EXIT_SYSTEM, f"{argv[0]}: {exc.strerror}") from None
+    if rc != 0:
+        raise Fail(EXIT_SYSTEM, f"{' '.join(argv[:2])} exited {rc}")
+
+
+def rewrite_hosts(slug):
+    # In place, not rename: the unit can write /etc/hosts but not /etc.
+    entry = f"{LOOPBACK}\t{slug}\n"
+    try:
+        with open(HOSTS, "r+", encoding="utf-8") as f:
+            lines = f.read().splitlines(keepends=True)
+            found = False
+            for i, line in enumerate(lines):
+                if line.split()[:1] == [LOOPBACK]:
+                    lines[i] = entry
+                    found = True
+            if not found:
+                if lines and not lines[-1].endswith("\n"):
+                    lines[-1] += "\n"
+                lines.append(entry)
+            f.seek(0)
+            f.write("".join(lines))
+            f.truncate()
+            f.flush()
+            os.fsync(f.fileno())
+    except OSError as exc:
+        raise Fail(EXIT_SYSTEM, f"{HOSTS}: {exc.strerror}") from None
+
+
+def main():
+    try:
+        try:
+            display, slug = validate_display_name(read_request())
+        except HostnameRejected as exc:
+            raise Fail(EXIT_REJECTED, f"name rejected ({exc.reason}): {exc}") from None
+        run("hostnamectl", "set-hostname", slug)
+        run("hostnamectl", "set-hostname", "--pretty", display)
+        rewrite_hosts(slug)
+        # avahi 0.8 is not known to follow a hostname change on its own.
+        run("systemctl", "restart", "avahi-daemon")
+    except Fail as exc:
+        print(f"pair-commit: {exc}", file=sys.stderr)
+        return exc.code
+    print(f"pair-commit: hostname is now {slug}")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())
