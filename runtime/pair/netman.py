@@ -8,9 +8,12 @@ positional name through `next_arg`, which swallows option-shaped words. Log
 lines carry the action and its outcome only, never argv or a secret.
 """
 import logging
+import re
 import secrets
 import subprocess
 import uuid
+
+from pair.errors import JoinError
 
 log = logging.getLogger("arlowe.pair.netman")
 
@@ -21,10 +24,19 @@ PSK_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 PSK_LENGTH = 12
 PSK_KEY = "802-11-wireless-security.psk"
 NOT_FOUND = 10  # nmcli: connection, device or access point does not exist
+# NMDeviceStateReason codes as nmcli prints them, "(N)". The brcmfmac mapping of
+# a wrong PSK to 7/8/11 is MEDIUM confidence until 08-27b sees it on hardware.
+REJECTED_REASONS = {7, 8, 11}
+NOT_FOUND_REASONS = {53}
+_PASSWD_ESCAPES = {"\\": "\\\\", " ": "\\ ", "\t": "\\t", "\v": "\\v", "\f": "\\f"}
 
 
 class NetManError(RuntimeError):
     """An nmcli call failed; carries the action and exit code, never argv."""
+
+    def __init__(self, msg, stderr=""):
+        super().__init__(msg)
+        self.stderr = stderr
 
 
 def _default_runner(argv, input=None):
@@ -34,6 +46,25 @@ def _default_runner(argv, input=None):
 def session_credentials(device_id):
     psk = "".join(secrets.choice(PSK_ALPHABET) for _ in range(PSK_LENGTH))
     return SSID_PREFIX + device_id[:4], psk
+
+
+def passwd_line(key, value):
+    """One `passwd-file` line NetworkManager 1.42.4 reads back as exactly
+    `value`: its parser strips unescaped edge whitespace and unescapes `\\`."""
+    if any(c in value for c in "\r\n\0"):
+        raise ValueError("secret contains a line break or NUL")
+    escaped = "".join(_PASSWD_ESCAPES.get(c, c) for c in value)
+    return (key + ":" + escaped + "\n").encode()
+
+
+def _classify(stderr):
+    m = re.search(r"\((\d+)\)", stderr)
+    code = int(m.group(1)) if m else None
+    if code in REJECTED_REASONS:
+        return "wifi_rejected"
+    if code in NOT_FOUND_REASONS or "No network with SSID" in stderr:
+        return "wifi_not_found"
+    return "wifi_failed"
 
 
 def _split_terse(line):
@@ -56,14 +87,17 @@ class NetMan:
         self._runner = runner
         self._nmcli = nmcli
         self._ap_uuid = None
+        self._join_uuids = {}
 
     def _run(self, action, args, input=None, ok=(0,)):
         res = self._runner([self._nmcli, *args], input=input)
         log.info("nmcli %s: rc=%d", action, res.returncode)
         if res.returncode not in ok:
-            err = res.stderr.decode(errors="replace").strip().splitlines()
+            stderr = res.stderr.decode(errors="replace").strip()
+            err = stderr.splitlines()
             raise NetManError("%s failed (rc=%d): %s"
-                              % (action, res.returncode, err[0] if err else ""))
+                              % (action, res.returncode, err[0] if err else ""),
+                              stderr)
         return res.stdout.decode(errors="replace")
 
     def radio_on(self):
@@ -102,7 +136,7 @@ class NetMan:
         try:
             self._run("ap up", ["connection", "up", "uuid", self._ap_uuid,
                                 "passwd-file", "/dev/stdin"],
-                      input=(PSK_KEY + ":" + psk + "\n").encode())
+                      input=passwd_line(PSK_KEY, psk))
         except NetManError:
             self.delete_profile(self._ap_uuid)
             self._ap_uuid = None
@@ -125,3 +159,33 @@ class NetMan:
     def delete_profile(self, uuid_):
         self._run("delete profile", ["connection", "delete", "uuid", uuid_],
                   ok=(0, NOT_FOUND))
+
+    def join(self, ssid, psk):
+        """Join the home network; the PSK reaches nmcli only on stdin.
+
+        psk-flags 0 makes the secret system-owned, so NetworkManager keeps the
+        PSK it received for later boots. A failure deletes the profile so
+        NetworkManager cannot retry a wrong PSK forever.
+        """
+        line = passwd_line(PSK_KEY, psk) if psk else None
+        u = str(uuid.uuid4())
+        add = ["connection", "add", "type", "wifi", "ifname", IFNAME,
+               "con-name", ssid, "connection.uuid", u, "ssid", ssid,
+               "autoconnect", "yes"]
+        up = ["--wait", "45", "connection", "up", "uuid", u]
+        if psk:
+            add += ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk-flags", "0"]
+            up += ["passwd-file", "/dev/stdin"]
+        try:
+            self._run("join add", add)
+            self._run("join up", up, input=line)
+        except NetManError as exc:
+            self.delete_profile(u)
+            raise JoinError(_classify(exc.stderr)) from exc
+        self._join_uuids[ssid] = u
+
+    def saved_ssid_profile(self, ssid):
+        """Delete the profile a successful join left for `ssid`, by its uuid."""
+        u = self._join_uuids.pop(ssid, None)
+        if u is not None:
+            self.delete_profile(u)

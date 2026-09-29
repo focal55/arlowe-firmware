@@ -68,11 +68,14 @@ bounds SC4's revocation window to a single polling interval; the reasoning is in
 
 ## Running the broker
 
-`broker.py` is the owner-authenticated CSR signer, **run on the dev host only**. It stands in for
-whatever backend eventually does this job. Its token check is deliberately issuer-agnostic: it
-compares the bearer token against `$ARLOWE_BROKER_TOKEN` with `hmac.compare_digest` and does not
-know or care who minted it, so a hand-minted token for one unit and a token from a future
-account system both work here unchanged. Do not add owner-account logic to it.
+`broker.py` is the claim-code-gated CSR signer, **run on the dev host only**. It stands in for
+whatever backend eventually does this job. The device presents the claim code from its box card as
+an opaque bearer token; the broker redeems it against the store `claim_codes.py` manages
+([ADR-0012](../../docs/architecture/0012-owner-credential-and-claim-codes.md)). An unused code, or
+one already bound to the same `device_id`, gets a certificate, and the code binds only after
+issuance succeeds; a `502` leaves it unused. Unknown, revoked and bound-elsewhere codes all get the
+same `401`. The store lock is held for the whole request, so two devices racing one code cannot
+both be issued.
 
 ```bash
 python3 -m venv .venv-broker && .venv-broker/bin/pip install -r scripts/pki/requirements.txt
@@ -82,14 +85,16 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
   -keyout scripts/pki/broker-key.pem -out scripts/pki/broker-cert.pem
 
 set -a; . scripts/pki/.staging-env; set +a
-export ARLOWE_BROKER_TOKEN="$(openssl rand -hex 32)"     # hand-minted; never committed
+export ARLOWE_BROKER_CLAIM_CODES=~/arlowe-broker/claim-codes.json   # outside the repo
+.venv-broker/bin/python scripts/pki/claim_codes.py --store "$ARLOWE_BROKER_CLAIM_CODES" mint --note unit-1
 .venv-broker/bin/python scripts/pki/broker.py --port 8443
 ```
 
-It reads `ARLOWE_BROKER_TOKEN`, `ARLOWE_PKI_POLICY`, `ARLOWE_PKI_ROLE_ALIAS` and
-`ARLOWE_PKI_CREDENTIALS_ENDPOINT` (the last three from `.staging-env`) and **exits non-zero at
-startup naming the first one that is unset**, rather than serving half-populated `200`s a device
-would then cache. `--certfile`/`--keyfile` default to `scripts/pki/broker-{cert,key}.pem`, which
+`mint` prints the code once; only its hash is stored. The broker reads `ARLOWE_BROKER_CLAIM_CODES`,
+`ARLOWE_PKI_POLICY`, `ARLOWE_PKI_ROLE_ALIAS` and `ARLOWE_PKI_CREDENTIALS_ENDPOINT` (the last three
+from `.staging-env`) and **exits non-zero at startup naming the first one that is unset**, or the
+store path if it names no file, rather than serving half-populated `200`s a device would then
+cache. `--certfile`/`--keyfile` default to `scripts/pki/broker-{cert,key}.pem`, which
 `.gitignore` covers. AWS credentials come from the ambient boto3 session, not from `.staging-env`.
 
 ### `POST /v1/certificates` — frozen contract
@@ -99,14 +104,14 @@ it.
 
 ```
 POST /v1/certificates
-  Authorization: Bearer <owner-token>
+  Authorization: Bearer <claim code>
   Content-Type: application/json
   {"device_id": "<32 hex chars>", "csr": "<PEM CSR>"}
 
 200 {"certificate_pem": "<PEM>", "certificate_id": "<hex>",
      "certificate_arn": "arn:aws:iot:...", "thing_name": "<device_id>",
      "credentials_endpoint": "<host>", "role_alias": "<alias>"}
-401 {"error": "unauthorized"}
+401 {"error": "unauthorized"}          (unknown, revoked or bound-elsewhere code: one body)
 400 {"error": "malformed_request" | "invalid_device_id" | "unparseable_csr" | "csr_subject_mismatch"}
 502 {"error": "issuance_failed", "detail": "<aws error code>"}
 ```
@@ -121,6 +126,40 @@ certificate) to trust this endpoint. **That override is for staging only.** A pr
 presents a publicly-trusted certificate and the variable is left unset; a device that needs it set
 in the field is a device trusting an unverified issuer.
 
+### Local broker for pairing tests
+
+`--stub-iot` replaces AWS IoT with `stub_iot.py`: a throwaway CA in `--stub-ca-dir` (created on
+first use, reused after) signs each CSR, and thing and policy state lives in memory. No AWS account,
+`.staging-env` or boto3 import is involved, and the three `ARLOWE_PKI_*` values default to stub
+names under `.invalid`. Run it on the dev machine, on the same LAN as the unit, with `LAN_IP`
+set to the dev machine's LAN address:
+
+```bash
+D=~/arlowe-broker; mkdir -p "$D"
+export ARLOWE_BROKER_CLAIM_CODES="$D/claim-codes.json"
+.venv-broker/bin/python scripts/pki/claim_codes.py --store "$ARLOWE_BROKER_CLAIM_CODES" mint --note bench
+.venv-broker/bin/python scripts/pki/stub_iot.py tls --san "$LAN_IP" --out "$D/tls"
+.venv-broker/bin/python scripts/pki/broker.py --stub-iot --stub-ca-dir "$D/ca" \
+  --host 0.0.0.0 --port 8443 --certfile "$D/tls/broker-cert.pem" --keyfile "$D/tls/broker-key.pem"
+```
+
+Add `--stub-fail issuance` to make every issuance fail: the broker answers `502` and the code stays
+unused, which is how pairing's "cert issuance fail" path is provoked. A wrong or revoked code
+provokes the `401` path.
+
+The unit finds the broker through `arlowe-broker.json` on the card's FAT partition
+(`/boot/firmware/arlowe-broker.json`,
+[ADR-0011](../../docs/architecture/0011-pairing-setup-channel.md)). `url` is the base URL, with no
+path; `ca_bundle_pem` is the contents of `$D/tls/ca.pem`, JSON-escaped:
+
+```json
+{"url": "https://<LAN_IP>:8443", "ca_bundle_pem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"}
+```
+
+`python3 -c 'import json,sys; print(json.dumps({"url": sys.argv[1], "ca_bundle_pem": open(sys.argv[2]).read()}))' "https://$LAN_IP:8443" "$D/tls/ca.pem"`
+prints it. The stub CA and `tls/ca.pem` are unrelated: the first signs device certificates, the
+second lets the device trust the broker.
+
 ### Tests
 
 ```bash
@@ -128,6 +167,6 @@ python3 -m venv /tmp/brk && /tmp/brk/bin/pip install -r scripts/pki/requirements
 /tmp/brk/bin/python -m pytest scripts/pki/tests/ -q
 ```
 
-`scripts/pki/tests/` is **not** part of the `runtime/lib/tests/` suite CI runs — it needs boto3,
-which the image never installs. Run it by hand when touching the broker. Test CSRs are generated
+`scripts/pki/tests/` is **not** part of the `runtime/lib/tests/` suite — it needs botocore, which
+the image never installs. Phase 8 CI's `pki-broker` job runs it. Test CSRs are generated
 in-process; no key-, CSR- or certificate-shaped fixture is tracked.
