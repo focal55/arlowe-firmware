@@ -25,31 +25,23 @@ TEXT_WIDTH = WIDTH - 2 * PAD
 TITLE_SIZE, BODY_SIZE, MIN_SIZE = 24, 18, 12
 LINE_GAP = 6
 
-# The payload is at most 47 bytes: version 3 at level L (29 modules) holds it,
-# and a panel shows no damage for higher levels to recover from. A 2-module
-# quiet zone on a white box is enough for phone cameras and leaves room for text.
+# The payload is at most 47 bytes, which version 3 at level L (29 modules) holds.
+# A lit panel has no print damage for a higher level to recover from, and the
+# smaller code gets bigger modules. The 2-module quiet zone leaves room for text.
 QR_ERROR_CORRECTION = qrcode.constants.ERROR_CORRECT_L
 QR_BORDER = 2
 QR_BOX = 170
 QR_ORIGIN = 10
 MIN_MODULE_PX = 4
 
-BG = (17, 17, 17)
-FG = (255, 255, 255)
-ACCENT = (80, 180, 255)
-ALERT = (255, 110, 110)
+BG, FG, ACCENT, ALERT = (17, 17, 17), (255, 255, 255), (80, 180, 255), (255, 110, 110)
 DARK, LIGHT = (0, 0, 0), (255, 255, 255)
 
 MESSAGE_IDLE = "Press the button to start setup"
 
-LED = {
-    "waiting": (0, 0, 255),
-    "connecting": (0, 0, 255),
-    "provisioning": (0, 0, 255),
-    "paired": (0, 255, 0),
-    "idle": (0, 0, 40),
-    "error": (255, 0, 0),
-}
+BLUE = (0, 0, 255)
+LED = {"waiting": BLUE, "connecting": BLUE, "provisioning": BLUE,
+       "paired": (0, 255, 0), "idle": (0, 0, 40), "error": (255, 0, 0)}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -59,7 +51,7 @@ class Screen:
     psk: str = ""
     url: str = ""
     ip: str = ""
-    error: Optional[ErrorKind] = None
+    failure: Optional[ErrorKind] = None
 
     @classmethod
     def waiting(cls, ssid, psk):
@@ -83,7 +75,7 @@ class Screen:
 
     @classmethod
     def error(cls, kind):
-        return cls("error", error=ErrorKind(kind))
+        return cls("error", failure=ErrorKind(kind))
 
 
 def wifi_qr_payload(ssid, psk):
@@ -143,26 +135,21 @@ def _fit(text, max_width, size):
     return font(size)
 
 
-def _content(screen):
-    if screen.kind == "waiting":
-        return "Scan to connect", [f"Wi-Fi  {screen.ssid}", f"Password  {screen.psk}"]
-    if screen.kind == "connecting":
-        return "Connecting", ["Joining your Wi-Fi network"]
-    if screen.kind == "provisioning":
-        return "Setting up", ["Registering this Arlowe"]
-    if screen.kind == "paired":
-        return "Paired", ["Open", screen.url, "or", screen.ip]
-    if screen.kind == "idle":
-        return "Arlowe", [MESSAGE_IDLE]
-    if screen.kind == "error":
-        return "Setup error", [MESSAGES[screen.error]]
-    raise ValueError(f"unknown screen kind {screen.kind!r}")
-
-
-
 def lines(screen):
-    title, body = _content(screen)
-    return [title, *body]
+    """The title, then the body lines, before wrapping."""
+    if screen.kind == "waiting":
+        return ["Scan to connect", f"Wi-Fi  {screen.ssid}", f"Password  {screen.psk}"]
+    if screen.kind == "connecting":
+        return ["Connecting", "Joining your Wi-Fi network"]
+    if screen.kind == "provisioning":
+        return ["Setting up", "Registering this Arlowe"]
+    if screen.kind == "paired":
+        return ["Paired", "Open", screen.url, "or", screen.ip]
+    if screen.kind == "idle":
+        return ["Arlowe", MESSAGE_IDLE]
+    if screen.kind == "error":
+        return ["Setup error", MESSAGES[screen.failure]]
+    raise ValueError(f"unknown screen kind {screen.kind!r}")
 
 
 def _draw_centered(draw, rows, top, bottom, left=PAD, width=TEXT_WIDTH):
@@ -174,7 +161,7 @@ def _draw_centered(draw, rows, top, bottom, left=PAD, width=TEXT_WIDTH):
 
 
 def _render_waiting(draw, screen):
-    title, body = _content(screen)
+    title, *body = lines(screen)
     matrix = qr_matrix(wifi_qr_payload(screen.ssid, screen.psk))
     n = len(matrix)
     x0, y0, m = qr_geometry(n)
@@ -195,7 +182,7 @@ def _render_waiting(draw, screen):
 
 
 def _render_text(draw, screen):
-    title, body = _content(screen)
+    title, *body = lines(screen)
     rows = [(t, font(TITLE_SIZE), ACCENT) for t in wrap(title, font(TITLE_SIZE), TEXT_WIDTH)]
     colour = ALERT if screen.kind == "error" else FG
     for text in body:

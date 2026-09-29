@@ -30,9 +30,7 @@ class FakeBoard:
         self.calls = []
 
     def __getattr__(self, name):
-        def record(*args):
-            self.calls.append((name, args))
-        return record
+        return lambda *args: self.calls.append((name, args))
 
     def named(self, name):
         return [args for n, args in self.calls if n == name]
@@ -120,6 +118,7 @@ def test_every_screen_renders_to_the_canvas(display, make):
 
 
 def test_error_screen_renders_the_shared_string(display):
+    assert display.Screen.waiting(SSID, PSK).failure is None
     for kind in ErrorKind:
         assert MESSAGES[kind] in " ".join(display.lines(display.Screen.error(kind)))
 
