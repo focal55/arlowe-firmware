@@ -130,7 +130,10 @@ def _race_worker(path, code, device_id, barrier, results):
     import claim_codes as cc
 
     barrier.wait()
-    results.put(cc.ClaimStore(path).redeem(code, device_id))
+    try:
+        results.put(cc.ClaimStore(path).redeem(code, device_id))
+    except Exception as exc:  # surface a worker crash as a result, not a queue timeout
+        results.put(repr(exc))
 
 
 def test_concurrent_redeem(store):
@@ -146,7 +149,7 @@ def test_concurrent_redeem(store):
     for p in procs:
         p.join(timeout=30)
         assert p.exitcode == 0
-    assert sorted(outcomes) == [False] * (len(ids) - 1) + [True]
+    assert sorted(outcomes, key=repr) == [False] * (len(ids) - 1) + [True]
     entries = json.loads(store.path.read_text())
     assert entries[hashlib.sha256(claim_codes.normalize(code).encode()).hexdigest()]["device_id"] in ids
 
