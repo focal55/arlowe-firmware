@@ -8,7 +8,7 @@
 
 **Scope revised after research: the wake word (WAKE-01..03, SC5) moved to the inserted Phase 8.1.** Phase 8 is pairing, dashboard auth and factory reset. **Security prerequisite: #200** (every image ships `pi`/`raspberry` with passwordless sudo and SSH on) is fixed in a standalone PR before any Phase 8 plan executes; Phase 8 plans assume it has landed.
 
-A factory-fresh unit (no `/etc/arlowe/config.yml`) boots into a pairing daemon. The owner, from a phone or laptop with no app, gives it Wi-Fi credentials, a dashboard password and a device display name. The unit obtains its device certificate, writes the config overlay, enables and starts the six runtime units, and is reachable at `http://<name>.local:3000` behind that password. The generic "Hey Arlowe" wake model ships in the image. Factory reset returns the unit to pairing. Requirements: PAIR-01..07, DASH-01, DASH-02 (WAKE-01..03 are Phase 8.1).
+A factory-fresh unit (no `/etc/arlowe/config.yml`) boots into a pairing daemon. The owner, from a phone or laptop with no app, gives it Wi-Fi credentials, a dashboard password and a device display name. The unit obtains its device certificate, writes the config overlay as its last step, starts the six runtime units, and is reachable at `http://<name>.local:3000` behind that password. Factory reset returns the unit to pairing. Requirements: PAIR-01..07, DASH-01, DASH-02 (WAKE-01..03 are Phase 8.1).
 
 Out of this phase: OTA (Phase 9), support access (Phase 10), dashboard health/activity/settings views beyond login and reset (Phase 11).
 
