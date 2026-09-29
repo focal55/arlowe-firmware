@@ -28,6 +28,7 @@ ISSUED = {"device_id": "ab12cd34", "certificate_id": "c" * 64, "thing_name": "ab
 class FakeNet:
     def __init__(self, join_error=None):
         self.calls, self.join_error, self.profiles, self.gate = [], join_error, [], None
+        self.joining = threading.Event()
 
     def ap_up(self, ssid, psk):
         self.calls.append(("ap_up", ssid, psk))
@@ -39,6 +40,7 @@ class FakeNet:
 
     def join(self, ssid, psk):
         self.calls.append(("join", ssid, psk))
+        self.joining.set()
         if self.gate:
             self.gate.wait(5)
         if self.join_error:
@@ -206,8 +208,7 @@ def test_concurrent_submit_refused(h):
     h.flow = h.build()
     t = threading.Thread(target=h.flow.submit, args=(dict(FORM),))
     t.start()
-    while not any(c[0] == "join" for c in h.net.calls):
-        pass
+    assert h.net.joining.wait(5)
     assert h.flow.submit(dict(FORM)) is False
     h.net.gate.set()
     t.join(5)
