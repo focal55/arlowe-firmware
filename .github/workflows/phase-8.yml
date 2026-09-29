@@ -1,0 +1,98 @@
+name: Phase 8
+
+# Later Phase 8 plans add test files to tests/phase-8 and runtime/pair/tests and
+# never edit this file, so parallel plans do not collide on it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: phase-8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Same rule as ci.yml's python-floor-bookworm: verify against the image's
+  # environment, never the developer's. The difference is that the apt set here is
+  # DERIVED from 00-packages-nr, so a plan that adds a package to the image gets it
+  # in this job with no CI edit, and a package removed from the image disappears.
+  pair-bookworm:
+    name: Phase 8 Python tests (image package set, bookworm)
+    runs-on: ubuntu-latest
+    container: debian:bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the image's declared Python packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only in archive.raspberrypi.com, not in Debian. If one ever resolves
+          # from Debian, it belongs in the installed set, so fail and say so.
+          pi_only="python3-lgpio python3-rpi-lgpio"
+          apt-get update
+          for p in $pi_only; do
+            if apt-cache policy "$p" | grep -q 'Candidate: [0-9]'; then
+              echo "::error::$p now resolves from Debian bookworm; remove it from pi_only"
+              exit 1
+            fi
+          done
+          # venv and pip are the venv build's tooling, not modules the tests import.
+          mapfile -t pkgs < <(grep -vE '^[[:space:]]*(#|$)' pi-gen/stage-arlowe/00-packages/00-packages-nr \
+            | grep -E '^(python3-|fonts-)' \
+            | grep -vxE "python3-(venv|pip)|${pi_only// /|}")
+          echo "Derived from 00-packages-nr: ${pkgs[*]}"
+          # python3-pytest and python3-botocore are test-only and NOT in the image.
+          # botocore serves the dev-host broker that the pairing E2E test runs.
+          # apt-get fails on any other package it cannot find, which is the point.
+          apt-get install -y --no-install-recommends python3 "${pkgs[@]}" python3-pytest python3-botocore
+      - name: Run tests/phase-8 and runtime/pair/tests
+        shell: bash
+        env:
+          ARLOWE_SCHEMA_PATH: config/schema.yml
+          ARLOWE_DEFAULTS_PATH: config/defaults.yml
+          ARLOWE_CONFIG_PATH: /nonexistent
+          PYTHONPATH: runtime:runtime/lib
+        run: |
+          dirs=()
+          for d in runtime/pair/tests tests/phase-8; do
+            if [ -d "$d" ]; then dirs+=("$d"); fi
+          done
+          if [ ${#dirs[@]} -eq 0 ]; then echo "no Phase 8 test directories yet"; exit 0; fi
+          rc=0
+          python3 -m pytest "${dirs[@]}" -q --import-mode=importlib || rc=$?
+          # 5 = no tests collected: a directory exists but holds only shell tests.
+          [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ] || exit "$rc"
+
+  phase8-shell:
+    name: Phase 8 shell tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/phase-8/test-*.sh
+        shell: bash
+        run: |
+          shopt -s nullglob
+          failed=0
+          for t in tests/phase-8/test-*.sh; do
+            echo "::group::$t"
+            if bash "$t"; then echo "PASS $t"; else echo "FAIL $t"; failed=1; fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
+
+  # The CSR broker suite has never run in CI before this job. Pairing depends on
+  # the broker, so Phase 8 is where it starts being checked.
+  pki-broker:
+    name: PKI broker tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -r scripts/pki/requirements.txt pytest
+      - name: Run tests
+        run: python -m pytest scripts/pki/tests -q
