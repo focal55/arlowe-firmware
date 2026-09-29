@@ -11,6 +11,9 @@ directories that the arlowe runtime uses: `/opt/arlowe/` (code root), `/var/lib/
 skeleton and sets ownership/modes. Later phases populate file contents within the
 skeleton — they must not change ownership or modes established here without updating
 this doc and the corresponding assertion scripts in `tests/phase-3/assertions/`.
+Post-build scripts that mount the image (`scripts/lib/boot-config.sh`,
+`scripts/lib/recovery-stub.sh`) are bound by the same contract and must not run
+`install -d` on an existing contract directory with a different mode.
 
 Verification: `bash tests/phase-3/docker/run-tests.sh`
 
@@ -34,7 +37,7 @@ Source of truth: `.planning/phases/03-service-user-and-filesystem-layout/03-RESE
 ├── venvs/                                   root:arlowe  0755  Python venvs; baked at image build (Phase 6)
 └── config/                                  root:arlowe  0755  Dir reserved; defaults.yml content owned by Phase 4
 
-/etc/arlowe/                                 root:arlowe  0755  Config overlay dir; Phase 3 creates empty
+/etc/arlowe/                                 root:arlowe  0770  Config overlay dir; Phase 3 creates empty
 └── (config.yml absent — its absence is the "not yet paired" signal per CONFIG-03)
 
 /var/lib/arlowe/                             arlowe:arlowe  0750  Owner state; mount point of owner-state partition (Phase 6)
@@ -72,7 +75,7 @@ Source of truth: `.planning/phases/03-service-user-and-filesystem-layout/03-RESE
 | `/opt/arlowe/venvs/` | root:arlowe | 0755 | NO | Python venvs; empty in Phase 3 | Phase 6 |
 | `/opt/arlowe/config/` | root:arlowe | 0755 | NO | Config dir; parent reserved by Phase 3 | Phase 3 (dir only) |
 | `/opt/arlowe/config/defaults.yml` | root:arlowe | 0644 | NO | Default config knobs | Phase 4 |
-| `/etc/arlowe/` | root:arlowe | 0755 | NO | Config overlay dir | Phase 3 (empty) |
+| `/etc/arlowe/` | root:arlowe | 0770 | YES (group, ADR-0003) | Config overlay dir | Phase 3 (empty) |
 | `/etc/arlowe/config.yml` | root:arlowe | 0640 | NO (privileged helper) | Owner overlay | Phase 8 pairing creates; Phase 4 schema-validates |
 | `/var/lib/arlowe/` | arlowe:arlowe | 0750 | YES | Owner state mount point | Phase 6 ext4 partition |
 | `/var/lib/arlowe/logs/` | arlowe:arlowe | 0750 | YES | Per-service log root | Phase 3 reserve |
