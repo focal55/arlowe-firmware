@@ -84,7 +84,9 @@ write_boot_config() {
     # resolve A/B slot names to PARTUUIDs at runtime without needing the build host.
     mnt_a="$(mktemp -d)"
     sudo mount "${loop_dev}p2" "${mnt_a}"
-    sudo install -d -m 0755 "${mnt_a}/etc/arlowe"
+    # mkdir -p, not install -d: install -d would reset the chroot's root:arlowe
+    # 0770 on the existing directory, and arlowe could no longer write the overlay.
+    sudo mkdir -p "${mnt_a}/etc/arlowe"
     sudo install -m 0644 "${partuuid_map}" "${mnt_a}/etc/arlowe/ab-partuuid-map"
     echo "[boot-config] PARTUUID map installed at /etc/arlowe/ab-partuuid-map in slot A"
     sudo umount "${mnt_a}"

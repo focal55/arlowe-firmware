@@ -247,7 +247,9 @@ jobs:
           package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # The device's Node major (third_party/node/manifest.yml); the dashboard's
+          # auth needs crypto.argon2, which Node 20 does not have.
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: runtime/dashboard/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
@@ -272,7 +274,7 @@ jobs:
           package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: runtime/dashboard/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
@@ -297,7 +299,7 @@ jobs:
           package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: runtime/dashboard/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
@@ -324,7 +326,7 @@ jobs:
           package_json_file: runtime/dashboard/package.json
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: runtime/dashboard/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile

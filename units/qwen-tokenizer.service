@@ -1,6 +1,11 @@
 [Unit]
 Description=Qwen tokenizer HTTP service
 After=network.target
+# Unpaired devices skip this unit: pairing (arlowe-pair.service) owns the device
+# until /etc/arlowe/config.yml exists, and writing that file is pairing's commit
+# point. Enabled at build by install-units.sh; pairing only has to start it. This
+# skip is the intended unpaired state, not identity-init's must-run no-op trap.
+ConditionPathExists=/etc/arlowe/config.yml
 
 [Service]
 # notify: the script sends READY=1 once port 12345 is listening. With
