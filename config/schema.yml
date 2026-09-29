@@ -38,7 +38,9 @@ properties:
     type: object
     additionalProperties: false
     description: Device identity knobs. hostname is resolved to a concrete name at pairing
-      (Phase 7/8); the default is a template literal, not a concrete hostname.
+      (Phase 7/8); the default is a template literal, not a concrete hostname. The pairing
+      daemon (ADR-0011) writes this block whole, with both a concrete hostname and
+      display_name, so no consumer of the raw overlay ever sees the template.
     required:
       - hostname
     properties:
@@ -49,6 +51,14 @@ properties:
           Device hostname. The default is a template literal resolved at pairing
           (Phase 7/8) by substituting the device serial number. Never set to a
           concrete founder-era hostname.
+      display_name:
+        type: string
+        minLength: 1
+        maxLength: 32
+        default: "Arlowe"
+        description: >
+          Owner-chosen name, written by the pairing daemon (ADR-0011). The hostname
+          is derived from it at pairing. Not required, so pre-Phase-8 overlays stay valid.
 
   audio:
     type: object
@@ -209,6 +219,32 @@ properties:
         description: >
           Signed-manifest CDN base URL for the selected channel. Empty until
           set at pairing (Phase 8/9).
+
+  owner:
+    type: object
+    additionalProperties: false
+    description: >
+      Pairing record, written by the pairing daemon (ADR-0011). Absent means unpaired,
+      so defaults.yml does not carry it and it is not in the top-level `required` list.
+      The owner's password hash deliberately lives outside this overlay (ADR-0012):
+      the overlay is readable by every service, and additionalProperties:false keeps
+      a credential from landing here by accident.
+    properties:
+      paired_at:
+        type: string
+        description: ISO 8601 UTC timestamp of the pairing that wrote this overlay.
+
+  network:
+    type: object
+    additionalProperties: false
+    description: >
+      Display-only network facts, written by the pairing daemon (ADR-0011). The Wi-Fi
+      PSK lives in the NetworkManager keyfile, never here. Absent means unpaired.
+    properties:
+      wifi_label:
+        type: string
+        maxLength: 32
+        description: SSID of the network joined at pairing, shown on the dashboard.
 
   identity:
     type: object
