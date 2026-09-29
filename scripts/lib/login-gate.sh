@@ -58,13 +58,16 @@ _lg_file() {
     printf '%s' "${host}"
 }
 
+# _lg_names <host dir>: entry names including dotfiles, one per line, C-sorted.
+_lg_names() { (cd "$1" && find . -mindepth 1 -maxdepth 1) | sed 's|^\./||' | LC_ALL=C sort; }
+
 # _lg_dir_entries <rootfs> <dir in rootfs>: entry names, one per line. A missing
 # directory has no entries.
 _lg_dir_entries() {
     local host
     host="$(_lg_resolve "$1" "$2")" || return 1
     [[ -d "${host}" ]] || return 0
-    ls -A "${host}" | LC_ALL=C sort
+    _lg_names "${host}"
 }
 
 _lg_check_shadow() {
@@ -120,7 +123,7 @@ _lg_sshd_flatten() {
             while IFS= read -r f; do
                 # shellcheck disable=SC2254
                 case "${f}" in ${pat}) _lg_sshd_flatten "${root}" "${dir}/${f}" $((depth + 1)) || return 2 ;; esac
-            done < <(ls -A "${dhost}" | LC_ALL=C sort)
+            done < <(_lg_names "${dhost}")
         else
             printf '%s\t%s\n' "${vpath}" "${line}"
         fi
