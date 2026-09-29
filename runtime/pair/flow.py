@@ -176,7 +176,7 @@ class PairingFlow:
         self._enter(State.PROVISIONING)
         self._wait_for_ntp()
         code, body = self._identity(url, ca_path, form["claim_code"])
-        if code != 0:
+        if code != 0 or not body.get("certificate_id"):
             raise _Failed(classify_identity_failure(code, body))
         provisioned = {**body, "broker_url": url}
 

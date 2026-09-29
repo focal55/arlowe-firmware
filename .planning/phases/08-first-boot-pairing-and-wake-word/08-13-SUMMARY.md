@@ -32,11 +32,11 @@ The optimistic-handoff flow: WAITING -> CONNECTING -> PROVISIONING -> COMMITTING
 2. **[Rule 2] `NetManError` during `ap_down`/`join` maps to `wifi_failed`.** Any unexpected exception maps to `setup_failed` and still runs recovery, so the AP always comes back. Logs carry only the exception type.
 3. **[Rule 2] Identity exit codes outside the N6 table** (2, 6, an exit-0 run with unparsable JSON) map to `cert_failed`. When the CLI cannot be launched (OSError), the result is `(5, {})`, which also maps to `cert_failed`.
 4. `sleep` is injected alongside `clock`, which lets the tests drive the 2 s handoff delay and the 30 s NTP cap with a fake clock.
-5. Size: 515 net lines of code plus this summary, against ~355 planned. The tests (20 cases, a PATH shim) are larger than the estimate. The PR is under the 600 cap.
+5. Size: 516 net lines of code plus this summary, against ~355 planned. The tests (21 cases, a PATH shim) are larger than the estimate. The PR is under the 600 cap.
 
 ## Verification
 
-- `PYTHONPATH=runtime:runtime/lib python3 -m pytest runtime/pair/tests -q --import-mode=importlib`: 32 passed.
-- CI-equivalent `runtime/pair/tests tests/phase-8`: 65 passed (local Python 3.11.13, not the bookworm container).
+- `PYTHONPATH=runtime:runtime/lib python3 -m pytest runtime/pair/tests -q --import-mode=importlib`: 33 passed.
+- CI-equivalent `runtime/pair/tests tests/phase-8`: 66 passed (local Python 3.11.13, not the bookworm container).
 - `scripts/sanitize/check.sh`: clean.
 - Not verified here: the real `arlowe-identity` against a broker and the real `join` (08-07b). Both belong to 08-26 and 08-27b.

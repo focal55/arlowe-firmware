@@ -138,6 +138,7 @@ def test_netman_error_is_wifi_failed(h):
     (3, {"http_status": 400}, ErrorKind.cert_failed),
     (4, {"http_status": 502}, ErrorKind.cert_failed),
     (5, {"http_status": None}, ErrorKind.cert_failed),
+    (0, {}, ErrorKind.cert_failed),
 ])
 def test_identity_failures(h, code, body, kind):
     assert classify_identity_failure(code, body) is kind
