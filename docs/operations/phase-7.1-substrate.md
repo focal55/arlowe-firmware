@@ -452,8 +452,9 @@ scripts/flash-sd.sh build/arlowe.img /dev/sdX --yes
 ```
 
 **Before the card leaves the reader, provision a login.** The image ships no
-account by design, so a card booted without one is unreachable: no SSH and no
-console login. The only recovery is pulling power and moving the card again.
+usable login by design (accounts locked, sshd key-only), so a card booted
+without one is unreachable: no SSH and no console login. The only recovery is
+pulling power and moving the card again.
 On the build host, with the card still at `/dev/sdX`:
 
 ```bash
@@ -463,8 +464,10 @@ sudo umount /mnt
 ```
 
 `arlowe-userconf.service` creates the user from it on first boot and deletes the
-file. Then `ssh-copy-id` with that password. Writing only the FAT partition keeps
-the `.bmap`-flashed rootfs untouched.
+file. sshd refuses passwords, so over ssh the login is reached by key: with the
+card still in the reader, add your public key to the slot-A rootfs at
+`/etc/skel/.ssh/authorized_keys` (mode 600, dir 700) so the new user's home is
+seeded with it. The userconf password serves the console and `sudo` only.
 
 ## Step 4 — boot factory-fresh
 

@@ -79,16 +79,46 @@ ln -sf "/etc/systemd/system/${SERVICE_NAME}" \
 echo "[03-firstboot] ${SERVICE_NAME} installed and enabled"
 
 # ---------------------------------------------------------------------------
+# No default login, then arlowe-userconf for a deliberate one.
+#
+# pi-gen leaves a login behind: the first user (locked here, because pi-gen's
+# FIRST_USER_PASS is unset in pi-gen/config), root with the password "root", and
+# a NOPASSWD sudoers rule for the first user. Its export step would tidy that,
+# but SKIP_IMAGES=1 skips the export step. So the image is cleaned here and
+# scripts/lib/login-gate.sh fails the build if any of it survives.
+#
+# ssh.service stays enabled so a provisioned development login can reach the
+# device, but only by key: the drop-in sorts first so it wins over any later one
+# (sshd takes the first value it reads).
+# ---------------------------------------------------------------------------
+passwd -l root
+while IFS= read -r account; do
+    passwd -l "${account}"
+done < <(awk -F: '$2 !~ /^[!*]/ { print $1 }' /etc/shadow)
+rm -f /etc/sudoers.d/010_pi-nopasswd
+
+install -d -m 0755 /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/00-arlowe-key-only.conf <<'SSHD'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin prohibit-password
+SSHD
+chmod 0644 /etc/ssh/sshd_config.d/00-arlowe-key-only.conf
+echo "[03-firstboot] default logins locked; sshd is key-only"
+
+# ---------------------------------------------------------------------------
 # arlowe-userconf: headless account provisioning from /boot/firmware/userconf.txt
 #
-# The factory image ships no login account, which is correct -- the device is
-# paired, not logged into. But it also meant every hardware test cycle required
-# hand-editing cmdline.txt on the card to get a shell, and that userconf.txt did
-# nothing on a flashed image, because pi-gen's userconfig.service is not enabled
-# here. Enabling pi-gen's is the wrong fix: with no userconf.txt present it runs
-# an interactive wizard on tty1 and masks getty, so a device with no keyboard
-# attached waits at a prompt forever. This unit is a no-op when the file is
-# absent, so the factory default is unchanged.
+# A factory image has no login you can use, which is correct -- the device is
+# paired, not logged into. Development still needs a shell: userconf.txt on the
+# FAT boot partition names a user and a crypt hash, and a key in
+# /etc/skel/.ssh/authorized_keys gets that user in over ssh (the drop-in above
+# refuses passwords, so the hash only serves the console and sudo). pi-gen's own
+# userconfig.service is not enabled here, and enabling it is the wrong fix: with
+# no userconf.txt it runs an interactive wizard on tty1 and masks getty, so a
+# device with no keyboard attached waits at a prompt forever. This unit is a
+# no-op when the file is absent, so the factory default is unchanged.
 # ---------------------------------------------------------------------------
 # Same files/ convention as the service above: pi-gen copies the stage's files/
 # into the chroot at /files/. The repo path is a fallback for a manual run.
