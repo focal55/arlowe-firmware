@@ -10,7 +10,9 @@ the process. Key material is generated at runtime into a tmp_path store -- a com
 runtime/ with no excludes.
 """
 
+import base64
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +22,7 @@ import pytest
 import requests
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -265,3 +268,54 @@ def test_staging_ca_bundle_overrides_apply_to_both_calls(provisioned, config, mo
         cloud.fetch_credentials()
     assert post.call_args[1]["verify"] == str(bundle)
     assert get.call_args[1]["verify"] == str(bundle)
+
+
+@pytest.mark.parametrize("outcome,status", [
+    (FakeResponse(502, {"error": "issuance_failed"}), 502),
+    (requests.ConnectionError("connection refused"), None),
+])
+def test_broker_unavailability_carries_the_http_status(outcome, status):
+    """The pairing daemon tells an issuance failure from an unreachable broker by this."""
+    with _patch("post", outcome):
+        with pytest.raises(cloud.CloudUnavailable) as excinfo:
+            cloud.request_certificate(BROKER_URL, OWNER_TOKEN, DEVICE_ID, "csr")
+    assert excinfo.value.status == status
+
+
+def test_revoke_posts_the_contract_body_with_a_verifiable_signature(provisioned):
+    """08-19's broker implements the other side of exactly this body."""
+    reply = {"revoked": True, "certificate_id": "test-cert-id"}
+    with _patch("post", FakeResponse(200, reply)) as post:
+        cloud.revoke_certificate(BROKER_URL, DEVICE_ID, "test-cert-id", pki.sign_payload)
+    assert post.call_args[0][0] == BROKER_URL + "/v1/certificates/revoke"
+    kwargs = post.call_args[1]
+    body = kwargs["json"]
+    assert set(body) == {"device_id", "certificate_id", "issued_at", "signature"}
+    assert (body["device_id"], body["certificate_id"]) == (DEVICE_ID, "test-cert-id")
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", body["issued_at"])
+    assert "Authorization" not in (kwargs.get("headers") or {})
+    assert kwargs["verify"] is True
+    canonical = json.dumps({field: body[field] for field in
+                            ("certificate_id", "device_id", "issued_at")},
+                           sort_keys=True, separators=(",", ":")).encode()
+    pki.ensure_keypair().public_key().verify(
+        base64.b64decode(body["signature"]), canonical, ec.ECDSA(hashes.SHA256()))
+
+
+@pytest.mark.parametrize("outcome,error,status", [
+    (FakeResponse(401, {"error": "bad_signature"}), cloud.ProvisioningRejected, 401),
+    (FakeResponse(503, {"error": "unavailable"}), cloud.CloudUnavailable, 503),
+    (requests.Timeout("read timed out"), cloud.CloudUnavailable, None),
+])
+def test_revoke_failures_keep_their_status(outcome, error, status):
+    with _patch("post", outcome):
+        with pytest.raises(error) as excinfo:
+            cloud.revoke_certificate(BROKER_URL, DEVICE_ID, "test-cert-id", lambda _: "sig")
+    assert excinfo.value.status == status
+
+
+def test_revoke_returns_the_broker_reply():
+    reply = {"revoked": True, "certificate_id": "test-cert-id"}
+    with _patch("post", FakeResponse(200, reply)):
+        assert cloud.revoke_certificate(BROKER_URL, DEVICE_ID, "test-cert-id",
+                                        lambda _: "sig") == reply
