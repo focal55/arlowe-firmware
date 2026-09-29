@@ -17,6 +17,7 @@
 #   3. install-arlowe-config.sh  — schema.yml + defaults.yml + loader library
 #   4. units/install-units.sh    — copy *.service to /etc/systemd/system
 #   5. install-arlowe-udev-polkit.sh
+#   5b. install-arlowe-network.sh — captive DNS, regdomain, setup-AP nftables
 #   -- rsync the staged runtime/ tree into /opt/arlowe/runtime --
 #   6. install-arlowe-cli.sh     — /usr/local/sbin/arlowe-* symlinks
 #   7. 01-runtime/files/build-venvs.sh — populate /opt/arlowe/venvs/{voice,llm,stt}
@@ -103,6 +104,12 @@ bash "${REPO_ROOT}/units/install-units.sh"
 # ---------------------------------------------------------------------------
 echo "[00-run-chroot] step 5: install-arlowe-udev-polkit.sh"
 bash "${PROVISION}/install-arlowe-udev-polkit.sh"
+
+# ---------------------------------------------------------------------------
+# 5b. captive DNS, regdomain, setup-AP forward drop (radio-init loads it)
+# ---------------------------------------------------------------------------
+echo "[00-run-chroot] step 5b: install-arlowe-network.sh"
+bash "${PROVISION}/install-arlowe-network.sh"
 
 # ---------------------------------------------------------------------------
 # Populate /opt/arlowe/runtime + /opt/arlowe/config from the staged repo.

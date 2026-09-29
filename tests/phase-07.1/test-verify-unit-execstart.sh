@@ -146,9 +146,9 @@ export STUB_NODE_VERSION STUB_PYTHON_VERSION
 # [prefix-image] — the rootfs this phase exists to repair
 #
 # Real shipping units over the tree install-arlowe-fs.sh leaves: the runtime
-# subdirectories and /opt/arlowe/venvs exist but are EMPTY. Node and touch are
-# present (packages installed them); the two first-party entry points that really
-# do exist today are present; nothing else is.
+# subdirectories and /opt/arlowe/venvs exist but are EMPTY. Node, touch and the
+# system python3 are present (packages installed them); the first-party entry
+# points that really do exist today are present; nothing else is.
 # ===========================================================================
 PREFIX="$(new_rootfs prefix-image)"
 cp "${REPO_ROOT}"/units/*.service "${PREFIX}/etc/systemd/system/"
@@ -163,6 +163,8 @@ mkexec "${PREFIX}${DASH_NODE}"
 mkexec "${PREFIX}/bin/touch"
 mkexec "${PREFIX}/opt/arlowe/runtime/llm/run_api.sh"
 mkexec "${PREFIX}/opt/arlowe/runtime/cli/identity"
+mkexec "${PREFIX}/usr/bin/python3"
+mkexec "${PREFIX}/opt/arlowe/runtime/cli/radio-init"
 
 run_gate verify_unit_execstart "${PREFIX}" prefix-image
 evidence "prefix-image / verify_unit_execstart" "${OUT}"
