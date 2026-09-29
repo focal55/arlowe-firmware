@@ -7,17 +7,26 @@ Run from repo root:
 Lives in the runtime/lib suite so CI's python-test and python-floor-bookworm jobs
 both run it; the bookworm job is the authority on the cryptography 38.0.4 floor.
 
-Fully offline: arlowe_cloud's two network functions are patched in every test that
-would otherwise leave the process. Key and certificate material is generated at
+Fully offline: arlowe_cloud's network functions are patched in every in-process
+test, and the subprocess tests talk only to a TLS broker on 127.0.0.1 whose CA is
+generated per test. Key and certificate material is generated at
 runtime into a tmp_path store, never committed -- pi-gen's 01-runtime stage rsyncs
 all of runtime/ into /opt/arlowe/runtime/, which is exactly the tree plan 07-04's
 build gate scans for identity material.
 """
 
+import base64
+import http.server
 import importlib.machinery
 import importlib.util
+import ipaddress
 import json
+import os
+import socket
+import ssl
+import subprocess
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -25,7 +34,8 @@ from unittest import mock
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -37,7 +47,8 @@ import arlowe_pki as pki
 # Resolved from this file, never from the cwd: CI runs pytest from the repo root
 # and a developer may not, and a cwd-relative path would make the suite pass or
 # fail depending on where it was invoked from.
-CLI_PATH = Path(__file__).resolve().parents[3] / "runtime/cli/identity"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+CLI_PATH = REPO_ROOT / "runtime/cli/identity"
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "identity" / "all_three"
 
 # A hard assert, not a skip. A silently-skipped CLI suite is indistinguishable
@@ -313,3 +324,197 @@ def test_reset_force_empties_the_store_and_keeps_it_at_0700(store, config, capsy
     assert code == 0
     assert list(store.iterdir()) == []
     assert mode_of(store) == 0o700
+
+
+
+def _tls_material(directory):
+    """Write a throwaway CA and a 127.0.0.1 server certificate; return their paths.
+
+    Generated per test and never committed: 07-04's build gate rejects any PEM
+    under runtime/. The CA carries key usage and key identifiers so the chain also
+    passes OpenSSL's strict X.509 mode.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def build(subject, issuer, public_key, signing_key, ca):
+        builder = (x509.CertificateBuilder().subject_name(subject).issuer_name(issuer)
+                   .public_key(public_key).serial_number(x509.random_serial_number())
+                   .not_valid_before(now - timedelta(days=1))
+                   .not_valid_after(now + timedelta(days=1))
+                   .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+                   .add_extension(x509.SubjectKeyIdentifier.from_public_key(public_key),
+                                  critical=False)
+                   .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                       signing_key.public_key()), critical=False)
+                   .add_extension(x509.KeyUsage(
+                       digital_signature=not ca, content_commitment=False,
+                       key_encipherment=False, data_encipherment=False, key_agreement=False,
+                       key_cert_sign=ca, crl_sign=ca, encipher_only=False,
+                       decipher_only=False), critical=True))
+        if not ca:
+            builder = (builder
+                       .add_extension(x509.SubjectAlternativeName(
+                           [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+                       .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+                                      critical=False))
+        return builder.sign(signing_key, hashes.SHA256())
+
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "arlowe-test-broker-ca")])
+    ca_cert = build(ca_name, ca_name, ca_key.public_key(), ca_key, ca=True)
+    server_key = ec.generate_private_key(ec.SECP256R1())
+    server_cert = build(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")]),
+                        ca_name, server_key.public_key(), ca_key, ca=False)
+
+    paths = {name: directory / name for name in ("ca.crt", "server.crt", "server.key")}
+    paths["ca.crt"].write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
+    paths["server.crt"].write_bytes(server_cert.public_bytes(serialization.Encoding.PEM))
+    paths["server.key"].write_bytes(server_key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption()))
+    return paths
+
+
+class _BrokerHandler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.received.append((self.path, body))
+        status, payload = self.server.reply
+        data = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *_):
+        pass
+
+
+@pytest.fixture
+def broker(tmp_path):
+    """An https broker on 127.0.0.1 answering every POST with broker.reply."""
+    tls_dir = tmp_path / "tls"
+    tls_dir.mkdir()
+    paths = _tls_material(tls_dir)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(paths["server.crt"], paths["server.key"])
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _BrokerHandler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.received, server.reply = [], (200, {})
+    server.url = "https://127.0.0.1:%d" % server.server_address[1]
+    server.ca_path = str(paths["ca.crt"])
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+def closed_port_url():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    return "https://127.0.0.1:%d" % port
+
+
+def run_cli(store_dir, *argv, ca_bundle=None):
+    """Run the CLI as a subprocess, as the pairing daemon will; return (code, out, err)."""
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE",
+                          "ARLOWE_BROKER_CA_BUNDLE")}
+    env.update(ARLOWE_LIB=str(REPO_ROOT / "runtime/lib"), ARLOWE_IDENTITY_DIR=str(store_dir),
+               ARLOWE_SERIAL_ROOT=str(FIXTURE_ROOT), ARLOWE_OWNER_TOKEN=OWNER_TOKEN,
+               ARLOWE_DEFAULTS_PATH=str(REPO_ROOT / "config/defaults.yml"),
+               ARLOWE_SCHEMA_PATH=str(REPO_ROOT / "config/schema.yml"),
+               ARLOWE_CONFIG_PATH="/nonexistent")
+    if ca_bundle:
+        env["ARLOWE_BROKER_CA_BUNDLE"] = ca_bundle
+    result = subprocess.run([sys.executable, str(CLI_PATH), *argv], env=env,
+                            capture_output=True, text=True, timeout=60)
+    return result.returncode, result.stdout, result.stderr
+
+
+PROVISION_FAILURES = [
+    ((401, {"error": "unauthorized"}), 3, "unauthorized", 401),
+    ((400, {"error": "csr_subject_mismatch"}), 3, "csr_subject_mismatch", 400),
+    ((502, {"error": "issuance_failed"}), 4, "unavailable", 502),
+    (None, 4, "unavailable", None),
+]
+
+
+def _provision_failure(store_dir, broker, reply):
+    """reply=None points provision at a closed port instead of the broker."""
+    url = broker.url
+    if reply is None:
+        url = closed_port_url()
+    else:
+        broker.reply = reply
+    return run_cli(store_dir, "provision", "--json", "--ca-broker-url", url,
+                   ca_bundle=broker.ca_path)
+
+
+@pytest.mark.parametrize("reply,code,error,status", PROVISION_FAILURES)
+def test_provision_failure_reports_exit_error_and_http_status(store, broker, reply, code,
+                                                              error, status):
+    """The four SC3 failures stay apart without a new exit code."""
+    exit_code, out, _ = _provision_failure(store, broker, reply)
+    assert exit_code == code
+    assert json.loads(out) == {"ok": False, "exit": code, "error": error, "http_status": status}
+
+
+def test_token_never_printed(store, broker):
+    for reply, _, _, _ in PROVISION_FAILURES:
+        _, out, err = _provision_failure(store, broker, reply)
+        assert OWNER_TOKEN not in out and OWNER_TOKEN not in err
+
+
+@pytest.fixture
+def provisioned_store(store, config, capsys):
+    run(capsys, "init")
+    ident.update_metadata(certificate_id="test-cert-id")
+    return store
+
+
+def test_revoke_without_a_certificate_exits_5(store, config, broker, capsys):
+    run(capsys, "init")
+    code, out, _ = run_cli(store, "revoke", "--json", "--ca-broker-url", broker.url,
+                           ca_bundle=broker.ca_path)
+    assert code == 5
+    assert json.loads(out)["error"] == "not_provisioned"
+    assert broker.received == []
+
+
+def test_revoke_sends_a_signature_the_device_key_verifies(provisioned_store, broker):
+    broker.reply = (200, {"revoked": True, "certificate_id": "test-cert-id"})
+    code, out, err = run_cli(provisioned_store, "revoke", "--json", "--ca-broker-url",
+                             broker.url, ca_bundle=broker.ca_path)
+    assert code == 0, err
+    assert json.loads(out) == {"ok": True, "certificate_id": "test-cert-id"}
+    [(path, body)] = broker.received
+    assert path == "/v1/certificates/revoke"
+    assert body["device_id"] == (provisioned_store / "device-id").read_text().strip()
+    canonical = json.dumps({field: body[field] for field in
+                            ("certificate_id", "device_id", "issued_at")},
+                           sort_keys=True, separators=(",", ":")).encode()
+    pki.ensure_keypair().public_key().verify(
+        base64.b64decode(body["signature"]), canonical, ec.ECDSA(hashes.SHA256()))
+    assert "PRIVATE KEY" not in out + err and body["signature"] not in out + err
+
+
+def test_revoke_rejected_reports_the_failure_payload(provisioned_store, broker):
+    broker.reply = (401, {"error": "bad_signature"})
+    code, out, _ = run_cli(provisioned_store, "revoke", "--json", "--ca-broker-url",
+                           broker.url, ca_bundle=broker.ca_path)
+    assert code == 3
+    assert json.loads(out) == {"ok": False, "exit": 3, "error": "bad_signature",
+                               "http_status": 401}
+
+
+def test_revoke_without_the_broker_ca_is_unavailable(provisioned_store, broker):
+    """Reset without the CA bundle: verification fails, and 08-18 records an orphan."""
+    code, out, _ = run_cli(provisioned_store, "revoke", "--json", "--ca-broker-url",
+                           broker.url)
+    assert code == 4
+    assert json.loads(out) == {"ok": False, "exit": 4, "error": "unavailable",
+                               "http_status": None}
+    assert broker.received == []

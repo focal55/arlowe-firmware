@@ -178,12 +178,13 @@ fi
 # ---------------------------------------------------------------------------
 # Enable arlowe-identity-init.service.
 #
-# DELIBERATELY ENABLED, unlike the six runtime units (face, voice, dashboard,
-# qwen-api, qwen-tokenizer, whisper-stt), which ship installed-but-disabled
-# because Phase 8's pairing daemon starts them after pairing. This one must run
-# on a factory device BEFORE any pairing: SC2 requires that a device boots and
-# derives its device-id, keypair and CSR with no human, no network and no
-# account. Do not "fix" it to match its siblings.
+# The six runtime units (face, voice, dashboard, qwen-api, qwen-tokenizer,
+# whisper-stt) are also enabled at build, by install-units.sh, but each carries
+# ConditionPathExists=/etc/arlowe/config.yml so it stays down until pairing
+# writes that file. This one has no gate, deliberately: it must run on a factory
+# device BEFORE any pairing. SC2 requires that a device boots and derives its
+# device-id, keypair and CSR with no human, no network and no account. Do not
+# "fix" it to match its siblings.
 #
 # units/install-units.sh put the file in /etc/systemd/system earlier in the
 # chain (01-runtime step 4). Verify that before linking: systemd silently

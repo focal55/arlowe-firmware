@@ -18,9 +18,9 @@ ExecStartPre=/opt/arlowe/runtime/cli/arlowe-grow-models
 #       Absence is the recognized "not yet paired" state from Phase 4.
 #   (b) Logs "ready to pair" to the journal.
 #
-# NOTE: The pairing daemon itself is Phase 8. This unit DOES NOT start a
-# pairing daemon. It only arms the device into a known, verified "ready to
-# pair" state and writes the sentinel so it does not repeat on subsequent boots.
+# This unit does not start pairing. arlowe-pair.service is gated on the absence
+# of config.yml independently of this unit's sentinel, so a reset returns to
+# pairing on a unit that has already done first boot.
 ExecStart=/opt/arlowe/runtime/cli/boot-check --first-boot
 ExecStartPost=/bin/touch /var/lib/arlowe/.firstboot-done
 StandardOutput=journal

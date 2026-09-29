@@ -18,7 +18,7 @@ stays inside the 38.0.4 surface: ec.generate_private_key, ec.SECP256R1,
 x509.CertificateSigningRequestBuilder, x509.Name, x509.NameAttribute,
 NameOID.COMMON_NAME, serialization Encoding.PEM / PrivateFormat.PKCS8 /
 NoEncryption, load_pem_private_key, load_pem_x509_csr, load_pem_x509_certificate,
-and hashes.SHA256. x509.verification and not_valid_after_utc /
+hashes.SHA256 and ec.ECDSA. x509.verification and not_valid_after_utc /
 not_valid_before_utc arrived in 42 and are unavailable here; not_valid_after and
 not_valid_before are naive UTC and are what this module uses.
 
@@ -31,6 +31,9 @@ Paths come from arlowe_identity and are read through the module (ident.KEY_PATH)
 rather than imported by name, because they are import-time constants that tests
 relocate via ARLOWE_IDENTITY_DIR. write_secret is the single writer for all of it.
 """
+
+import base64
+import json
 
 import arlowe_identity as ident
 from arlowe_identity import write_secret
@@ -139,6 +142,18 @@ def store_certificate(pem: str) -> None:
     # is untouched and keeps its O_EXCL guarantee.
     ident.CERT_PATH.unlink(missing_ok=True)
     write_secret(ident.CERT_PATH, cert.public_bytes(serialization.Encoding.PEM))
+
+
+def sign_payload(fields: dict) -> str:
+    """Return the base64 DER ECDSA-SHA256 signature by device.key over fields.
+
+    The signed bytes are canonical JSON (sorted keys, no whitespace), the form the
+    broker re-derives from the request body. Loads the existing key and never
+    generates one: a unit without device.key has nothing to prove.
+    """
+    key = serialization.load_pem_private_key(ident.KEY_PATH.read_bytes(), password=None)
+    canonical = json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()
+    return base64.b64encode(key.sign(canonical, ec.ECDSA(hashes.SHA256()))).decode()
 
 
 def load_certificate() -> x509.Certificate:

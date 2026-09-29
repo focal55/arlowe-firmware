@@ -25,10 +25,11 @@ Say this precisely or not at all. The imprecise version of this sentence is what
 the phase's own checker caught.
 
 **Six shipping runtime service units.** These are the units Phase 8's pairing
-daemon starts after pairing. They ship **installed but disabled** — see
-`pi-gen/stage-arlowe/03-firstboot/00-run-chroot.sh`, which deliberately enables
-only `arlowe-identity-init` because a factory device must derive its identity
-before any pairing.
+starts after it writes `/etc/arlowe/config.yml`. `install-units.sh` enables them
+at build, and since Phase 8 each carries
+`ConditionPathExists=/etc/arlowe/config.yml`, so an unpaired unit skips them.
+`arlowe-identity-init` has no such gate because a factory device must derive its
+identity before any pairing.
 
 | Unit | Interpreter it names | Where |
 |---|---|---|
@@ -479,11 +480,19 @@ Confirm it rather than assume it:
 test -e /etc/arlowe/config.yml && echo "NOT FACTORY STATE" || echo "factory state confirmed"
 ```
 
+**From Phase 8 on, SC6 needs a paired unit or a present `config.yml`.** The six
+units now carry `ConditionPathExists=/etc/arlowe/config.yml`, so on a factory
+unit `systemctl start` skips them ("condition unmet") and step 5 cannot pass.
+Pair the unit, or write a valid `config.yml` (face, voice and the tokenizer
+validate it in `ExecStartPre`), before step 5. The 2026-09-25 results below,
+6/6 `active` with the file absent, are pre-Phase-8 behaviour. Steps 6 and 7 are
+likewise pre-Phase-8: an unpaired unit no longer runs voice or the dashboard.
+
 ## Step 5 — start the six units and record `is-active`
 
-The six units ship **installed but disabled** — Phase 8's pairing daemon is what
-starts them in production — so they must be started by hand here. Start in the
-Phase 11 dependency order (`qwen-tokenizer` -> `qwen-api` -> `qwen-openai`,
+The six units are enabled at build and gated on `config.yml`, so on a paired
+unit they are already running; `start` is then a no-op. Start in the
+Phase 11 dependency order (`qwen-tokenizer` -> `qwen-api`,
 `arlowe-face` -> `arlowe-voice`):
 
 ```bash
@@ -539,16 +548,13 @@ figure from step 2.
 
 Read this before concluding anything failed.
 
-- **`boot-check --first-boot` reports failures for the six runtime units.** They
-  are disabled by design until pairing, so `is-active` is false and `boot-check`
-  counts each as a FAIL. It also reports the deferred NPU and audio checks as
-  failures. This is finding #24 and it is expected on a factory device. The six
-  units being down at *boot* is correct; the SC6 question is whether they come
-  up when started, which is step 5.
-- **`boot-check` exits 0 regardless.** It has no `set -e`, no explicit exit, and
-  its last statement is an `echo`. So `arlowe-firstboot` succeeds even when
-  `boot-check` prints FAIL lines. **A green `arlowe-firstboot` is not evidence
-  that `boot-check` passed** — read the journal, not the unit state.
+- **`boot-check --first-boot` reports the six runtime units as SKIP.** On an
+  unpaired unit they are gated off, so `boot-check` prints each service and port
+  as `SKIP ... (not paired)` and ends `READY TO PAIR`. (Before Phase 8 it counted
+  them as FAILs; that was finding #24.)
+- **`boot-check` exits non-zero on any FAIL** (since Phase 8), so a hardware or
+  identity failure fails `arlowe-firstboot`. Before Phase 8 it always exited 0
+  and a green `arlowe-firstboot` proved nothing.
 - **`arlowe-firstboot` ends `inactive (dead)`.** Correct. The unit is
   `Type=oneshot` with `RemainAfterExit=no`, so it returns to inactive after a
   successful run. `failed` would be the problem; `inactive (dead)` is not.
