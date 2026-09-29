@@ -3,7 +3,8 @@
 // systemctl, WITHOUT sudo. Required by:
 //   - dashboard POST /api/voice (Phase 1 inherited; restarts arlowe-voice)
 //   - dashboard POST /api/config (Phase 4 will use; restarts affected services)
-//   - pairing daemon completion (Phase 8 will use; starts runtime services)
+//   - pairing completion (Phase 8): starts the six runtime units after writing
+//     /etc/arlowe/config.yml; the reset helpers are started through the same prefix
 //
 // This rule does NOT grant:
 //   - daemon-reload (units don't change at runtime; only OTA / install scripts touch them)

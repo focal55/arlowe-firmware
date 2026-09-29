@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Scripted nmcli for the pairing tests and the E2E. Stdlib only.
+
+Environment:
+  FAKE_NMCLI_SCENARIO  JSON object, inline or a path to a file. Keys:
+                         scan   [{"ssid", "signal", "security"}] for `device wifi list`
+                         ap_up  "ok" (default) or "fail"
+                         (08-07b adds the join keys)
+  FAKE_NMCLI_LOG       every argv is appended here as one JSON line
+  FAKE_NMCLI_STATE     JSON profile list {"profiles": [...]}, keyed by uuid;
+                       `connection add` creates, `delete` removes, `show` prints
+
+A passwd-file secret is read and never stored: the profile records only
+"secret_supplied". The real rules are nmc_utils_parse_passwd_file
+(src/libnmc-base/nm-client-utils.c) and nm_utils_buf_utf8safe_unescape with
+STRIP_SPACES (src/libnm-glib-aux/nm-shared-utils.c) at NetworkManager tag 1.42.4;
+this reader is a plain split, enough for the fixed setup-AP alphabet.
+"""
+import json
+import os
+import sys
+
+NOT_FOUND = 10
+
+
+def load(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, TypeError):
+        return default
+
+
+def fail(rc, msg):
+    sys.stderr.write("Error: " + msg + "\n")
+    sys.exit(rc)
+
+
+def main(argv):
+    with open(os.environ["FAKE_NMCLI_LOG"], "a") as f:
+        f.write(json.dumps(argv) + "\n")
+    raw = os.environ.get("FAKE_NMCLI_SCENARIO", "{}")
+    scenario = json.loads(raw) if raw.lstrip().startswith("{") else load(raw, {})
+    state_path = os.environ["FAKE_NMCLI_STATE"]
+    state = load(state_path, {"profiles": []})
+    profiles = state["profiles"]
+
+    while argv and argv[0].startswith("-") and argv[0] not in ("-t", "-f"):
+        argv = argv[2:] if argv[0] == "--wait" else argv[1:]
+    if argv[:1] == ["-t"]:
+        argv = argv[3:] if argv[1] == "-f" else argv[1:]
+
+    def find(sel):
+        key, want = ("uuid", sel[1]) if sel[0] == "uuid" else ("name", sel[-1])
+        for p in profiles:
+            if p[key] == want:
+                return p
+        fail(NOT_FOUND, "unknown connection '%s'." % want)
+
+    if argv == ["radio", "wifi", "on"]:
+        return
+    if argv[:3] == ["device", "wifi", "list"]:
+        for row in scenario.get("scan", []):
+            esc = [str(row[k]).replace("\\", "\\\\").replace(":", "\\:")
+                   for k in ("ssid", "signal", "security")]
+            print(":".join(esc))
+        return
+    if argv[:2] == ["connection", "show"]:
+        for p in profiles:
+            print(p["uuid"] + ":" + p["type"])
+        return
+    if argv[:2] == ["connection", "add"]:
+        props = dict(zip(argv[2::2], argv[3::2]))
+        profiles.append({"uuid": props["connection.uuid"], "name": props["con-name"],
+                         "type": "802-11-wireless", "save": props.get("save", "yes"),
+                         "active": False})
+    elif argv[:2] == ["connection", "up"]:
+        p = find(argv[2:4] if argv[2] in ("uuid", "id") else argv[2:3])
+        if "passwd-file" in argv:
+            with open(argv[argv.index("passwd-file") + 1]) as f:
+                p["secret_supplied"] = any(
+                    line.split(":", 1)[0] == "802-11-wireless-security.psk"
+                    for line in f.read().splitlines())
+        if scenario.get("ap_up", "ok") != "ok":
+            fail(4, "Connection activation failed: (10) The device could not be readied.")
+        p["active"] = True
+    elif argv[:2] == ["connection", "down"]:
+        p = find(argv[2:4] if argv[2] in ("uuid", "id") else argv[2:3])
+        p["active"] = False
+    elif argv[:2] == ["connection", "delete"]:
+        profiles.remove(find(argv[2:4] if argv[2] in ("uuid", "id") else argv[2:3]))
+    else:
+        fail(2, "fake-nmcli: unsupported argv %r" % argv)
+    with open(state_path, "w") as f:
+        json.dump(state, f)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
