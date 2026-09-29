@@ -1,0 +1,15 @@
+# Setup-AP isolation (ADR-0011). ipv4.method shared turns on forwarding and NAT
+# to any other uplink; these drops keep a setup client on the unit itself. A
+# drop in any base chain is final, so NetworkManager's shared-mode accepts
+# cannot override it. The appliance never routes, so it stays loaded once paired.
+# The create-then-delete prologue makes reloading this file idempotent.
+table inet arlowe_setup
+delete table inet arlowe_setup
+
+table inet arlowe_setup {
+    chain forward {
+        type filter hook forward priority filter - 10; policy accept;
+        iifname "wlan0" drop
+        oifname "wlan0" drop
+    }
+}

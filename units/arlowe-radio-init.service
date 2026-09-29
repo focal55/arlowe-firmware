@@ -1,0 +1,46 @@
+[Unit]
+Description=Arlowe Wi-Fi radio bring-up and setup-AP forward drop
+Wants=NetworkManager.service
+After=NetworkManager.service
+Before=arlowe-pair.service
+# No ConditionPathExists=/etc/arlowe/config.yml: a paired unit needs the radio
+# on and the regulatory domain set just as much as a factory one does.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Root: rfkill's sysfs soft write, `iw reg set` and `nft -f` all need
+# CAP_NET_ADMIN.
+Environment=PYTHONUNBUFFERED=1
+Environment=ARLOWE_WIFI_COUNTRY=US
+ExecStart=/usr/bin/python3 /opt/arlowe/runtime/cli/radio-init
+StandardOutput=journal
+StandardError=journal
+
+# Sandbox hardening -- mirrors arlowe-identity-init.service, except where noted.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+# Off: it remounts /sys read-only, and the rfkill `soft` write under
+# /sys/class/rfkill is the point of this unit.
+ProtectKernelTunables=no
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# Pi 5 boots with numa=fake=8; see arlowe-identity-init.service.
+SystemCallFilter=mbind
+# AF_UNIX for nmcli's D-Bus, AF_NETLINK for iw (nl80211) and nft (nfnetlink).
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

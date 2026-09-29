@@ -1,0 +1,95 @@
+#!/usr/bin/python3
+"""Bring the Wi-Fi radio up and fence the setup AP. Runs as root every boot.
+
+The factory image ships the radio off: raspberrypi-sys-mods sets
+`rfkill default_state=0` and pi-gen writes WirelessEnabled=false when
+WPA_COUNTRY is unset. Pairing cannot raise its AP until this has run.
+
+Steps, in order, each fatal: soft-unblock every wlan rfkill entry, set the
+regulatory domain, enable NetworkManager's Wi-Fi, load the setup-AP forward
+drop (ADR-0011), then wait for wlan0 to leave `unavailable`.
+
+ARLOWE_ROOT prefixes /sys and /etc so the tests can run against a fixture tree.
+"""
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import NoReturn
+
+ROOT = Path(os.environ.get("ARLOWE_ROOT", "/"))
+COUNTRY = os.environ.get("ARLOWE_WIFI_COUNTRY", "US")
+WAIT_S = float(os.environ.get("ARLOWE_RADIO_WAIT", "15"))
+RFKILL = ROOT / "sys" / "class" / "rfkill"
+RULESET = ROOT / "etc" / "arlowe" / "nftables" / "arlowe-setup-ap.nft"
+
+
+def log(msg: str) -> None:
+    print(f"[radio-init] {msg}", flush=True)
+
+
+def fail(msg: str) -> NoReturn:
+    print(f"[radio-init] ERROR: {msg}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+
+def run(step: str, argv: "list[str]") -> str:
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        fail(f"{step}: {' '.join(argv)}: {e}")
+    if r.returncode != 0:
+        fail(f"{step}: {' '.join(argv)} exited {r.returncode}: {r.stderr.strip()}")
+    return r.stdout
+
+
+def unblock_wlan() -> None:
+    entries = []
+    for d in sorted(RFKILL.glob("rfkill*")):
+        try:
+            if (d / "type").read_text().strip() == "wlan":
+                entries.append(d)
+        except OSError:
+            continue
+    if not entries:
+        fail(f"no wlan rfkill entry under {RFKILL}: the Wi-Fi radio is missing")
+    for d in entries:
+        (d / "soft").write_text("0\n")
+        log(f"soft-unblocked {d.name}")
+
+
+def wlan0_state() -> str:
+    out = run("device state", ["nmcli", "-t", "-f", "DEVICE,STATE", "device"])
+    for line in out.splitlines():
+        dev, _, state = line.partition(":")
+        if dev == "wlan0":
+            return state
+    return "absent"
+
+
+def wait_for_wlan0() -> None:
+    deadline = time.monotonic() + WAIT_S
+    while True:
+        state = wlan0_state()
+        if state not in ("unavailable", "absent"):
+            log(f"wlan0 is {state}")
+            return
+        if time.monotonic() >= deadline:
+            fail(f"wlan0 still {state} after {WAIT_S:g}s; the setup AP cannot come up")
+        time.sleep(0.5)
+
+
+def main() -> None:
+    unblock_wlan()
+    run("regulatory domain", ["iw", "reg", "set", COUNTRY])
+    log(f"regulatory domain set to {COUNTRY}")
+    run("NetworkManager radio", ["nmcli", "radio", "wifi", "on"])
+    log("NetworkManager Wi-Fi enabled")
+    run("setup-AP firewall", ["nft", "-f", str(RULESET)])
+    log(f"loaded {RULESET}")
+    wait_for_wlan0()
+
+
+if __name__ == "__main__":
+    main()

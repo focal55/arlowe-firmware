@@ -27,6 +27,13 @@ alsa-utils
 # Networking (NetworkManager for wifi provisioning at pairing time, Phase 8)
 network-manager
 
+# Phase 8 radio-init (arlowe-radio-init.service): `iw reg set` needs iw and the
+# wireless-regdb database; `nft -f` loads the setup-AP forward drop. All three
+# were already in the rootfs; declared so they cannot drop out unnoticed.
+iw
+wireless-regdb
+nftables
+
 # Pi hardware GPIO + SPI access (WhisPlay display driver, WhisPlay audio HAT)
 #
 # python3-lgpio, NOT python3-rpi.gpio. RPi.GPIO 0.7.1 predates BCM2712 and cannot
