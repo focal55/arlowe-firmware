@@ -89,7 +89,7 @@ def test_no_usable_characters(name):
     assert reason_of(name) == "no_usable_characters"
 
 
-@pytest.mark.parametrize("name", ["localhost", "LocalHost", "12345", "1 2 3"])
+@pytest.mark.parametrize("name", ["localhost", "LocalHost", "12345", "１２３"])
 def test_reserved(name):
     assert reason_of(name) == "reserved"
 
