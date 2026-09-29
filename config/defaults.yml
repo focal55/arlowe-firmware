@@ -9,6 +9,7 @@
 
 device:
   hostname: "arlowe-${device_serial}"
+  display_name: "Arlowe"
 
 audio:
   capture_device: "auto"
