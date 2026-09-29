@@ -175,6 +175,8 @@ jobs:
         run: bash tests/phase-07.3/test-pi-archive-repo.sh
       - name: Pi archive rootfs library self-test
         run: bash tests/phase-07.3/test-pi-archive-gate.sh
+      - name: Default-login build gate self-test
+        run: bash tests/security/test-login-gate.sh
       - name: Stage0 apt overlay self-test
         run: bash tests/phase-07.3/test-stage0-apt-overlay.sh
       - name: Cache pinned Pi archive debs (content-addressed by the manifest)
