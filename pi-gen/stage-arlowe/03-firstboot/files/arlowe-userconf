@@ -1,11 +1,11 @@
 #!/bin/bash
 # Provision a login account from /boot/firmware/userconf.txt, if one is present.
 #
-# The factory image ships NO login account, which is correct: the device is meant
-# to be paired, not logged into. But that also made every hardware test cycle
-# require hand-editing cmdline.txt on the card to get a shell, and it is why
-# userconf.txt did nothing on the first flashed image -- pi-gen's own
-# userconfig.service is not enabled here.
+# The factory image ships no login you can use (every account is locked and sshd
+# refuses passwords), which is correct: the device is meant to be paired, not
+# logged into. Without this, every hardware test cycle required hand-editing
+# cmdline.txt on the card to get a shell, and userconf.txt did nothing on a flashed
+# image -- pi-gen's own userconfig.service is not enabled here.
 #
 # Enabling pi-gen's service is the wrong fix: with no userconf.txt it runs an
 # INTERACTIVE wizard on tty1 and masks getty, so a device with no keyboard sits

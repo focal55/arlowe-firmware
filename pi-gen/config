@@ -21,7 +21,9 @@ RELEASE="bookworm"
 # canonical device identity. First-boot pairing (Phase 8) may overwrite this.
 TARGET_HOSTNAME="arlowe"
 
-# Enable SSH on first boot so the device is reachable before pairing.
+# ssh.service stays enabled so a provisioned development login can reach the
+# device, but it is key-only: stage-arlowe/03-firstboot writes an sshd drop-in
+# that refuses passwords, and the build gate fails the build if that regresses.
 ENABLE_SSH=1
 
 # Build only through our custom stage — stop before desktop stages.
@@ -43,12 +45,12 @@ KEYBOARD_LAYOUT="English (US)"
 # Timezone — UTC for a device appliance; owner pairing (Phase 8) sets local tz.
 TIMEZONE_DEFAULT="UTC"
 
-# First user: use the pi-gen default (pi / raspberry) for the base stages;
-# stage-arlowe's 00-run-chroot.sh installs the arlowe system user separately
-# and sets up the production layout. The default pi user is NOT the arlowe
-# runtime account.
+# First user: pi-gen requires one to exist for the base stages. FIRST_USER_PASS
+# is deliberately unset: pi-gen then creates it with `adduser --disabled-password`,
+# so it ships locked. Never set it -- the image must carry no default credential.
+# stage-arlowe/03-firstboot also locks root (pi-gen sets root:root) and removes
+# pi-gen's NOPASSWD sudoers rule. The pi user is NOT the arlowe runtime account.
 FIRST_USER_NAME="pi"
-FIRST_USER_PASS="raspberry"
 
 # Disable pi-gen's built-in password-setting on first boot — our first-boot
 # hook handles service initialization; the pi user is a build artifact.

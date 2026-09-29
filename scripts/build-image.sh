@@ -46,6 +46,17 @@ source "${SCRIPT_DIR}/lib/identity-store-check.sh"
 SUBSTRATE_LIB="${SCRIPT_DIR}/lib/verify-unit-execstart.sh"
 # Never sourced into this shell: only under `sudo bash -c`, like the substrate gates.
 PI_GATE_LIB="${SCRIPT_DIR}/lib/pi-archive-gate.sh"
+LOGIN_GATE_LIB="${SCRIPT_DIR}/lib/login-gate.sh"
+
+# run_login_gate <label> <rootfs>: the default-login gate under sudo (/etc/shadow
+# is root-only). Exits the build on anything but a pass; rc 2 (could not read the
+# rootfs) is a failure too, never a skip.
+run_login_gate() {
+    local rc=0
+    sudo bash -c 'set -uo pipefail; source "$1"; verify_no_default_login "$2"' \
+        _ "${LOGIN_GATE_LIB}" "$2" || rc=$?
+    (( rc == 0 )) || { fail "Default-login gate FAILED on $1 (rc ${rc}) -- see above. The image would ship a usable login."; return 1; }
+}
 # shellcheck source=scripts/lib/verify-unit-execstart.sh
 source "${SUBSTRATE_LIB}"
 
@@ -396,6 +407,14 @@ if [[ "${ARLOWE_PI_ARCHIVE_MODE}" == record ]]; then
     fail "RECORD MODE: candidate written; no image is produced from the live archive."
     exit 3
 fi
+
+# ---------------------------------------------------------------------------
+# Default-login gate. Reads only /etc inside the rootfs, so it goes here, early:
+# a leaked credential costs a rootfs build, not a partition-and-image cycle. It
+# runs again at step 5 over the assembled slot A and slot B.
+# ---------------------------------------------------------------------------
+log "=== Default-login gate (built rootfs) ==="
+run_login_gate "the built rootfs" "${PIGEN_ROOTFS}" || exit 1
 
 # ---------------------------------------------------------------------------
 # Pi archive: gate (07.3-05b) then swap-back
@@ -800,9 +819,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5: IMAGE GATES — two checks over the assembled slot-A rootfs:
+# Step 5: IMAGE GATES — checks over the assembled slot-A rootfs:
 #   a) sanitize scan-dir (SANIT-08)
 #   b) identity-store scan in --factory mode (SC3 / IDENT-03)
+#   c) default-login gate on slot A and slot B (read-only mounts)
 # Both run inside this one read-only loop-mount. A second mount is not an
 # option: a read-write loop-mount rewrites the ext4 superblock after the .bmap
 # is generated, and bmaptool flash then aborts on a checksum mismatch.
@@ -862,9 +882,25 @@ if ! check_identity_store "${SLOT_A_MOUNTPOINT}" --factory; then
     exit 1
 fi
 
+log "Running default-login gate on slot A and slot B..."
+# Slot B is a clone of slot A made by recovery-stub.sh; checking the written
+# partition, not the source, is what proves the recovery rootfs is clean too.
+SLOT_B_MOUNTPOINT="$(mktemp -d)"
+sudo mount -o ro "${LOOP_DEV}p3" "${SLOT_B_MOUNTPOINT}"
+if ! { run_login_gate "slot A" "${SLOT_A_MOUNTPOINT}" && run_login_gate "slot B" "${SLOT_B_MOUNTPOINT}"; }; then
+    sudo umount "${SLOT_B_MOUNTPOINT}" 2>/dev/null || true
+    rmdir "${SLOT_B_MOUNTPOINT}" 2>/dev/null || true
+    cleanup_loop
+    trap - EXIT
+    exit 1
+fi
+sudo umount "${SLOT_B_MOUNTPOINT}"
+rmdir "${SLOT_B_MOUNTPOINT}"
+
 cleanup_loop
 trap - EXIT
 ok "Identity-store gate passed."
+ok "Default-login gate passed on slot A and slot B."
 
 # ---------------------------------------------------------------------------
 # Step 6 (placeholder): slot-B recovery write + tryboot config are wired in
