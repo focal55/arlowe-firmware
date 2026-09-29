@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Owner-token CSR broker for the Phase 7 staging PKI. Dev host only.
+"""Claim-code CSR broker for the staging PKI. Dev host only.
 
 Stands in for the owner-authenticated backend that signs a device's CSR using AWS
 IoT Core's native issuance (`iot:CreateCertificateFromCsr`, Amazon root CA). AWS
 Private CA is ruled out by ADR-0007 and no Private CA resource is touched here.
 
-The token check is deliberately dumb, and that is the settled decision. This broker
-compares the presented bearer token against $ARLOWE_BROKER_TOKEN and does not know
-or care who issued it. A hand-minted token for a single unit and a token from a
-future account system must both work here unchanged -- the owner-account question
-belongs to Phase 8. Do not add a user table, an account lookup, or a token-minting
-endpoint to this file.
+The device presents its box card's claim code as an opaque bearer token (ADR-0007,
+ADR-0012). The broker redeems it against the store at $ARLOWE_BROKER_CLAIM_CODES:
+an unused code, or one already bound to the same device_id, gets a certificate and
+binds only once issuance has succeeded. Every refusal is the same 401.
+
+`--stub-iot` swaps the AWS client for scripts/pki/stub_iot.py so pairing's
+certificate step runs with no AWS account; the AWS path never imports it.
 
 Nothing under scripts/pki/ ships in the firmware image.
 """
 
 import argparse
-import hmac
 import json
 import logging
 import os
@@ -28,22 +28,33 @@ from botocore.exceptions import ClientError
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 
+import claim_codes
+
 LOG = logging.getLogger("arlowe.broker")
 
 ENDPOINT_PATH = "/v1/certificates"
 MAX_BODY_BYTES = 16384
 DEVICE_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 
+CLAIM_CODES_ENV = "ARLOWE_BROKER_CLAIM_CODES"
 # ARLOWE_PKI_* are the names frozen by scripts/pki/.staging-env (plan 07-05a).
 REQUIRED_ENV = (
-    "ARLOWE_BROKER_TOKEN",
+    CLAIM_CODES_ENV,
     "ARLOWE_PKI_POLICY",
     "ARLOWE_PKI_ROLE_ALIAS",
     "ARLOWE_PKI_CREDENTIALS_ENDPOINT",
 )
+# The stub has no account, so there is no .staging-env to source. These reach the
+# device in the 200 body; .invalid keeps a stub-paired unit from dialing anything real.
+STUB_PKI_DEFAULTS = {
+    "ARLOWE_PKI_POLICY": "arlowe-stub-device-policy",
+    "ARLOWE_PKI_ROLE_ALIAS": "arlowe-stub-role-alias",
+    "ARLOWE_PKI_CREDENTIALS_ENDPOINT": "credentials.stub-iot.invalid",
+}
+UNAUTHORIZED = (401, {"error": "unauthorized"})
 
 
-def load_config(env=None):
+def load_config(env=None, stub=False):
     """Return the broker settings, or raise SystemExit naming the missing variable.
 
     Called at startup rather than per-request so a misconfigured broker refuses to
@@ -52,19 +63,25 @@ def load_config(env=None):
     env = os.environ if env is None else env
     config = {}
     for name in REQUIRED_ENV:
-        value = (env.get(name) or "").strip()
+        value = (env.get(name) or "").strip() or (STUB_PKI_DEFAULTS.get(name, "") if stub else "")
         if not value:
             raise SystemExit("broker.py: %s is unset or empty" % name)
         config[name] = value
+    if not os.path.isfile(config[CLAIM_CODES_ENV]):
+        raise SystemExit("broker.py: %s names no file (claim_codes.py mint creates it)"
+                         % CLAIM_CODES_ENV)
     return config
 
 
-def authorized(auth_header, expected_token):
+def presented_code_hash(auth_header):
+    """Store key for the bearer value, or None when it cannot be a claim code."""
     scheme, _, presented = (auth_header or "").partition(" ")
-    presented = presented.strip()
-    if scheme.lower() != "bearer" or not presented:
-        return False
-    return hmac.compare_digest(presented, expected_token)
+    if scheme.lower() != "bearer":
+        return None
+    try:
+        return claim_codes.code_hash(presented.strip())
+    except ValueError:
+        return None
 
 
 def _csr_common_name(csr):
@@ -75,12 +92,13 @@ def _csr_common_name(csr):
 def handle_certificate_request(auth_header, body, iot, config):
     """Core of POST /v1/certificates. Returns (status_code, response_dict).
 
-    `iot` is an injected boto3 IoT client so every response code is reachable in
-    tests without an AWS account.
+    `iot` is an injected boto3 IoT client (or StubIoT) so every response code is
+    reachable in tests without an AWS account.
     """
-    if not authorized(auth_header, config["ARLOWE_BROKER_TOKEN"]):
+    key = presented_code_hash(auth_header)
+    if key is None:
         LOG.warning("POST %s -> 401 unauthorized", ENDPOINT_PATH)
-        return 401, {"error": "unauthorized"}
+        return UNAUTHORIZED
 
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -107,6 +125,20 @@ def handle_certificate_request(auth_header, body, iot, config):
         LOG.warning("POST %s device=%s -> 400 csr_subject_mismatch", ENDPOINT_PATH, device_id)
         return 400, {"error": "csr_subject_mismatch"}
 
+    # The lock spans check, issuance and bind: two devices racing one unused code
+    # cannot both be issued, and a failed issuance never persists the binding.
+    with claim_codes.ClaimStore(config[CLAIM_CODES_ENV]).transaction() as entries:
+        after = claim_codes.redeem(entries.get(key), device_id)
+        if after is None:
+            LOG.warning("POST %s device=%s -> 401 unauthorized", ENDPOINT_PATH, device_id)
+            return UNAUTHORIZED
+        status, response = _issue(iot, config, csr_pem, device_id)
+        if status == 200:
+            entries[key] = after
+        return status, response
+
+
+def _issue(iot, config, csr_pem, device_id):
     try:
         issued = iot.create_certificate_from_csr(
             certificateSigningRequest=csr_pem, setAsActive=True
@@ -182,7 +214,7 @@ class BrokerHandler(BaseHTTPRequestHandler):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="broker.py",
-        description="Owner-token CSR broker for the Phase 7 staging PKI (dev host only).",
+        description="Claim-code CSR broker for the staging PKI (dev host only).",
         epilog="Required environment: %s.\nSelf-signed TLS pair and the POST %s contract: "
                "see scripts/pki/README.md." % (", ".join(REQUIRED_ENV), ENDPOINT_PATH),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -191,26 +223,45 @@ def parse_args(argv=None):
     parser.add_argument("--port", type=int, default=8443)
     parser.add_argument("--certfile", default="scripts/pki/broker-cert.pem")
     parser.add_argument("--keyfile", default="scripts/pki/broker-key.pem")
-    return parser.parse_args(argv)
+    parser.add_argument("--stub-iot", action="store_true",
+                        help="issue from a local throwaway CA instead of AWS IoT")
+    parser.add_argument("--stub-ca-dir", help="stub CA directory; created on first use")
+    parser.add_argument("--stub-fail", choices=["issuance"],
+                        help="make every stub issuance fail, so requests answer 502")
+    args = parser.parse_args(argv)
+    if args.stub_iot and not args.stub_ca_dir:
+        parser.error("--stub-iot requires --stub-ca-dir")
+    if (args.stub_ca_dir or args.stub_fail) and not args.stub_iot:
+        parser.error("--stub-ca-dir and --stub-fail require --stub-iot")
+    return args
+
+
+def make_iot_client(args):
+    if args.stub_iot:
+        import stub_iot
+
+        return stub_iot.StubIoT(args.stub_ca_dir, fail_issuance=args.stub_fail == "issuance")
+    import boto3
+
+    return boto3.client("iot")
 
 
 def main(argv=None):
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    config = load_config()
+    config = load_config(stub=args.stub_iot)
     for path in (args.certfile, args.keyfile):
         if not os.path.exists(path):
             raise SystemExit("broker.py: TLS material not found: %s" % path)
 
-    import boto3
-
     handler = type("ConfiguredBrokerHandler", (BrokerHandler,),
-                   {"iot": boto3.client("iot"), "config": config})
+                   {"iot": make_iot_client(args), "config": config})
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(args.certfile, args.keyfile)
     httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
-    LOG.info("broker listening on https://%s:%d%s", args.host, args.port, ENDPOINT_PATH)
+    LOG.info("broker listening on https://%s:%d%s%s", args.host, args.port, ENDPOINT_PATH,
+             " (stub IoT)" if args.stub_iot else "")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
