@@ -142,3 +142,56 @@ describe('identity block: dashboard save path is unaffected', () => {
     assert.equal(ok, true, `Expected identity-bearing body to validate: ${JSON.stringify(validate.errors)}`);
   });
 });
+
+// --- Pairing overlay (Phase 8) ---------------------------------------------
+//
+// GET /api/config returns the raw overlay, and a pairing overlay is partial by
+// design: it carries device, owner, network and identity but none of the other
+// required keys. The save must keep every overlay key and fill only the gaps.
+// ---------------------------------------------------------------------------
+
+describe('buildSaveBody: pairing overlay', () => {
+  const validate = buildValidator();
+  const required = ['device', 'audio', 'model', 'persona', 'ports', 'logs', 'support_mode', 'ota'];
+
+  const pairingOverlay = {
+    device: { hostname: 'kitchen-test', display_name: 'Kitchen Test' },
+    owner: { paired_at: '2026-09-28T12:00:00Z' },
+    network: { wifi_label: 'HomeNet' },
+    identity: {
+      provisioning_url: 'https://broker.example.invalid',
+      credentials_endpoint: '',
+      role_alias: '',
+      poll_interval_seconds: 3600,
+    },
+  };
+
+  it('CONFIG_DEFAULTS carries the default display name', () => {
+    assert.equal((CONFIG_DEFAULTS.device as { display_name: string }).display_name, 'Arlowe');
+  });
+
+  it('a pairing overlay survives an audio save', () => {
+    const body = buildSaveBody(pairingOverlay, 'hw:1,0', 'auto');
+    assert.deepEqual(body.identity, pairingOverlay.identity);
+    assert.deepEqual(body.owner, pairingOverlay.owner);
+    assert.deepEqual(body.network, pairingOverlay.network);
+    assert.deepEqual(body.device, pairingOverlay.device);
+    assert.deepEqual(body.audio, { capture_device: 'hw:1,0', playback_device: 'auto' });
+    for (const key of required) {
+      assert.ok(key in body, `Expected key "${key}" in body built from a pairing overlay`);
+    }
+    assert.deepEqual(body.model, CONFIG_DEFAULTS.model);
+    assert.equal(validate(body), true, JSON.stringify(validate.errors));
+  });
+
+  it('a full config is returned unchanged except audio', () => {
+    const full = { ...CONFIG_DEFAULTS, ...pairingOverlay, model: { choice: 'qwen2.5-1.5b-int4-ax650' } };
+    const body = buildSaveBody(full, 'USB', 'USB');
+    assert.deepEqual(body, { ...full, audio: { capture_device: 'USB', playback_device: 'USB' } });
+  });
+
+  it('a null overlay yields CONFIG_DEFAULTS plus audio', () => {
+    const body = buildSaveBody(null, 'USB', 'auto');
+    assert.deepEqual(body, { ...CONFIG_DEFAULTS, audio: { capture_device: 'USB', playback_device: 'auto' } });
+  });
+});
