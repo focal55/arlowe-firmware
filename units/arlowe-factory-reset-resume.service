@@ -1,0 +1,39 @@
+[Unit]
+Description=Arlowe factory reset: finish a reset a power cut interrupted
+ConditionPathExists=/var/lib/arlowe/reset-ledger/in-progress
+RequiresMountsFor=/var/lib/arlowe
+After=local-fs.target NetworkManager.service
+# Before pairing and every runtime unit, so none of them starts against a half-wiped
+# unit. The helper resumes after the marker's last recorded step, so a revoke that
+# already ran is not repeated.
+Before=arlowe-pair.service arlowe-dashboard.service arlowe-face.service arlowe-voice.service qwen-api.service qwen-tokenizer.service whisper-stt.service
+
+[Service]
+Type=oneshot
+Environment=PYTHONUNBUFFERED=1
+Environment=ARLOWE_BROKER_FILE=/boot/firmware/arlowe-broker.json
+ExecStart=/usr/bin/python3 /opt/arlowe/runtime/cli/factory-reset --resume
+StandardOutput=journal
+StandardError=journal
+
+# Same sandbox as arlowe-factory-reset@.service; see its comments.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=mbind
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
