@@ -94,7 +94,7 @@ def test_dash_ssid(nm, fake):
     fake.scenario(join={"exit": 4, "stderr": "Connection activation failed: (7) x"})
     with pytest.raises(JoinError):
         nm.join("-id", "wrong-psk")
-    up, delete = fake.argvs()[-2:]
+    delete = fake.argvs()[-1]
     u = _after(fake.argvs()[-3], "connection.uuid")
     assert delete == ["connection", "delete", "uuid", u]
     for argv in fake.argvs():
