@@ -2,7 +2,7 @@
 // Used as the base when the overlay is absent (pre-pairing) or missing keys.
 // Must stay in sync with config/defaults.yml.
 export const CONFIG_DEFAULTS: Record<string, unknown> = {
-  device: { hostname: 'arlowe-${device_serial}' },
+  device: { hostname: 'arlowe-${device_serial}', display_name: 'Arlowe' },
   audio: { capture_device: 'auto', playback_device: 'auto' },
   model: { choice: 'qwen2.5-7b-int4-ax650' },
   persona: {
@@ -27,15 +27,29 @@ export function isFullConfig(obj: Record<string, unknown> | null): obj is Record
   return REQUIRED_KEYS.every(k => k in obj);
 }
 
-// Builds the POST body for POST /api/config by merging the audio selection into
-// the current overlay.  POST /api/config AJV-validates the raw body against
-// config/schema.yml which requires all 8 top-level keys — a partial body returns
-// 422.  This function ensures the body is always schema-complete:
-//
-//   - If currentConfig has all 8 required keys (the overlay written by a prior
-//     save), it is used as-is with the audio keys overwritten.
-//   - Otherwise (overlay absent pre-pairing, or partially-written by another
-//     tool), CONFIG_DEFAULTS fills the missing keys.
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function mergeOneLevel(
+  defaults: Record<string, unknown>,
+  overlay: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...defaults };
+  for (const [k, v] of Object.entries(overlay)) {
+    const d = defaults[k];
+    out[k] = isPlainObject(d) && isPlainObject(v) ? { ...d, ...v } : v;
+  }
+  return out;
+}
+
+// Builds the POST body for POST /api/config. That route AJV-validates the raw
+// body against config/schema.yml, which requires all 8 top-level keys, so a
+// partial body returns 422. But GET /api/config returns the raw overlay, and a
+// pairing overlay is partial by design (device, owner, network, identity). So
+// the overlay is merged over CONFIG_DEFAULTS rather than replaced by them: every
+// overlay key survives, including identity.provisioning_url, which reset needs to
+// revoke the certificate; defaults fill only what is missing.
 //
 // The "auto" sentinel is preserved: selecting Auto passes "auto" as the device
 // string, which is the correct default value per the schema.
@@ -44,9 +58,7 @@ export function buildSaveBody(
   captureDevice: string,
   playbackDevice: string,
 ): Record<string, unknown> {
-  const base = isFullConfig(currentConfig)
-    ? { ...currentConfig }
-    : { ...CONFIG_DEFAULTS };
+  const base = mergeOneLevel(CONFIG_DEFAULTS, currentConfig ?? {});
 
   return {
     ...base,
