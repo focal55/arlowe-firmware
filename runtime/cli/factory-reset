@@ -98,8 +98,12 @@ def save_marker(ctx):
 
 def stop_units(ctx):
     rc = subprocess.run(["systemctl", "stop", *UNITS]).returncode
-    if rc:
-        log("systemctl stop exited %d; continuing (a unit may not be installed)" % rc)
+    # 5 is "unit not loaded" (arlowe-pair is absent on images without it). Anything else
+    # may mean a service is still running and writing the state the wipe removes.
+    if rc == 5:
+        log("systemctl stop exited 5; a unit is not installed, continuing")
+    elif rc:
+        raise RuntimeError("systemctl stop exited %d" % rc)
 
 
 def revoke_or_record(ctx):
