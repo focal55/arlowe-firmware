@@ -247,9 +247,9 @@ Every v1 requirement is mapped to exactly one **owning** phase in `.planning/ROA
 | PAIR-05 | Phase 8 | Pending |
 | PAIR-06 | Phase 8 | Pending |
 | PAIR-07 | Phase 8 | Pending |
-| WAKE-01 | Phase 8 | Pending |
-| WAKE-02 | Phase 8 | Pending |
-| WAKE-03 | Phase 8 | Pending |
+| WAKE-01 | Phase 8.1 | Pending |
+| WAKE-02 | Phase 8.1 | Pending |
+| WAKE-03 | Phase 8.1 | Pending |
 | IMAGE-01 | Phase 6 | Pending |
 | IMAGE-02 | Phase 6 (+ 7.1) | Pending |
 | IMAGE-03 | Phase 6 (+ 7.2) | Met — inputs pinned + gated; see `docs/operations/phase-07.2-inputs.reference`, ADR-0009 |

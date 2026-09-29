@@ -20,7 +20,8 @@ Twelve phases take the runtime from "lives on the founder's dev unit inside a pr
 - [x] **Phase 7.1: Runtime substrate repair (INSERTED)** - Populate `/opt/arlowe/venvs`, build the dashboard to `server.js`, declare the missing apt packages, guard the wake-word verifier; a build gate asserts every unit's ExecStart interpreter exists in the rootfs **(complete; SC6 met on hardware from a clean image 2026-09-25)**
 - [ ] **Phase 7.2: Build input pinning (INSERTED)** - Make IMAGE-03 true: pin the kernel by checksum from the pool, resolve Debian packages from a snapshot, implement SOURCE_DATE_EPOCH, and assert the pins survive pi-gen's re-clone
 - [ ] **Phase 7.3: Pi archive snapshot (INSERTED)** - Pin every `archive.raspberrypi.com` package the image installs by sha256 and serve them from a self-hosted flat apt repo in place of the rolling archive; supersedes #146
-- [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; generic "Hey Arlowe" model ships with image; factory reset returns unit to pairing
+- [ ] **Phase 8: First-boot pairing and wake word** - Pairing daemon captures Wi-Fi + account + display name; factory reset returns unit to pairing (wake word split out to 8.1)
+- [ ] **Phase 8.1: Hey Arlowe wake model (INSERTED)** - Train and ship the generic "Hey Arlowe" openWakeWord model; upgrade the device to openWakeWord 0.6.0; drop the non-commercial pretrained models; personalization toggle
 - [ ] **Phase 9: App-only OTA** - Signed-manifest OTA agent rsyncs `/opt/arlowe/runtime/` from a CDN; atomic per-service restart with rollback
 - [ ] **Phase 10: Owner-consented support access** - Dashboard "Support Mode" toggle provisions a time-bound founder SSH key; auto-revokes; full audit log
 - [ ] **Phase 11: Boot health, dashboard surfaces, and log management** - Post-boot validation; dashboard health/activity/settings views; log retention defaults
@@ -371,7 +372,27 @@ SC3 decision: `third_party/rpt-packages/` is folded into the Pi-archive manifest
   2. A successful pairing flow captures owner account credentials/token, Wi-Fi SSID + password, and device display name; obtains a device cert; writes `/etc/arlowe/config.yml`; starts the runtime services; and lands the device on the dashboard at `http://<device-name>.local:3000` authenticated with the pairing credentials.
   3. Each pairing failure mode (bad Wi-Fi creds, server unreachable, account auth fail, cert issuance fail) produces a distinct, owner-readable error on both the Whisplay and the companion device.
   4. Factory reset (triggered from dashboard or recovery SD card) clears `/etc/arlowe/config.yml` + `/var/lib/arlowe/identity/` + paired data, and the next boot lands back in pairing mode.
-  5. The shipped generic "Hey Arlowe" model wakes the orchestrator on at least three independent voices (verified by manual test) without per-customer training; the dashboard exposes a personalization toggle that is off by default.
+  5. *(Moved to Phase 8.1 SC1-SC3.)*
+
+**Scope change (2026-09-28):** research sized the original phase at ~24 plans, so the wake word (WAKE-01..03, old SC5) moved to Phase 8.1. SC4 is amended: factory reset also clears the saved Wi-Fi profiles, since NetworkManager stores the owner's PSK in plaintext. Prerequisite: #200 (default `pi`/`raspberry` login with passwordless sudo and SSH on, in every image) lands before any Phase 8 plan executes. Decisions: `08-CONTEXT.md`.
+
+**Plans**: TBD
+
+### Phase 8.1: Hey Arlowe wake model (INSERTED)
+
+**Goal**: Ship a generic "Hey Arlowe" wake model that works on voices it was never trained on, replace the non-commercial pretrained openWakeWord models the image carries today, and expose the personalization toggle.
+
+**Depends on**: Phase 7.1 (runtime substrate). Independent of Phase 8's pairing work.
+
+**Requirements**: WAKE-01, WAKE-02, WAKE-03
+
+**Why inserted**: Split from Phase 8 on 2026-09-28 when research sized Phase 8 at ~24 plans. It also found that the device's `openwakeword==0.4.0` wheel installs six CC BY-NC-SA models, including `hey_jarvis`, which the voice client uses today, into every image.
+
+**Success Criteria** (what must be TRUE):
+  1. The shipped "Hey Arlowe" model reaches a >= 90% wake rate over 60 trials from 3 speakers whose voices were not in the training data, and <= 1 false wake per hour over a >= 1 h ambient session, with no personalization verifier present (hardware checkpoint).
+  2. No openWakeWord pretrained model (`hey_jarvis` or any other) is present in the image or referenced by any shipped code path.
+  3. The dashboard exposes a wake-word personalization toggle, off by default.
+  4. An ADR records the model's training data provenance and, as an owner decision, the licensing liability of training with the stock recipe, including that sold units have no field fix until model OTA exists.
 
 **Plans**: TBD
 
@@ -447,7 +468,7 @@ SC3 decision: `third_party/rpt-packages/` is folded into the Pi-archive manifest
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -> 7.3 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -> 7.3 -> 8 -> 8.1 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -461,7 +482,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 7.1 -> 7.2 -
 | 7.1 Runtime substrate repair (INSERTED) | 6/6 | **Complete. SC6 met on hardware 2026-09-25: all six units `active` from a clean flash, no hand changes** (image from `6a4c538`). Results in `docs/operations/phase-7.1-substrate.md` §SC6 re-run from a clean image. Nine defects found, none container-reproducible | 2026-09-25 |
 | 7.2 Build input pinning (INSERTED) | Complete | Kernel pinned to 6.12.96 by pool URL + sha256; Debian snapshot pinned; input manifest diff gate green (#137 closed). Pi-archive packages pinned by digest, install path still via apt (#146 open) | 2026-09-21 |
 | 7.3 Pi archive snapshot (INSERTED) | 0/TBD | Not planned | - |
-| 8. First-boot pairing and wake word | 0/TBD | Not started | - |
+| 8. First-boot pairing and wake word | 0/TBD | Context + research done; planning | - |
+| 8.1 Hey Arlowe wake model (INSERTED) | 0/TBD | Not started | - |
 | 9. App-only OTA | 0/TBD | Not started | - |
 | 10. Owner-consented support access | 0/TBD | Not started | - |
 | 11. Boot health, dashboard surfaces, and log management | 0/TBD | Not started | - |
