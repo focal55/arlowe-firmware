@@ -7,18 +7,43 @@
 #                           Default: '' (system-level units, Phase 3+ image)
 #                           Set to '--user' for ad-hoc test invocations
 #                           against legacy --user units in dev-stash/.
-#   ARLOWE_ROOT             Filesystem prefix for the IDENTITY section.
-#                           Default: '' (the live root). Set to a temp tree to
-#                           exercise the section off-device.
+#   ARLOWE_ROOT             Filesystem prefix for the paired check and the
+#                           IDENTITY section. Default: '' (the live root). Set
+#                           to a temp tree to exercise them off-device.
 #   ARLOWE_IDENTITY_OWNER   Expected owner:group of the identity store.
 #                           Default: 'arlowe:arlowe'.
+#   ARLOWE_AXCL_SMI         NPU probe. Default: '/usr/bin/axcl/axcl-smi'.
+#
+# Exit: 0 when nothing FAILed, 1 otherwise, 2 on a usage error.
+# arlowe-firstboot.service runs `boot-check --first-boot` and fails on non-zero,
+# so a hardware or identity failure on first boot is loud.
+
+FIRST_BOOT=false
+for arg in "$@"; do
+    case "$arg" in
+        --first-boot) FIRST_BOOT=true ;;
+        *) echo "usage: boot-check [--first-boot]" >&2; exit 2 ;;
+    esac
+done
 
 # Phase 3 plan 04: default flipped from '--user' to '' to align with
 # the system-level unit files shipped in plan 03-02.
 SYSTEMCTL_FLAGS="${ARLOWE_SYSTEMCTL_FLAGS:-}"
+ARLOWE_ROOT="${ARLOWE_ROOT:-}"
+
+# An absent /etc/arlowe/config.yml is the pre-pairing state (CONFIG-03). The six
+# runtime units are ConditionPathExists-gated on it, so on an unpaired unit they
+# are down by design and are reported as SKIP, not FAIL.
+paired=false
+[ -f "${ARLOWE_ROOT}/etc/arlowe/config.yml" ] && paired=true
+NOT_PAIRED="(not paired: /etc/arlowe/config.yml absent)"
 
 echo "============================================================"
-echo "           ARLOWE BOOT VERIFICATION"
+if [ "$FIRST_BOOT" = true ]; then
+    echo "           ARLOWE BOOT VERIFICATION (first boot)"
+else
+    echo "           ARLOWE BOOT VERIFICATION"
+fi
 echo "============================================================"
 echo ""
 
@@ -28,7 +53,10 @@ FAIL=0
 check_service() {
     local svc=$1
     local desc=$2
-    if systemctl $SYSTEMCTL_FLAGS is-active --quiet $svc; then
+    # shellcheck disable=SC2086  # SYSTEMCTL_FLAGS is empty or '--user' and must word-split
+    if [ "$paired" = false ]; then
+        echo "SKIP $desc $NOT_PAIRED"
+    elif systemctl $SYSTEMCTL_FLAGS is-active --quiet "$svc"; then
         echo "OK  $desc"
         ((PASS++))
     else
@@ -40,7 +68,9 @@ check_service() {
 check_port() {
     local port=$1
     local desc=$2
-    if lsof -ti :$port >/dev/null 2>&1; then
+    if [ "$paired" = false ]; then
+        echo "SKIP $desc (port $port) $NOT_PAIRED"
+    elif lsof -ti ":$port" >/dev/null 2>&1; then
         echo "OK  $desc (port $port)"
         ((PASS++))
     else
@@ -52,7 +82,6 @@ check_port() {
 # Identity store sentinel (Phase 7, plan 07-04). Writes structured JSON to
 # /var/lib/arlowe/state/identity-selfcheck.json for the Phase 11 dashboard
 # health view, mirroring the audio-selfcheck.json precedent from Phase 5.
-ARLOWE_ROOT="${ARLOWE_ROOT:-}"
 ARLOWE_IDENTITY_OWNER="${ARLOWE_IDENTITY_OWNER:-arlowe:arlowe}"
 
 id_mode()  { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
@@ -61,14 +90,11 @@ id_owner() { stat -c '%U:%G' "$1" 2>/dev/null || stat -f '%Su:%Sg' "$1" 2>/dev/n
 check_identity() {
     local idir="${ARLOWE_ROOT}/var/lib/arlowe/identity"
     local statedir="${ARLOWE_ROOT}/var/lib/arlowe/state"
-    local paired=false dir_ok=false modes_ok=true opt_clean=true
+    local dir_ok=false modes_ok=true opt_clean=true
     local id_present=false key_present=false cert_present=false
     local mode owner f path hits
 
-    # An absent /etc/arlowe/config.yml is the Phase 4 CONFIG-03 pre-pairing
-    # signal. Before pairing, missing identity material is the correct state.
-    [ -f "${ARLOWE_ROOT}/etc/arlowe/config.yml" ] && paired=true
-
+    # Before pairing, missing identity material is the correct state.
     if [ -d "$idir" ]; then
         mode=$(id_mode "$idir")
         owner=$(id_owner "$idir")
@@ -146,7 +172,6 @@ echo "CORE SERVICES:"
 echo "------------------------------------------------------------"
 check_service qwen-tokenizer "Qwen Tokenizer"
 check_service qwen-api "Qwen LLM API"
-check_service qwen-openai "Qwen OpenAI Wrapper"
 check_service whisper-stt "Whisper STT Server"
 check_service arlowe-face "Face Display Service"
 check_service arlowe-voice "Voice Assistant"
@@ -157,7 +182,6 @@ echo "NETWORK ENDPOINTS:"
 echo "------------------------------------------------------------"
 check_port 12345 "Tokenizer Service"
 check_port 8000 "Qwen Native API"
-check_port 8001 "Qwen OpenAI API"
 check_port 8082 "STT Server"
 check_port 8080 "Face Control API"
 check_port 3000 "Dashboard"
@@ -165,7 +189,7 @@ check_port 3000 "Dashboard"
 echo ""
 echo "HARDWARE:"
 echo "------------------------------------------------------------"
-if /usr/bin/axcl/axcl-smi >/dev/null 2>&1; then
+if "${ARLOWE_AXCL_SMI:-/usr/bin/axcl/axcl-smi}" >/dev/null 2>&1; then
     echo "OK  Axera NPU detected"
     ((PASS++))
 else
@@ -193,8 +217,13 @@ check_identity
 echo ""
 echo "============================================================"
 echo "Results: $PASS passed, $FAIL failed"
-if [ $FAIL -eq 0 ]; then
+if [ $FAIL -ne 0 ]; then
+    echo "Some services need attention"
+    exit 1
+fi
+if [ "$paired" = true ]; then
     echo "ALL SYSTEMS OPERATIONAL"
 else
-    echo "Some services need attention"
+    echo "READY TO PAIR"
 fi
+exit 0
