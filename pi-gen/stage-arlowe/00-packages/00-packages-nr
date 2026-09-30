@@ -167,3 +167,8 @@ python3-qrcode
 # DejaVuSans.ttf -- the pairing screens' text. Already in the rootfs; declared
 # because pair/display.py opens it by path.
 fonts-dejavu-core
+
+# argon2-cffi -- the pairing daemon (pair/credential.py) hashes the owner's
+# dashboard password as Argon2id (ADR-0012). Depends on libargon2-1 and
+# python3-cffi-backend, both already in the rootfs.
+python3-argon2

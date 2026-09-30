@@ -96,3 +96,31 @@ jobs:
         run: pip install -r scripts/pki/requirements.txt pytest
       - name: Run tests
         run: python -m pytest scripts/pki/tests -q
+
+  # pair-bookworm has no Node, so there the cross-implementation test skips.
+  # ARLOWE_REQUIRE_NODE turns that skip into a failure here.
+  pair-node-compat:
+    name: Pairing credential verifies in the dashboard (Node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: runtime/dashboard/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: runtime/dashboard/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: runtime/dashboard
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # 21.1 is bookworm's python3-argon2.
+      - run: pip install 'argon2-cffi>=21.1,<22' pytest
+      - name: Run the cross-implementation test
+        env:
+          ARLOWE_REQUIRE_NODE: '1'
+          PYTHONPATH: runtime:runtime/lib
+        run: python -m pytest runtime/pair/tests/test_credential_node.py -q --import-mode=importlib
