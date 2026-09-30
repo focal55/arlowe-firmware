@@ -11,7 +11,7 @@
 # committed copy is a baseline a gate diffs against, and an edited baseline
 # asserts something no build produced. Re-record a deliberate bump with
 # ARLOWE_INPUTS_ACCEPT=1.
-source_date_epoch	1790470120
+source_date_epoch	1790737975
 worktree_clean	true
 pigen_ref	2026-06-18-raspios-bookworm-arm64
 debian_snapshot	20260915T000000Z
@@ -693,6 +693,7 @@ pkg	python3	3.11.2-1+b1	arm64
 pkg	python3-all	3.11.2-1+b1	arm64
 pkg	python3-all-dev	3.11.2-1+b1	arm64
 pkg	python3-apt	2.6.0	arm64
+pkg	python3-argon2	21.1.0-2	arm64
 pkg	python3-attr	22.2.0-1	all
 pkg	python3-beniget	0.4.1-3	all
 pkg	python3-certifi	2022.9.24-1	all
@@ -722,10 +723,12 @@ pkg	python3-pip	23.0.1+dfsg-1+rpt1	all
 pkg	python3-pip-whl	23.0.1+dfsg-1+rpt1	all
 pkg	python3-pkg-resources	66.1.1-1+deb12u2	all
 pkg	python3-ply	3.11-5	all
+pkg	python3-png	0.20220715.0-1	all
 pkg	python3-pyaudio	0.2.13-1+b1	arm64
 pkg	python3-pycryptodome	3.11.0+dfsg1-4	arm64
 pkg	python3-pyrsistent	0.18.1-1+b3	arm64
 pkg	python3-pythran	0.11.0+ds-7	arm64
+pkg	python3-qrcode	7.4.2-2	all
 pkg	python3-requests	2.28.1+dfsg-1	all
 pkg	python3-rpi-lgpio	0.6-0~rpt1	all
 pkg	python3-scipy	1.10.1-2	arm64
@@ -738,6 +741,7 @@ pkg	python3-smbus2	0.4.2-1	arm64
 pkg	python3-spidev	20200602~200721-1+bookworm	arm64
 pkg	python3-threadpoolctl	3.1.0-1	all
 pkg	python3-toml	0.10.2-1	all
+pkg	python3-typing-extensions	4.4.0-1	all
 pkg	python3-urllib3	1.26.12-1+deb12u4	all
 pkg	python3-venv	3.11.2-1+b1	arm64
 pkg	python3-wheel	0.38.4-2	all
