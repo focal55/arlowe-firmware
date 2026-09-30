@@ -9,6 +9,7 @@ const navItems = [
   { href: '/logs', label: 'Logs', icon: '📋' },
   { href: '/connectivity', label: 'Connect', icon: '📶' },
   { href: '/audio', label: 'Audio', icon: '🔊' },
+  { href: '/settings', label: 'Settings', icon: '⚙' },
 ];
 
 export default function Navigation() {
