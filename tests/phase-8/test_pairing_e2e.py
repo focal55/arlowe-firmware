@@ -5,6 +5,7 @@ Run from repo root (the image's Python packages plus python3-botocore):
         --import-mode=importlib
 """
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 import yaml  # noqa: E402
 
 from pair.commit import RUNTIME_UNITS  # noqa: E402
+from pair.errors import MESSAGES, ErrorKind  # noqa: E402
 
 PASSWORD = "dash-pass-99"
 
@@ -73,3 +75,77 @@ def test_happy_path(w):
     starts = [e for e in events if e.startswith("systemctl start --no-block")]
     assert starts == ["systemctl start --no-block %s |config=present" % " ".join(RUNTIME_UNITS)]
     assert commit < paired < close < events.index(starts[0])
+
+
+UNMINTED = "ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ"
+FAILURES = {
+    "wifi_rejected": lambda w: w.submit(psk="wrong-psk-9999"),
+    "server_unreachable": lambda w: (w.stop_broker(), w.submit())[1],
+    "claim_rejected": lambda w: w.submit(code=UNMINTED),
+    "cert_failed": lambda w: (w.stop_broker(), w.start_broker(fail=True), w.submit())[2],
+}
+
+
+def assert_ap_restored(w):
+    wifi = [p for p in w.nm_profiles() if p["type"] == "802-11-wireless"]
+    assert [(p["name"], p["save"], p["ap"], p["active"], p["secret_supplied"]) for p in wifi] \
+        == [("arlowe-setup", "no", True, True, True)]
+    argvs = w.nm_argvs()
+    ap = wifi[0]["uuid"]
+    add = next(a for a in argvs if a[:2] == ["connection", "add"] and ap in a)
+    assert add[add.index("ssid") + 1] == w.session[0]
+    assert [a for a in argvs if ap in a][-1] == ["connection", "up", "uuid", ap,
+                                                 "passwd-file", "/dev/stdin"]
+    assert (w.app.session.ssid, w.app.session.psk) == w.session
+
+
+@pytest.mark.parametrize("kind", FAILURES)
+def test_failure_is_reported_and_recoverable(w, kind):
+    assert len({MESSAGES[ErrorKind(k)] for k in FAILURES}) == len(FAILURES)
+    w.start_app()
+    assert FAILURES[kind](w) == "error"
+    message = MESSAGES[ErrorKind(kind)]
+    assert w.portal_status() == {"status": "error", "error_kind": kind, "message": message}
+    assert w.display.screens[-1] == ["Setup error", message]
+    assert_ap_restored(w)
+    assert not w.config.exists()
+    assert w.claim()["state"] == "unused"
+
+
+def pair_after_wrong_psk(w):
+    w.start_app()
+    assert w.submit(psk="wrong-psk-9999") == "error"
+    assert w.submit(psk=HOME_PSK, password="", code="") == "paired"
+    assert_paired(w)
+
+
+def test_correct_and_resubmit(w):
+    pair_after_wrong_psk(w)
+    issued = [x for x in w.lines_of(w.broker_log) if "POST /v1/certificates device=" in x]
+    assert len(issued) == 1 and "-> 200" in issued[0]
+
+
+def test_reset_revokes_against_tls_broker(w):
+    w.start_app()
+    assert w.submit() == "paired"
+    assert_paired(w)
+    res = w.reset()
+    assert res.returncode == 0, res.stderr
+    ledger = w.root / "var/lib/arlowe/reset-ledger"
+    assert json.loads(w.lines_of(ledger / "resets.log")[-1])["revoke"] == "ok"
+    assert w.lines_of(ledger / "orphaned-certs.jsonl") == []
+    assert w.claim()["state"] == "unused"
+    assert any("POST /v1/certificates/revoke device=%s" % w.device_id in x and "-> 200" in x
+               for x in w.lines_of(w.broker_log))
+    assert not w.config.exists()
+
+
+def test_no_secret_in_logs(w, caplog):
+    caplog.set_level(logging.DEBUG)
+    pair_after_wrong_psk(w)
+    assert w.reset().returncode == 0
+    streams = w.streams() + caplog.text
+    assert w.device_id in streams and "pairing: paired" in caplog.text
+    secrets = {"wrong-psk-9999", HOME_PSK, PASSWORD, w.code, w.code.replace("-", ""),
+               w.session[1]}
+    assert [line for line in streams.splitlines() if any(s in line for s in secrets)] == []

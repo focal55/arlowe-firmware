@@ -84,8 +84,9 @@ class RecordingDisplay(Display):
     def show(self, screen):
         text = lines(self._screen(screen))
         self.screens.append(text)
+        # The waiting screen shows the session PSK on the panel; keep it out of the log.
         with open(self._events, "a") as f:
-            f.write("display %s\n" % " / ".join(text))
+            f.write("display %s\n" % " / ".join(text[:1] if text[0] == "Scan to connect" else text))
         super().show(screen)
 
 
@@ -201,11 +202,12 @@ class World:
         conn.close()
         return res.status, data
 
-    def submit(self, psk=HOME_PSK, password="dash-pass-99", code=None, name="Kitchen Test"):
-        """POST the form; None leaves that field blank (reuse the held value)."""
+    def submit(self, psk=HOME_PSK, password="dash-pass-99", code=None):
+        """POST the form; "" leaves a secret blank (reuse the held value), code=None
+        sends the minted code."""
         before = self.done
-        fields = {"ssid": "Home", "psk": psk or "", "name": name, "password": password or "",
-                  "password_confirm": password or "", "claim_code": self.code if code is None else code}
+        fields = {"ssid": "Home", "psk": psk, "name": "Kitchen Test", "password": password,
+                  "password_confirm": password, "claim_code": self.code if code is None else code}
         status, _ = self._http("POST", "/pair", urllib.parse.urlencode(fields))
         assert status == 200
         self.wait(lambda: self.done > before)
@@ -216,6 +218,12 @@ class World:
 
     def claim(self):
         return claim_codes.ClaimStore(self.claims).load()[claim_codes.code_hash(self.code)]
+
+    def nm_profiles(self):
+        return json.loads(self.nm_state.read_text())["profiles"]
+
+    def nm_argvs(self):
+        return [json.loads(x) for x in self.lines_of(self.nm_log)]
 
     def lines_of(self, path):
         return path.read_text().splitlines() if path.exists() else []
