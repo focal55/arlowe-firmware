@@ -8,6 +8,8 @@ import math
 import time
 import random
 import signal
+import queue
+import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Tuple
@@ -23,10 +25,14 @@ _WHISPLAY_DRIVER_PATH = os.environ.get(
 if _WHISPLAY_DRIVER_PATH not in sys.path:
     sys.path.insert(0, _WHISPLAY_DRIVER_PATH)
 from WhisPlay import WhisPlayBoard
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 # Drawn landscape on WIDTHxHEIGHT, rotated to the DISP_WIDTHxDISP_HEIGHT panel.
 from arlowe_display import DISP_HEIGHT, DISP_WIDTH, HEIGHT, WIDTH, to_rgb565
+from face.reset_gesture import ResetGesture
+
+RESET_ARGV = ["systemctl", "start", "--no-block", "arlowe-factory-reset@button.service"]
+DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 class State(Enum):
     IDLE = "idle"
@@ -89,9 +95,19 @@ class ArloweeFace:
     MOUTH_Y = 190
     MOUTH_WIDTH = 50
 
-    def __init__(self):
+    def __init__(self, clock=time.monotonic, run=subprocess.run):
         self.board = WhisPlayBoard()
         self.board.set_backlight(100)
+        self._clock, self._run = clock, run
+        self._gesture = ResetGesture()
+        self._button_events = queue.SimpleQueue()
+        self._state_rgb = (0, 0, 0)
+        self._gesture_led = None
+        self._font = None
+        self.overlay_text = None
+        # These run on the GPIO thread: enqueue only, so drawing stays on the render loop.
+        self.board.on_button_press(lambda *_: self._button_events.put((True, self._clock())))
+        self.board.on_button_release(lambda *_: self._button_events.put((False, self._clock())))
         self.state = FaceState()
         self.running = True
         self.last_blink = time.time()
@@ -380,7 +396,52 @@ class ArloweeFace:
 
         self._draw_source_icon(draw, glow)
 
+        if self.overlay_text:
+            self._draw_overlay(draw, self.overlay_text)
+
         return to_rgb565(img)
+
+    def _draw_overlay(self, draw: ImageDraw, text: str):
+        if self._font is None:
+            self._font = ImageFont.truetype(os.environ.get("ARLOWE_FONT_PATH", DEFAULT_FONT_PATH), 22)
+        max_w = WIDTH - 2 * self.CORNER_PADDING
+        lines = []
+        for para in text.split("\n"):
+            line = ""
+            for word in para.split():
+                candidate = f"{line} {word}".strip()
+                if line and draw.textlength(candidate, font=self._font) > max_w:
+                    lines.append(line)
+                    line = word
+                else:
+                    line = candidate
+            lines.append(line)
+        draw.rectangle([0, 0, WIDTH, HEIGHT], fill=self.BG_COLORS["error"])
+        step = 30
+        y = (HEIGHT - step * len(lines)) // 2
+        for line in lines:
+            draw.text(((WIDTH - draw.textlength(line, font=self._font)) // 2, y), line,
+                      font=self._font, fill=(255, 255, 255))
+            y += step
+
+    def poll_button(self):
+        """Feed queued button events to the reset gesture and apply its intent."""
+        while True:
+            try:
+                pressed, at = self._button_events.get_nowait()
+            except queue.Empty:
+                break
+            (self._gesture.press if pressed else self._gesture.release)(at)
+        intent = self._gesture.tick(self._clock())
+        self.overlay_text = intent.overlay_text
+        if intent.led != self._gesture_led:
+            self._gesture_led = intent.led
+            self.board.set_rgb(*(intent.led or self._state_rgb))
+        if intent.trigger:
+            print("factory reset requested (button)", flush=True)
+            result = self._run(RESET_ARGV, check=False)
+            if result.returncode != 0:
+                print(f"factory reset start failed: exit {result.returncode}", flush=True)
 
     def update_animation(self, dt: float):
         """Update animation state"""
@@ -556,8 +617,10 @@ class ArloweeFace:
             State.SAD: (80, 100, 180),
             State.EXCITED: (255, 150, 200),
         }
-        r, g, b = colors.get(state, (80, 180, 255))
-        self.board.set_rgb(r, g, b)
+        self._state_rgb = colors.get(state, (80, 180, 255))
+        # A red reset LED must not be repainted by a state change from the HTTP thread.
+        if self._gesture_led is None:
+            self.board.set_rgb(*self._state_rgb)
 
     def run(self, fps: int = 20):
         """Main animation loop"""
@@ -573,6 +636,7 @@ class ArloweeFace:
                 dt = now - last_frame
 
                 if dt >= frame_time:
+                    self.poll_button()
                     self.update_animation(dt)
                     pixels = self.render_frame()
                     self.board.draw_image(0, 0, DISP_WIDTH, DISP_HEIGHT, list(pixels))
