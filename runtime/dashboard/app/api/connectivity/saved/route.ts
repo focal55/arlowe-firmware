@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { verifyAuth } from '../../middleware/auth';
+import { requireSession } from '../../../../lib/auth/require-session';
 
 // execFile, never exec: an SSID is whatever a nearby access point broadcasts, so it
 // is attacker-supplied data that must never reach a shell. Arguments go as an array.
@@ -49,12 +49,10 @@ export async function GET() {
 }
 
 export async function DELETE(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   console.log('--- [arlowe-dashboard-backend] DELETE /api/connectivity/saved ---');
-  
-  // Auth check for destructive operation
-  const authError = verifyAuth(request);
-  if (authError) return authError;
-  
+
   try {
     const body = await request.json();
     const { ssid } = body;
