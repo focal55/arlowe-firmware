@@ -16,7 +16,7 @@ import pytest
 
 from pair import portal
 from pair.app import build_app
-from pair.display import Screen
+from pair.display import Screen, lines
 from pair.errors import ErrorKind
 from pair.flow import PairingFlow
 from pair.netman import NetMan
@@ -103,7 +103,14 @@ def h(tmp_path, monkeypatch):
             committer=ns.committer, clock=lambda: ns.t, broker_source=broker,
             device_id_reader=device_id, bind_addr=("127.0.0.1", 0), hold_s=30, poll_s=0.01)
         ns.rc = []
-        ns.thread = threading.Thread(target=lambda: ns.rc.append(ns.app.run()), daemon=True)
+
+        def run():
+            try:
+                ns.rc.append(ns.app.run())
+            except RuntimeError as exc:
+                ns.rc.append(exc)
+
+        ns.thread = threading.Thread(target=run, daemon=True)
         ns.thread.start()
 
     ns.start = start
@@ -197,6 +204,7 @@ def test_missing_device_identity_is_shown_and_the_daemon_stays_up(h):
     wait_for(lambda: h.display.shown)
     screen = h.display.shown[-1][0]
     assert screen == Screen.error(ErrorKind.setup_failed, detail="Device identity missing")
+    assert lines(screen)[-1] == "Device identity missing"
     time.sleep(0.1)
     assert h.thread.is_alive() and h.portal_calls == []
     assert ["radio", "wifi", "on"] not in h.argvs()
@@ -232,7 +240,7 @@ def test_a_failed_paired_draw_still_starts_the_runtime_once(h):
     h.display.fail_paired = True
     pair(h)
     h.thread.join(5)
-    assert h.order.count("start_runtime") == 1
+    assert h.order.count("start_runtime") == 1 and isinstance(h.rc[0], RuntimeError)
 
 
 def test_stop_releases_the_board_and_drops_the_ap(h):

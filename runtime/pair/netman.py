@@ -160,6 +160,11 @@ class NetMan:
         self._run("delete profile", ["connection", "delete", "uuid", uuid_],
                   ok=(0, NOT_FOUND))
 
+    def ipv4_address(self):
+        """wlan0's first IPv4 address without the prefix length, or ""."""
+        out = self._run("ip lookup", ["-g", "IP4.ADDRESS", "device", "show", IFNAME])
+        return out.split("|")[0].strip().split("/")[0]
+
     def join(self, ssid, psk):
         """Join the home network; the PSK reaches nmcli only on stdin.
 
