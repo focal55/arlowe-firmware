@@ -26,6 +26,20 @@ for u in "${SIX[@]}"; do
     else bad "[gate-six] $u lost WantedBy=multi-user.target"; fi
 done
 
+RESET_GUARD='ConditionPathExists=!/var/lib/arlowe/reset-ledger/in-progress'
+for u in "${SIX[@]}" arlowe-pair; do
+    n=$(unit_section "${REPO_ROOT}/units/${u}.service" | grep -cxF "$RESET_GUARD")
+    if [[ "$n" == 1 ]]; then pass "[gate-reset] $u stays down while a reset is in progress"
+    else bad "[gate-reset] $u has $n '$RESET_GUARD' lines in [Unit], expected 1"; fi
+done
+
+FIRSTBOOT="${REPO_ROOT}/pi-gen/stage-arlowe/03-firstboot/files/arlowe-firstboot.service"
+if grep -qE '^TimeoutStartSec=[1-9][0-9]*min$' "$FIRSTBOOT"; then
+    pass "[gate-firstboot-timeout] arlowe-firstboot has a finite start timeout"
+else
+    bad "[gate-firstboot-timeout] arlowe-firstboot needs TimeoutStartSec=<N>min so a hung step cannot hold pairing forever"
+fi
+
 if grep -q '^ConditionPathExists' "${REPO_ROOT}/units/arlowe-identity-init.service"; then
     bad "[gate-identity-untouched] arlowe-identity-init.service must never be Condition-gated"
 else
