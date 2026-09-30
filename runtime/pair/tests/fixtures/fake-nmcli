@@ -5,6 +5,7 @@ Environment:
   FAKE_NMCLI_SCENARIO  JSON object, inline or a path to a file. Keys:
                          scan   [{"ssid", "signal", "security"}] for `device wifi list`
                          ap_up  "ok" (default) or "fail"
+                         ip4    `-g IP4.ADDRESS device show` output, e.g. "10.0.0.5/24"
                          join   {"correct_psk": S} fails `up` of a non-AP profile
                                 with (7) unless the passwd-file psk equals S;
                                 {"exit": N, "stderr": S} fails it as scripted
@@ -95,7 +96,7 @@ def main(argv):
     profiles = state["profiles"]
 
     while argv and argv[0].startswith("-") and argv[0] not in ("-t", "-f"):
-        argv = argv[2:] if argv[0] == "--wait" else argv[1:]
+        argv = argv[2:] if argv[0] in ("--wait", "-g") else argv[1:]
     if argv[:1] == ["-t"]:
         argv = argv[3:] if argv[1] == "-f" else argv[1:]
 
@@ -113,6 +114,9 @@ def main(argv):
             esc = [str(row[k]).replace("\\", "\\\\").replace(":", "\\:")
                    for k in ("ssid", "signal", "security")]
             print(":".join(esc))
+        return
+    if argv[:2] == ["device", "show"]:
+        print(scenario.get("ip4", ""))
         return
     if argv[:2] == ["connection", "show"]:
         for p in profiles:

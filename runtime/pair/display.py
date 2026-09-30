@@ -52,6 +52,7 @@ class Screen:
     url: str = ""
     ip: str = ""
     failure: Optional[ErrorKind] = None
+    detail: str = ""
 
     @classmethod
     def waiting(cls, ssid, psk):
@@ -74,8 +75,8 @@ class Screen:
         return cls("idle")
 
     @classmethod
-    def error(cls, kind):
-        return cls("error", failure=ErrorKind(kind))
+    def error(cls, kind, detail=""):
+        return cls("error", failure=ErrorKind(kind), detail=detail)
 
 
 def wifi_qr_payload(ssid, psk):
@@ -150,7 +151,7 @@ def lines(screen):
     if screen.kind == "idle":
         return ["Arlowe", MESSAGE_IDLE]
     if screen.kind == "error":
-        return ["Setup error", MESSAGES[screen.failure]]
+        return ["Setup error", MESSAGES[screen.failure], *filter(None, [screen.detail])]
     raise ValueError(f"unknown screen kind {screen.kind!r}")
 
 
