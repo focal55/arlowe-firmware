@@ -8,6 +8,9 @@ ConditionPathExists=!/var/lib/arlowe/.firstboot-done
 [Service]
 Type=oneshot
 RemainAfterExit=no
+# arlowe-pair orders after this unit, so a hung step (model grow, axcl-smi) would
+# hold pairing forever. 30 min covers growing the models partition on a large card.
+TimeoutStartSec=30min
 # ExecStartPre: grow the shared MODELS partition (p5) to fill the SD card,
 # once, idempotently. The script unmounts /opt/arlowe/models (which
 # local-fs.target mounts before this unit starts), resizes offline, then
