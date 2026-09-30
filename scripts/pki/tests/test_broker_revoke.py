@@ -149,3 +149,13 @@ def test_device_signer_from_arlowe_pki_is_accepted(unit, tmp_path, monkeypatch):
     assert revoke(unit, body)[0] == 200
     assert cert_status(unit) == "REVOKED"
     assert code_state(unit) == "unused"
+
+
+def test_aws_failure_is_502_and_keeps_the_code_bound(unit, monkeypatch):
+    def throttled(**_):
+        raise stub_iot._client_error("ThrottlingException", "UpdateCertificate")
+    monkeypatch.setattr(unit["iot"], "update_certificate", throttled)
+    body = revoke_body(unit["certificate_id"], sign_with(unit["key"]))
+    assert revoke(unit, body) == (502, {"error": "revoke_failed",
+                                        "detail": "ThrottlingException"})
+    assert_nothing_revoked(unit)
