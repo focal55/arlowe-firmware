@@ -164,12 +164,12 @@ def test_stale_tmp_from_a_crash_is_overwritten(root):
 
 
 def test_long_utf8_ssid_is_truncated_on_a_character_boundary(root):
-    ssid = "café" * 8  # 5 bytes each, 40 bytes
+    ssid = "a" + "é" * 20  # 41 bytes; bytes 32-33 are one character
     make(root)({**FORM, "ssid": ssid}, dict(PROVISIONED))
     label = yaml.safe_load(config(root).read_text())["network"]["wifi_label"]
     assert len(label.encode()) <= 32
     assert ssid.startswith(label)
-    assert label == "café" * 6
+    assert label == "a" + "é" * 15
 
 
 def test_config_mode_is_0640(root):
