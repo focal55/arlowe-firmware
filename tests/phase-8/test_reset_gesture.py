@@ -7,6 +7,7 @@ Run from repo root (the overlay needs the image's python3-pil and fonts-dejavu-c
 
 import importlib
 import signal
+import subprocess
 import sys
 
 import pytest
@@ -137,6 +138,13 @@ class Clock:
         return self.now
 
 
+def recorder(runs):
+    def run(argv, **kw):
+        runs.append(argv)
+        return subprocess.CompletedProcess(argv, 0)
+    return run
+
+
 def callback(board, name):
     (cb,) = [args[0] for n, args in board.calls if n == name]
     return cb
@@ -144,7 +152,7 @@ def callback(board, name):
 
 def test_face_hold_release_confirm_starts_the_button_reset_once(face_mod):
     clock, runs = Clock(), []
-    face = face_mod.ArloweeFace(clock=clock, run=lambda argv, **kw: runs.append(argv))
+    face = face_mod.ArloweeFace(clock=clock, run=recorder(runs))
     board = face.board
     press, release = callback(board, "on_button_press"), callback(board, "on_button_release")
     idle_frame = face.render_frame()
@@ -174,7 +182,7 @@ def test_face_hold_release_confirm_starts_the_button_reset_once(face_mod):
 
 def test_face_cancel_restores_the_state_colour_and_frame(face_mod):
     clock, runs = Clock(), []
-    face = face_mod.ArloweeFace(clock=clock, run=lambda argv, **kw: runs.append(argv))
+    face = face_mod.ArloweeFace(clock=clock, run=recorder(runs))
     face.set_state(face_mod.State.HAPPY)
     board = face.board
     press, release = callback(board, "on_button_press"), callback(board, "on_button_release")
