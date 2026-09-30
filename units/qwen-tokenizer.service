@@ -6,6 +6,8 @@ After=network.target
 # point. Enabled at build by install-units.sh; pairing only has to start it. This
 # skip is the intended unpaired state, not identity-init's must-run no-op trap.
 ConditionPathExists=/etc/arlowe/config.yml
+# A reset that failed to resume keeps the old owner's data; stay down until it finishes.
+ConditionPathExists=!/var/lib/arlowe/reset-ledger/in-progress
 
 [Service]
 # notify: the script sends READY=1 once port 12345 is listening. With

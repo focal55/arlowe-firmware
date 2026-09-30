@@ -3,6 +3,8 @@ Description=Arlowe pairing daemon (setup AP, portal and Whisplay)
 # Runs only on an unpaired unit. Writing /etc/arlowe/config.yml is pairing's commit
 # point, so after pairing (and after a factory reset removes it) this is the switch.
 ConditionPathExists=!/etc/arlowe/config.yml
+# A resume that failed after the commit point must not let a new owner pair over old data.
+ConditionPathExists=!/var/lib/arlowe/reset-ledger/in-progress
 # Ordering only for identity-init and firstboot: a failed identity must reach the
 # Whisplay as an error screen, not silently keep pairing from starting. The reset
 # resume runs first so pairing never starts against a half-wiped unit.
