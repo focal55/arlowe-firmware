@@ -101,11 +101,12 @@ def main(argv):
         argv = argv[3:] if argv[1] == "-f" else argv[1:]
 
     def find(sel):
-        key, want = ("uuid", sel[1]) if sel[0] == "uuid" else ("name", sel[-1])
+        # A bare selector matches a uuid or a name, as nmcli's does.
+        keys = {"uuid": ("uuid",), "id": ("name",)}.get(sel[0], ("uuid", "name"))
         for p in profiles:
-            if p[key] == want:
+            if any(p[k] == sel[-1] for k in keys):
                 return p
-        fail(NOT_FOUND, "unknown connection '%s'." % want)
+        fail(NOT_FOUND, "unknown connection '%s'." % sel[-1])
 
     if argv == ["radio", "wifi", "on"]:
         return
@@ -150,7 +151,9 @@ def main(argv):
         p = find(argv[2:4] if argv[2] in ("uuid", "id") else argv[2:3])
         p["active"] = False
     elif argv[:2] == ["connection", "delete"]:
-        profiles.remove(find(argv[2:4] if argv[2] in ("uuid", "id") else argv[2:3]))
+        sels = [argv[2:4]] if argv[2] in ("uuid", "id") else [[a] for a in argv[2:]]
+        for sel in sels:
+            profiles.remove(find(sel))
     else:
         fail(2, "fake-nmcli: unsupported argv %r" % argv)
     with open(state_path, "w") as f:
