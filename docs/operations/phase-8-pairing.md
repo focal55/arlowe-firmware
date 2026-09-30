@@ -59,6 +59,50 @@ The rw mount rewrites the ext4 superblock, so the `.bmap` from the build no long
 `bmaptool copy` would abort mid-flash. Regenerating it, as above, is mandatory. Any other
 inspection of the image mounts read-only (`mount -o ro`).
 
+### Phase 8 build evidence (08-27a)
+
+Built 2026-09-30 from `c057696` (clean worktree, `sudo rm -rf build/pi-gen-work` first),
+`CARD_SIZE_GB=32`, `ARLOWE_INPUTS_ACCEPT=1`. `BUILD-EXIT 0` in about 30 minutes;
+`build/arlowe.img` is 34359738368 bytes. Log: `build/logs/phase-08-build.log` on the build host.
+The key has not been staged yet; that step and the flash belong to 08-27b.
+
+Gates: `Debian resolution pinned: 29 snapshot list files, 0 off-pin`; `Pi archive resolution
+pinned: 1 flat-repo list files, 0 off-pin`; `91 manifest packages installed at the pinned
+version, 666 installed packages attributed, 0 unattributed`; kernel `6.12.96`; unit substrate,
+persistent-journal, sanitize, identity-store and default-login (slot A and slot B) gates passed.
+
+Inputs diff before the re-record: the four new Phase 8 packages and the commit time, nothing else.
+
+```
++pkg python3-argon2             21.1.0-2          arm64
++pkg python3-png                0.20220715.0-1    all
++pkg python3-qrcode             7.4.2-2           all
++pkg python3-typing-extensions  4.4.0-1           all
+ source_date_epoch 1790470120 -> 1790737975      (worktree_clean stays true)
+```
+
+Rootfs, inspected with a read-only loop device and `mount -o ro` (the `.bmap` sha256 was the
+same before and after):
+
+- Slot A `multi-user.target.wants`: `arlowe-pair`, `arlowe-radio-init`,
+  `arlowe-factory-reset-resume`, `arlowe-identity-init` and the six runtime units, each resolving
+  to a unit file in `/etc/systemd/system`.
+- `arlowe-pair-commit.service` and `arlowe-factory-reset@.service` present, 0 target links.
+- Present: `51-arlowe-networkmanager.rules`, `arlowe-captive.conf`, `arlowe-wifi-regdom.conf`,
+  `arlowe-setup-ap.nft`, `runtime/pair/__main__.py`, `runtime/cli/{pair-commit,factory-reset,radio-init}`.
+- `dpkg`: `python3-qrcode`, `python3-argon2`, `python3-png`, `python3-typing-extensions` all
+  `install ok installed`.
+- `/etc/arlowe/config.yml` absent (factory state).
+- `/etc/arlowe` against the image's own `arlowe` GID (992, read from each slot's `etc/group`):
+
+```
+slot A (p2): 770 0 992
+slot B (p3): 770 0 992
+```
+
+Slot B carries none of the repo's units by design: `recovery-stub.sh` removed all 12 from the
+clone and enables only `arlowe-recovery.service`. Only slot A needs the unit checks.
+
 ## 3. Local broker (dev machine)
 
 Full setup: [scripts/pki/README.md](../../scripts/pki/README.md), section "Local broker for
