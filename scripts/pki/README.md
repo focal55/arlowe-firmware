@@ -126,6 +126,30 @@ certificate) to trust this endpoint. **That override is for staging only.** A pr
 presents a publicly-trusted certificate and the variable is left unset; a device that needs it set
 in the field is a device trusting an unverified issuer.
 
+### `POST /v1/certificates/revoke` — device-initiated revoke
+
+A factory reset calls this before wiping the unit
+([ADR-0013](../../docs/architecture/0013-factory-reset.md)). There is no bearer token: the request
+is signed by the key of the certificate being revoked.
+
+```
+POST /v1/certificates/revoke
+  {"certificate_id": "<hex>", "device_id": "<32 hex>", "issued_at": "YYYY-MM-DDTHH:MM:SSZ",
+   "signature": "<base64 DER ECDSA-SHA256 over the canonical JSON of the other three>"}
+
+200 {"revoked": true, "certificate_id": "<hex>"}   (also for an already revoked certificate)
+400 {"error": "malformed_request"}
+401 {"error": "unauthorized"}   (bad signature, issued_at more than 300 s off, device_id not the
+                                 certificate's Thing, unknown certificate: one body)
+502 {"error": "revoke_failed", "detail": "<aws error code>"}
+```
+
+Canonical JSON is `json.dumps(fields, sort_keys=True, separators=(",", ":"))`. A `200` means the
+certificate is `REVOKED` and every claim code bound to `device_id` is back to `unused`, so the same
+box card pairs the next owner. A unit reset offline never reaches this endpoint; release its card
+by hand with `claim_codes.py --store "$ARLOWE_BROKER_CLAIM_CODES" release <code>` and revoke the
+certificate with `revoke.sh`.
+
 ### Local broker for pairing tests
 
 `--stub-iot` replaces AWS IoT with `stub_iot.py`: a throwaway CA in `--stub-ca-dir` (created on
