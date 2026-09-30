@@ -17,8 +17,8 @@ provides:
   - tests/phase-8/test-pair-unit.sh
 affects: [08-27b hardware checkpoint, image build]
 key-files:
-  created: [units/arlowe-pair.service, tests/phase-8/test-pair-unit.sh]
-  modified: []
+  created: [units/arlowe-pair.service, tests/phase-8/test-pair-unit.sh, tests/phase-8/test-import-graph-module-entry.sh]
+  modified: [tests/phase-07.1/import-graph.py]
 key-decisions:
   - "Requires= and After= arlowe-radio-init.service (orchestrator 08-25), not the plan's Wants="
   - "ReadWritePaths is /etc/arlowe, /var/lib/arlowe/identity, /var/lib/arlowe/dashboard only; state and logs dropped because nothing in the pairing path writes them"
@@ -32,8 +32,9 @@ completed: 2026-09-29
 **`arlowe-pair.service` runs `python3 -m pair` as arlowe when `/etc/arlowe/config.yml` is absent. It Requires= and is ordered after radio-init, and is ordered after identity-init, firstboot, NetworkManager and the reset resume. It gets CAP_NET_BIND_SERVICE and nothing else, the face's DeviceAllow, groups and SystemCallFilter (mbind included), RuntimeDirectory=arlowe-pair as its CWD, and write access to three paths. There is no Conflicts= with the face, and Restart=on-failure, so the exit 0 after the paired handoff is final.**
 
 ## Tasks
-1. RED: 28 static assertions plus systemd-analyze verify when present, including the face/dashboard AF_UNIX check (b4c38fb)
-2. GREEN: the unit (c000e67)
+1. RED: 28 static assertions plus systemd-analyze verify when present, including the face/dashboard AF_UNIX check (862d90f)
+2. GREEN: the unit (c0fc7e3)
+3. Fix: import gate walks `-m package` entry points (25ab578)
 
 ## Reset triggers over D-Bus (face @button, dashboard @dashboard)
 - RestrictAddressFamilies: both units list AF_UNIX. The test asserts this.
@@ -50,11 +51,12 @@ The ordering is After= only. A failed firstboot (boot-check exits 1 on any FAIL)
 1. Requires=arlowe-radio-init.service instead of Wants= (orchestrator contract for 08-25).
 2. ReadWritePaths drops /var/lib/arlowe/state and /var/lib/arlowe/logs. No pair, identity or commit code writes them, and a listed path that is missing fails the unit at namespace setup.
 3. RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX was added. The plan's spec did not name the families.
-4. The test adds AF_UNIX checks on the face and dashboard, a Requires= radio-init check and a no-CA-override check.
+4. [Rule 1 - Bug] The unit-import gate proved nothing for `-m pair`. In import-graph.py a `-m` entry resolved to pair/__init__.py (empty), and CI's first run walked 1 module with 0 third-party imports. The gate now walks __init__.py then __main__.py, and a package with no __main__.py fails. It also follows `from pkg import submodule`: pair.credential, and with it argon2, was otherwise unreached. Only arlowe-pair's walk changed (old and new output diffed across every unit). tests/phase-8/test-import-graph-module-entry.sh has 5 cases, and all 5 fail against the old gate.
+5. The test adds AF_UNIX checks on the face and dashboard, a Requires= radio-init check and a no-CA-override check.
 
 ## Verification
 - tests/phase-8/test-pair-unit.sh: all PASS on macOS (systemd-analyze SKIP). In debian:bookworm with systemd it also passes, and the only thing `systemd-analyze verify` reports is the /usr/bin/python3 missing from the container.
 - tests/phase-07.1/test-verify-unit-execstart.sh: all cases pass in bookworm. On macOS the fixture fails 60 cases, which is environmental.
 - test-unit-gating, test-reset-units, test-boot-check, test-network-substrate: pass. shellcheck clean. sanitize clean.
-- run-import-check.sh: see PR.
+- Unit import graph (CI, image package set): with the fixed gate, arlowe-pair walks 15 first-party modules and resolves PIL 9.4.0, qrcode 7.4.2, argon2 21.1.0, yaml 6.0 and jsonschema 4.10.3 against the image package set: OK. WhisPlay is DEFER-MISS (function-local, vendored), the same as the face.
 - Needs hardware or an image build: pairing actually starting on an unpaired boot, the polkit grant on the image (08-27b).
