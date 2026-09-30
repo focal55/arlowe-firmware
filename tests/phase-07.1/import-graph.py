@@ -370,6 +370,15 @@ class Walker:
                 if verdict == "first-party" and hit is not None:
                     if hit.is_file():
                         self.walk(hit)
+                    if isinstance(node, ast.ImportFrom) and (
+                            hit.is_dir() or hit.name == "__init__.py"):
+                        # `from pair import credential` names a submodule, not an
+                        # attribute; without this its imports were never walked.
+                        for a in node.names:
+                            sub = f"{dotted}.{a.name}" if dotted else a.name
+                            v, h = self._resolve(sub, path, level)
+                            if v == "first-party" and h is not None and h.is_file():
+                                self.walk(h)
                     continue
                 if verdict == "vendored" and hit is not None and hit.is_file():
                     self.walk(hit)
@@ -755,6 +764,15 @@ def main() -> int:
                         f"({unit.environment.get('PYTHONPATH', '<unset>')})")
                     print(f"  FAIL-ENTRY [module] {e.target}: unresolvable")
                     continue
+                # `python -m pkg` runs pkg/__init__.py and then pkg/__main__.py;
+                # stopping at __init__.py walked nothing for `-m pair`. A package
+                # without __main__.py fails below as a missing entry script.
+                pkg = hit if hit.is_dir() else (
+                    hit.parent if hit.name == "__init__.py" else None)
+                if pkg is not None:
+                    if hit.is_file():
+                        walker.walk(hit)
+                    hit = pkg / "__main__.py"
                 e.file = hit
             if e.file is None or not e.file.is_file():
                 failures.append(
