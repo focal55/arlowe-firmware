@@ -132,11 +132,9 @@ python3-jsonschema
 python3-numpy
 
 # Pillow -- face/face.py renders the WhisPlay display (Image, ImageDraw,
-# ImageFilter); runtime/recovery/arlowe-recovery.sh renders the recovery screen.
-# NOTE: no font package is needed with it. arlowe-recovery.sh imports ImageFont
-# but never calls it, and Pillow 9.4.0's built-in bitmap font accepts the
-# anchor="mm" that the recovery draw.text calls pass -- verified in an arm64
-# bookworm container. fonts-dejavu-core would be 2.9 MB of unreferenced data.
+# ImageFilter); runtime/recovery/arlowe-recovery.sh renders the recovery screen;
+# pair/display.py draws the pairing screens. arlowe-recovery.sh still uses only
+# Pillow's built-in bitmap font; the pairing screens need the TrueType font below.
 python3-pil
 
 # scipy -- no runtime/ module imports it directly; it is a hard dependency of
@@ -157,3 +155,15 @@ python3-joblib
 # maps the resolved ALSA card to a PortAudio device index. Binds to portaudio19,
 # which apt pulls in; the pip wheel would have to build it.
 python3-pyaudio
+
+# ---------------------------------------------------------------------------
+# Phase 8 pairing screens (pair/display.py).
+# ---------------------------------------------------------------------------
+
+# qrcode -- encodes the setup network's WIFI:T:WPA QR. Pure Python; pulls
+# python3-png and python3-typing-extensions, both new rows.
+python3-qrcode
+
+# DejaVuSans.ttf -- the pairing screens' text. Already in the rootfs; declared
+# because pair/display.py opens it by path.
+fonts-dejavu-core

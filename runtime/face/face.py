@@ -25,10 +25,8 @@ if _WHISPLAY_DRIVER_PATH not in sys.path:
 from WhisPlay import WhisPlayBoard
 from PIL import Image, ImageDraw, ImageFilter
 
-# Display physical dimensions
-DISP_WIDTH, DISP_HEIGHT = 240, 280
-# Drawing canvas (rotated - we draw landscape, then rotate to portrait)
-WIDTH, HEIGHT = 280, 240
+# Drawn landscape on WIDTHxHEIGHT, rotated to the DISP_WIDTHxDISP_HEIGHT panel.
+from arlowe_display import DISP_HEIGHT, DISP_WIDTH, HEIGHT, WIDTH, to_rgb565
 
 class State(Enum):
     IDLE = "idle"
@@ -382,19 +380,7 @@ class ArloweeFace:
 
         self._draw_source_icon(draw, glow)
 
-        # Rotate 90 degrees counter-clockwise to fit display
-        # Canvas is 280x240, after CCW rotation becomes 240x280 (matches display)
-        img = img.rotate(90, expand=True)
-
-        # Convert to RGB565 for display (now 240x280)
-        pixels = []
-        for y in range(DISP_HEIGHT):  # 280
-            for x in range(DISP_WIDTH):  # 240
-                r, g, b = img.getpixel((x, y))
-                rgb565 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
-                pixels.extend([(rgb565 >> 8) & 0xFF, rgb565 & 0xFF])
-
-        return bytes(pixels)
+        return to_rgb565(img)
 
     def update_animation(self, dt: float):
         """Update animation state"""
