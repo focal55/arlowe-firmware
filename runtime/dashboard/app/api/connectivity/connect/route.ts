@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSession } from '../../../../lib/auth/require-session';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-// import { verifyAuth } from '../../middleware/auth';
 
 // execFile, never exec: an SSID is whatever a nearby access point broadcasts, so it
 // is attacker-supplied data that must never reach a shell. Arguments go as an array.
@@ -11,11 +11,9 @@ const nmcli = (args: string[], timeout = 10000) =>
   execFileAsync('nmcli', args, { timeout });
 
 export async function POST(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   console.log('--- [arlowe-dashboard-backend] POST /api/connectivity/connect ---');
-
-  // TODO: Re-enable auth after adding UI flow for authentication
-  // const authError = verifyAuth(request);
-  // if (authError) return authError;
 
   try {
     const body = await request.json();

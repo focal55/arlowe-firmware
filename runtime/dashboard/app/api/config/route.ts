@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSession } from '../../../lib/auth/require-session';
 import { readFile, rename, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { execFile } from 'child_process';
@@ -52,6 +53,8 @@ export async function GET(_request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   try {
     const body = await request.json() as Record<string, unknown>;
 

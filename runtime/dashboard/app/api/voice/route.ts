@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSession } from '../../../lib/auth/require-session';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -69,6 +70,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   try {
     const body = await request.json();
     const action = body.action as string; // 'start' | 'stop' | 'toggle'

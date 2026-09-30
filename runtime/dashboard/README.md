@@ -56,7 +56,7 @@ See `.env.example` for the full documented list. Key knobs:
 | `ARLOWE_SYSTEMCTL_MODE` | `user` | `user` for Phase 1 dev; `system` for Phase 11+ production image |
 | `ARLOWE_CONFIG_PATH` | `/etc/arlowe/config.yml` | Config overlay path read and written by `/api/config` |
 | `ARLOWE_LOGS_DIR` | `/var/lib/arlowe/logs` | Voice log directory read by `/api/logs` |
-| `DASHBOARD_API_SECRET` | (unset) | Bearer token for protected routes; Phase 7 wires owner-pairing |
+| `ARLOWE_DASHBOARD_STATE_DIR` | `/var/lib/arlowe/dashboard` | Session key and owner credential, written at pairing |
 
 ## Running locally on a Pi 5 dev unit
 
@@ -89,9 +89,11 @@ config endpoint returns a `paired: false` state when the file is absent.
 
 ## Authentication
 
-Phase 7 wires owner-pairing credentials. For Phase 1, the dashboard is open on
-localhost with no authentication required. `DASHBOARD_API_SECRET` can be set to
-enable bearer-token protection on protected routes for manual testing.
+`proxy.ts` gates everything except `/login`, `/api/auth/login` and static assets:
+without a valid `arlowe_session` cookie, pages redirect to `/login?next=...` and
+`/api/*` answers 401. Every mutating handler also calls `requireSession()`, which
+additionally refuses a request whose `Origin` does not match its `Host` (403).
+The owner sets the password at pairing; a factory reset wipes it with the session key.
 
 ## References
 

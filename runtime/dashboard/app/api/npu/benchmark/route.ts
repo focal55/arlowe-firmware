@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireSession } from '../../../../lib/auth/require-session';
 
 const NPU_API_URL = 'http://localhost:8000';
 
@@ -82,7 +83,9 @@ async function runSingleBenchmark(
   };
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   try {
     // Check if NPU is running first
     const statusCheck = await fetch(`${NPU_API_URL}/api/reset`, {
