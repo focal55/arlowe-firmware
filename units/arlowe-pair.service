@@ -1,0 +1,94 @@
+[Unit]
+Description=Arlowe pairing daemon (setup AP, portal and Whisplay)
+# Runs only on an unpaired unit. Writing /etc/arlowe/config.yml is pairing's commit
+# point, so after pairing (and after a factory reset removes it) this is the switch.
+ConditionPathExists=!/etc/arlowe/config.yml
+# Ordering only for identity-init and firstboot: a failed identity must reach the
+# Whisplay as an error screen, not silently keep pairing from starting. The reset
+# resume runs first so pairing never starts against a half-wiped unit.
+After=arlowe-identity-init.service arlowe-firstboot.service NetworkManager.service
+After=arlowe-radio-init.service arlowe-factory-reset-resume.service
+# The setup AP needs the radio unblocked, the regulatory domain set and the
+# forward drop in place; without them pairing must not start.
+Requires=arlowe-radio-init.service
+# No Conflicts=arlowe-face.service. Both units are WantedBy=multi-user.target and
+# Condition* is evaluated only when a job runs, after the boot transaction has
+# resolved a conflict in favour of this unit, so a Conflicts= would drop the face's
+# start job on every boot of a paired unit. The two never hold the Whisplay at once:
+# this unit is skipped when paired, and on completion the daemon shows the paired
+# screen, releases the display, starts the six runtime units and exits 0.
+
+[Service]
+Type=simple
+User=arlowe
+Group=arlowe
+SupplementaryGroups=gpio spi video
+# Port 80 on 10.42.0.1 for the captive portal, and nothing else.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# /run/arlowe-pair holds the broker CA and the commit request the root helper
+# reads. It is also the CWD because lgpio writes scratch files relative to it;
+# see arlowe-face.service.
+RuntimeDirectory=arlowe-pair
+RuntimeDirectoryMode=0750
+WorkingDirectory=/run/arlowe-pair
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/arlowe/runtime:/opt/arlowe/runtime/lib
+Environment=ARLOWE_BROKER_FILE=/boot/firmware/arlowe-broker.json
+Environment=ARLOWE_WHISPLAY_DRIVER_PATH=/opt/arlowe/third_party/whisplay-driver
+# No REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE or SSL_CERT_FILE: the broker CA reaches
+# arlowe-identity per call, so it never becomes trusted for anything else.
+ExecStart=/usr/bin/python3 -m pair
+# on-failure, not always: the daemon exits 0 after the paired handoff and on
+# SIGTERM, and by then config.yml exists anyway.
+Restart=on-failure
+RestartSec=5
+
+# Sandbox hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# @system-service permits mbind, but the ~@resources deny above removes it.
+# Raspberry Pi 5 boots with numa=fake=8 numa_policy=interleave, so glibc and
+# native extensions call mbind(2) during import to honour the interleave
+# policy; seccomp then kills the process with SIGSYS before it reaches main.
+# Re-admit only mbind rather than dropping the whole @resources deny.
+SystemCallFilter=mbind
+# AF_UNIX for systemctl, nmcli and timedatectl over D-Bus; AF_INET/AF_INET6 for
+# the portal and the certificate request.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# SPI + GPIO + framebuffer access; PrivateDevices=no required for DeviceAllow
+PrivateDevices=no
+DeviceAllow=/dev/spidev0.0 rw
+DeviceAllow=/dev/spidev0.1 rw
+DeviceAllow=/dev/gpiomem rw
+# char-gpiochip, not individual nodes. /proc/devices maps major 254 to
+# "gpiochip", and this class covers every minor. The previous list named
+# /dev/gpiochip0 and /dev/gpiochip4; on Pi 5 with kernel 6.12 the chips are
+# gpiochip11-15, so neither existed and the service died with
+# "lgpio.error: can not open gpiochip". Chip numbering is a kernel detail that
+# has already moved once -- allow the class so it cannot break again.
+DeviceAllow=char-gpiochip rw
+DeviceAllow=/dev/fb0 rw
+# ReadWritePaths only lifts ProtectSystem=strict; file permissions still apply
+# (/etc/arlowe is root:arlowe 0770). config.yml, the certificate from
+# arlowe-identity provision, and the owner credential and session key.
+ReadWritePaths=/etc/arlowe /var/lib/arlowe/identity /var/lib/arlowe/dashboard
+
+[Install]
+WantedBy=multi-user.target

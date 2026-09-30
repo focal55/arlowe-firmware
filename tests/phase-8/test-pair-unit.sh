@@ -34,7 +34,7 @@ check "no new privileges" has "$PAIR" "NoNewPrivileges=yes"
 check "runs python3 -m pair" has "$PAIR" "ExecStart=/usr/bin/python3 -m pair"
 check "PYTHONPATH covers runtime and runtime/lib" \
     has "$PAIR" "Environment=PYTHONPATH=/opt/arlowe/runtime:/opt/arlowe/runtime/lib"
-check "sets no global CA override" lacks "$PAIR" "REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|SSL_CERT_FILE"
+check "sets no global CA override" lacks "$PAIR" "^[^#]*(REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|SSL_CERT_FILE)"
 check "DeviceAllow= identical to the face" same_lines "$PAIR" "$FACE" DeviceAllow
 check "Whisplay groups" has "$PAIR" "SupplementaryGroups=gpio spi video"
 check "SystemCallFilter= identical to the face" same_lines "$PAIR" "$FACE" SystemCallFilter
