@@ -56,14 +56,13 @@ class FakeDisplay:
 
 class FakeCommitter:
     def __init__(self, order):
-        self.order, self.commits = order, []
+        self.order = order
 
     def __call__(self, form, provisioned):
-        self.commits.append(provisioned)
+        pass
 
     def start_runtime(self):
         self.order.append("start_runtime")
-        return 0
 
 
 @pytest.fixture
@@ -77,9 +76,8 @@ def h(tmp_path, monkeypatch):
     ns.argvs = lambda: [json.loads(x) for x in log.read_text().splitlines()]
     ns.profiles = lambda: json.loads(state.read_text())["profiles"]
     ns.seed = lambda profiles: state.write_text(json.dumps({"profiles": profiles}))
-    ns.scenario = lambda **kw: monkeypatch.setenv("FAKE_NMCLI_SCENARIO", json.dumps(kw))
-    ns.scenario(scan=[{"ssid": "Home", "signal": 70, "security": "WPA2"}],
-                ip4="192.168.1.23/24")
+    monkeypatch.setenv("FAKE_NMCLI_SCENARIO", json.dumps(
+        {"scan": [{"ssid": "Home", "signal": 70, "security": "WPA2"}], "ip4": "192.168.1.23/24"}))
 
     def broker():
         ns.broker_calls += 1
@@ -139,7 +137,7 @@ def test_stale_wifi_profiles_are_swept_before_the_radio(h):
     assert "eth-1" in uuids and not uuids & {"home-1", "ap-1"}
 
 
-def test_start_raises_the_setup_network_and_shows_the_qr(h):
+def test_start_raises_the_ap_then_binds_the_portal_and_shows_the_qr(h):
     h.start()
     _, ssid, psk, _, _ = waiting(h)
     argvs = h.argvs()
@@ -152,14 +150,8 @@ def test_start_raises_the_setup_network_and_shows_the_qr(h):
     assert not any(psk in arg for a in argvs for arg in a)
     assert h.app.state["networks"] == [{"ssid": "Home", "signal": 70, "secure": True}]
     assert h.app.state["ap_ssid"] == ssid and h.app.state["status"] == "waiting"
-
-
-def test_portal_binds_bind_addr_only_after_the_first_ap_up(h):
-    h.start()
-    waiting(h)
     ((addr, calls_before),) = h.portal_calls
-    assert addr == ("127.0.0.1", 0)
-    assert any(a[:3] == ["connection", "up", "uuid"] for a in h.argvs()[:calls_before])
+    assert addr == ("127.0.0.1", 0) and calls_before == 5
 
 
 def test_idle_timeout_then_button_starts_a_new_session(h):

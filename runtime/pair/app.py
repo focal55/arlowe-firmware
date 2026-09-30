@@ -196,7 +196,4 @@ class PairApp:
         self.display.close()
 
 
-def build_app(net, display, portal_factory, flow_factory, committer, clock,
-              broker_source, device_id_reader, bind_addr, hold_s, **kw):
-    return PairApp(net, display, portal_factory, flow_factory, committer, clock,
-                   broker_source, device_id_reader, bind_addr, hold_s, **kw)
+build_app = PairApp
