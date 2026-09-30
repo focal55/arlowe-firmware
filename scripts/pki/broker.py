@@ -17,6 +17,9 @@ Nothing under scripts/pki/ ships in the firmware image.
 """
 
 import argparse
+import base64
+import binascii
+import datetime
 import json
 import logging
 import os
@@ -26,6 +29,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from botocore.exceptions import ClientError
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 import claim_codes
@@ -33,6 +39,10 @@ import claim_codes
 LOG = logging.getLogger("arlowe.broker")
 
 ENDPOINT_PATH = "/v1/certificates"
+REVOKE_PATH = "/v1/certificates/revoke"
+REVOKE_FIELDS = ("certificate_id", "device_id", "issued_at")
+REVOKE_WINDOW = datetime.timedelta(seconds=300)
+TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 MAX_BODY_BYTES = 16384
 DEVICE_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 
@@ -173,8 +183,80 @@ def _issue(iot, config, csr_pem, device_id):
     }
 
 
+def handle_revoke_request(body, iot, store, now):
+    """Core of POST /v1/certificates/revoke. Returns (status_code, response_dict).
+
+    No bearer token: a signature by the certificate's own key over the canonical
+    JSON of REVOKE_FIELDS is the authorization. Every refusal after parsing is the
+    same 401 so a caller cannot probe which certificate ids exist. The device treats
+    any 200 as revoked, so 200 is returned only once the certificate is REVOKED.
+    """
+    try:
+        payload = json.loads(body.decode("utf-8"))
+        fields = {name: payload[name] for name in REVOKE_FIELDS}
+        signature = payload["signature"]
+        if not all(isinstance(v, str) for v in (signature, *fields.values())):
+            raise TypeError
+        issued_at = datetime.datetime.strptime(fields["issued_at"], TIMESTAMP_FORMAT)
+    except (UnicodeDecodeError, ValueError, TypeError, KeyError):
+        LOG.warning("POST %s -> 400 malformed_request", REVOKE_PATH)
+        return 400, {"error": "malformed_request"}
+    certificate_id, device_id = fields["certificate_id"], fields["device_id"]
+
+    def refuse(reason):
+        LOG.warning("POST %s device=%s certificate=%s -> 401 %s",
+                    REVOKE_PATH, device_id, certificate_id, reason)
+        return UNAUTHORIZED
+
+    # A replay inside the window can only re-revoke the same certificate, which is
+    # already the outcome its signer asked for, so no nonce store is kept.
+    if abs(now - issued_at.replace(tzinfo=datetime.timezone.utc)) > REVOKE_WINDOW:
+        return refuse("stale_request")
+
+    try:
+        described = iot.describe_certificate(certificateId=certificate_id)
+        described = described["certificateDescription"]
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "Unknown")
+        if code in ("ResourceNotFoundException", "InvalidRequestException"):
+            return refuse("unknown_certificate")
+        return _revoke_failed(device_id, certificate_id, code)
+
+    public_key = x509.load_pem_x509_certificate(
+        described["certificatePem"].encode("ascii")).public_key()
+    canonical = json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()
+    try:
+        if not isinstance(public_key, ec.EllipticCurvePublicKey):
+            raise InvalidSignature
+        public_key.verify(base64.b64decode(signature, validate=True), canonical,
+                          ec.ECDSA(hashes.SHA256()))
+    except (InvalidSignature, binascii.Error, ValueError):
+        return refuse("bad_signature")
+
+    try:
+        things = iot.list_principal_things(principal=described["certificateArn"])["things"]
+        if device_id not in things:
+            return refuse("device_not_attached")
+        if described["status"] != "REVOKED":
+            iot.update_certificate(certificateId=certificate_id, newStatus="REVOKED")
+    except ClientError as exc:
+        return _revoke_failed(device_id, certificate_id,
+                              exc.response.get("Error", {}).get("Code", "Unknown"))
+
+    released = store.release_device(device_id)
+    LOG.info("POST %s device=%s certificate=%s -> 200 claim_codes_released=%d",
+             REVOKE_PATH, device_id, certificate_id, released)
+    return 200, {"revoked": True, "certificate_id": certificate_id}
+
+
+def _revoke_failed(device_id, certificate_id, code):
+    LOG.error("POST %s device=%s certificate=%s -> 502 revoke_failed aws_code=%s",
+              REVOKE_PATH, device_id, certificate_id, code)
+    return 502, {"error": "revoke_failed", "detail": code}
+
+
 class BrokerHandler(BaseHTTPRequestHandler):
-    """Thin HTTP shell. All decisions live in handle_certificate_request."""
+    """Thin HTTP shell. All decisions live in the handle_*_request functions."""
 
     server_version = "arlowe-broker"
     sys_version = ""
@@ -182,7 +264,7 @@ class BrokerHandler(BaseHTTPRequestHandler):
     config = None
 
     def do_POST(self):
-        if self.path != ENDPOINT_PATH:
+        if self.path not in (ENDPOINT_PATH, REVOKE_PATH):
             self._respond(404, {"error": "not_found"})
             return
         try:
@@ -192,9 +274,16 @@ class BrokerHandler(BaseHTTPRequestHandler):
         if length < 0 or length > MAX_BODY_BYTES:
             self._respond(400, {"error": "malformed_request"})
             return
-        status, payload = handle_certificate_request(
-            self.headers.get("Authorization"), self.rfile.read(length), self.iot, self.config
-        )
+        body = self.rfile.read(length)
+        if self.path == REVOKE_PATH:
+            status, payload = handle_revoke_request(
+                body, self.iot, claim_codes.ClaimStore(self.config[CLAIM_CODES_ENV]),
+                datetime.datetime.now(datetime.timezone.utc),
+            )
+        else:
+            status, payload = handle_certificate_request(
+                self.headers.get("Authorization"), body, self.iot, self.config
+            )
         self._respond(status, payload)
 
     def _respond(self, status, payload):

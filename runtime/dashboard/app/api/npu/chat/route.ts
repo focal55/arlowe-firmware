@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSession } from '../../../../lib/auth/require-session';
 
 const NPU_API_URL = 'http://localhost:8000';
 
 export async function POST(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   try {
     const { message, reset } = await request.json();
 
