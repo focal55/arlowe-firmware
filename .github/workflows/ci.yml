@@ -177,10 +177,6 @@ jobs:
         run: bash tests/phase-07.3/test-pi-archive-gate.sh
       - name: Default-login build gate self-test
         run: bash tests/security/test-login-gate.sh
-      - name: Userconf provisioning and unpaired gate self-test
-        run: bash tests/security/test-arlowe-userconf.sh
-      - name: Dev-access boot-partition staging self-test
-        run: bash tests/flash/test-stage-dev-access.sh
       - name: Stage0 apt overlay self-test
         run: bash tests/phase-07.3/test-stage0-apt-overlay.sh
       - name: Cache pinned Pi archive debs (content-addressed by the manifest)
@@ -197,6 +193,16 @@ jobs:
           docker run --rm -v "$PWD:/w" -w /w \
             -v "$PWD/build/pi-archive-repo:/var/local/arlowe-pi-archive:ro" \
             debian:bookworm bash tests/phase-07.2/resolve-twice.sh
+
+  dev-access-tests:
+    name: Dev access tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Userconf provisioning and unpaired gate self-test
+        run: bash tests/security/test-arlowe-userconf.sh
+      - name: Dev-access boot-partition staging self-test
+        run: bash tests/flash/test-stage-dev-access.sh
 
   detect:
     name: Detect Node project

@@ -20,6 +20,14 @@
 #   Modes are asserted on the real files, so the script must chmod 0700 / 0600.
 #   Refusal on a paired unit: exactly one stdout/stderr line naming "arlowe-userconf"
 #   and containing "refus".
+#   User-name rules (the name comes from an untrusted FAT partition):
+#   - It must match ^[a-z_][a-z0-9_-]{0,31}$ and must not be "root". Otherwise the
+#     script refuses: no useradd/chpasswd/usermod/chown, no key installed, both FAT
+#     files deleted, a log line naming "arlowe-userconf", rc 0.
+#   - An existing account whose `id -u` is below 1000 is refused the same way. The id
+#     stub prints the uid for a ${STUB_LOG}/users line "name:uid" (bare "name" is 1000).
+#   - A malformed userconf.txt (no colon, or a second field not starting with '$') is
+#     deleted along with authorized_keys; nothing is provisioned.
 # shellcheck disable=SC2016,SC2319
 set -uo pipefail
 
@@ -49,8 +57,9 @@ mk_stub useradd 'for a; do u="$a"; done; mkdir -p "${ARLOWE_HOME_ROOT}/${u}"; ec
 mk_stub chpasswd 'cat >> "${STUB_LOG}/chpasswd.stdin"'
 mk_stub usermod 'exit 0'
 mk_stub chown 'exit 0'
-mk_stub id 'for a; do u="$a"; done; grep -qx "${u}" "${STUB_LOG}/users" 2>/dev/null'
-mk_stub getent 'if [[ "$1" == passwd ]]; then echo "$2:x:1000:1000::${ARLOWE_HOME_ROOT}/$2:/bin/bash"; else exit 0; fi'
+UIDLOOKUP='l="$(grep -E "^${u}(:|$)" "${STUB_LOG}/users" 2>/dev/null | head -n1)" || exit 1; [[ -n "${l}" ]] || exit 1; n="${l#*:}"; [[ "${l}" == *:* ]] || n=1000'
+mk_stub id "for a; do u=\"\$a\"; done; ${UIDLOOKUP}; echo \"\${n}\""
+mk_stub getent "if [[ \"\$1\" == passwd ]]; then u=\"\$2\"; ${UIDLOOKUP}; echo \"\$2:x:\${n}:\${n}::\${ARLOWE_HOME_ROOT}/\$2:/bin/bash\"; else exit 0; fi"
 
 mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 count() { if [[ -f "$1" ]]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
@@ -127,6 +136,29 @@ OUT="$(grep '^Condition' "${UNIT}")"
    && "$(grep -c '^ConditionPathExists=|/boot/firmware/authorized_keys$' <<<"${OUT}")" == 1 \
    && "$(grep -c . <<<"${OUT}")" == 2 ]]
 check "[unit] runs when either userconf.txt or authorized_keys exists (OR'd conditions)" $?
+
+# --- user-name validation, system accounts, malformed userconf.txt ---
+n=0
+refused() { # <label> <userconf line> [existing users line]
+    n=$((n + 1)); fresh "bad${n}"; printf '%s\n' "$2" > "${B}/userconf.txt"; printf '%s\n' "${KEY1}" > "${B}/authorized_keys"
+    if [[ -n "${3:-}" ]]; then echo "$3" > "${L}/users"; mkdir -p "${H}/${3%%:*}"; fi
+    run
+    local calls=""; for c in useradd chpasswd.stdin usermod chown; do [[ -e "${L}/${c%.stdin}.log" || -e "${L}/${c}" ]] && calls="${calls} ${c}"; done
+    [[ ${RC} -eq 0 && -z "${calls}" && ! -e "${B}/userconf.txt" && ! -e "${B}/authorized_keys" \
+       && -z "$(find "${H}" -name authorized_keys)" && "${OUT}" == *arlowe-userconf* ]]
+    check "$1" $?
+}
+for name in root ../x a/b -x Upper ''; do refused "[bad-name] '${name}' is refused" "${name}:${HASH}"; done
+refused "[bad-name] 33-char name is refused" "$(printf 'a%.0s' $(seq 33)):${HASH}"
+refused "[system-account] existing uid 999 is refused" "svcuser:${HASH}" "svcuser:999"
+refused "[malformed] no colon: userconf.txt deleted, nothing provisioned" "devuser"
+refused "[malformed] plaintext second field: userconf.txt deleted, nothing provisioned" "devuser:hunter2"
+
+for name in _x a-b9 "$(printf 'a%.0s' $(seq 32))"; do
+    n=$((n + 1)); fresh "good${n}"; printf '%s:%s\n' "${name}" "${HASH}" > "${B}/userconf.txt"; run
+    [[ ${RC} -eq 0 && "$(count "${L}/useradd.log")" == 1 && ! -e "${B}/userconf.txt" ]]
+    check "[good-name] '${name}' is accepted" $?
+done
 
 echo "${PASSED} passed, ${FAILED} failed"
 [[ ${FAILED} -eq 0 ]]
