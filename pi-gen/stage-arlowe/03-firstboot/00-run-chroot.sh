@@ -21,6 +21,11 @@
 # device directly.
 set -euo pipefail
 
+# pi-gen feeds this script to bash on stdin, so a child that reads stdin eats
+# the rest of the script and bash exits 0 silently. bash parses the whole group
+# before running it; </dev/null then keeps children off the script text.
+{
+
 # The service file was placed by pi-gen's files/ copy convention.
 # pi-gen copies files/ into the rootfs at the same relative path as the stage
 # sub-directory. For 03-firstboot/files/arlowe-firstboot.service, pi-gen puts
@@ -213,3 +218,5 @@ ln -sf "${IDENTITY_UNIT_PATH}" \
     "/etc/systemd/system/multi-user.target.wants/${IDENTITY_UNIT}"
 
 echo "[03-firstboot] ${IDENTITY_UNIT} enabled"
+
+} </dev/null
