@@ -46,20 +46,31 @@ line="$(head -n1 "${CONF}" | tr -d '\r')"
 user="${line%%:*}"
 hash="${line#*:}"
 
-if [[ -z "${user}" || -z "${hash}" || "${user}" == "${line}" ]]; then
-    echo "[arlowe-userconf] ${CONF} is not username:hash — ignoring" >&2
-    rm -f "${KEYS}"
+# Everything below runs as root on input from a FAT partition anyone can edit, so
+# each refusal discards both files rather than leaving them for a retry.
+discard() {
+    rm -f "${CONF}" "${KEYS}"
+    sync
+    echo "[arlowe-userconf] refusing: $1; removed ${CONF} and ${KEYS}" >&2
     exit 0
+}
+
+if [[ -z "${user}" || -z "${hash}" || "${user}" == "${line}" ]]; then
+    discard "${CONF} is not username:hash"
 fi
 # A crypt hash, not a plaintext password. Refuse anything else rather than
 # silently setting a password that is not what the writer intended.
 if [[ "${hash}" != \$* ]]; then
-    echo "[arlowe-userconf] second field is not a crypt hash (expected \$6\$...) — ignoring" >&2
-    rm -f "${KEYS}"
-    exit 0
+    discard "second field is not a crypt hash (expected \$6\$...)"
 fi
-
-if ! id -u "${user}" >/dev/null 2>&1; then
+# The name reaches useradd and a filesystem path; root and system accounts must
+# never have their password or keys replaced from the boot partition.
+if [[ ! "${user}" =~ ^[a-z_][a-z0-9_-]{0,31}$ || "${user}" == root ]]; then
+    discard "invalid user name"
+fi
+if uid="$(id -u "${user}" 2>/dev/null)"; then
+    [[ "${uid}" -ge 1000 ]] || discard "${user} is a system account"
+else
     useradd -m -s /bin/bash "${user}"
     echo "[arlowe-userconf] created ${user}"
 fi
