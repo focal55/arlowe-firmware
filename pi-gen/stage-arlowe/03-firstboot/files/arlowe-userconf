@@ -1,5 +1,6 @@
 #!/bin/bash
-# Provision a login account from /boot/firmware/userconf.txt, if one is present.
+# Provision a login account from /boot/firmware/userconf.txt, and install an SSH
+# key from /boot/firmware/authorized_keys, if they are present.
 #
 # The factory image ships no login you can use (every account is locked and sshd
 # refuses passwords), which is correct: the device is meant to be paired, not
@@ -11,29 +12,65 @@
 # INTERACTIVE wizard on tty1 and masks getty, so a device with no keyboard sits
 # at a prompt forever. This unit does nothing at all when the file is absent.
 #
+# Access is for bring-up only: once the unit is paired (config.yml exists) this
+# refuses to create or change any account or key, because the FAT partition can be
+# written by anyone holding the card. Both files are deleted either way.
+#
 # Format matches Raspberry Pi's: one line, username:crypt-hash, e.g.
 #   printf '%s:%s\n' myuser "$(openssl passwd -6)" > /boot/firmware/userconf.txt
 set -euo pipefail
 
-CONF=/boot/firmware/userconf.txt
-[[ -f "${CONF}" ]] || exit 0
+BOOT_DIR="${ARLOWE_BOOT_DIR:-/boot/firmware}"
+PAIRED_MARKER="${ARLOWE_CONFIG:-/etc/arlowe/config.yml}"
+HOME_ROOT="${ARLOWE_HOME_ROOT:-/home}"
+CONF="${BOOT_DIR}/userconf.txt"
+KEYS="${BOOT_DIR}/authorized_keys"
+[[ -f "${CONF}" || -f "${KEYS}" ]] || exit 0
+
+if [[ -f "${PAIRED_MARKER}" ]]; then
+    rm -f "${CONF}" "${KEYS}"
+    sync
+    echo "[arlowe-userconf] refusing: unit is paired; removed ${CONF} and ${KEYS} unused" >&2
+    exit 0
+fi
+
+# A key with no account to put it in has nowhere safe to go.
+if [[ ! -f "${CONF}" ]]; then
+    rm -f "${KEYS}"
+    sync
+    echo "[arlowe-userconf] ${KEYS} without ${CONF} — ignoring" >&2
+    exit 0
+fi
 
 line="$(head -n1 "${CONF}" | tr -d '\r')"
 user="${line%%:*}"
 hash="${line#*:}"
 
-if [[ -z "${user}" || -z "${hash}" || "${user}" == "${line}" ]]; then
-    echo "[arlowe-userconf] ${CONF} is not username:hash — ignoring" >&2
+# Everything below runs as root on input from a FAT partition anyone can edit, so
+# each refusal discards both files rather than leaving them for a retry.
+discard() {
+    rm -f "${CONF}" "${KEYS}"
+    sync
+    echo "[arlowe-userconf] refusing: $1; removed ${CONF} and ${KEYS}" >&2
     exit 0
+}
+
+if [[ -z "${user}" || -z "${hash}" || "${user}" == "${line}" ]]; then
+    discard "${CONF} is not username:hash"
 fi
 # A crypt hash, not a plaintext password. Refuse anything else rather than
 # silently setting a password that is not what the writer intended.
 if [[ "${hash}" != \$* ]]; then
-    echo "[arlowe-userconf] second field is not a crypt hash (expected \$6\$...) — ignoring" >&2
-    exit 0
+    discard "second field is not a crypt hash (expected \$6\$...)"
 fi
-
-if ! id -u "${user}" >/dev/null 2>&1; then
+# The name reaches useradd and a filesystem path; root and system accounts must
+# never have their password or keys replaced from the boot partition.
+if [[ ! "${user}" =~ ^[a-z_][a-z0-9_-]{0,31}$ || "${user}" == root ]]; then
+    discard "invalid user name"
+fi
+if uid="$(id -u "${user}" 2>/dev/null)"; then
+    [[ "${uid}" -ge 1000 ]] || discard "${user} is a system account"
+else
     useradd -m -s /bin/bash "${user}"
     echo "[arlowe-userconf] created ${user}"
 fi
@@ -42,8 +79,26 @@ for g in sudo adm dialout audio video plugdev users input netdev arlowe; do
     getent group "${g}" >/dev/null 2>&1 && usermod -a -G "${g}" "${user}" || true
 done
 
-# Remove it so the hash does not sit readable on a FAT partition any longer than
+if [[ -f "${KEYS}" ]]; then
+    ssh_dir="${HOME_ROOT}/${user}/.ssh"
+    auth="${ssh_dir}/authorized_keys"
+    umask 077
+    mkdir -p "${ssh_dir}"
+    touch "${auth}"
+    # Re-running with the same key must not stack duplicate lines.
+    while IFS= read -r key || [[ -n "${key}" ]]; do
+        key="${key%$'\r'}"
+        [[ -n "${key}" ]] || continue
+        grep -qxF -- "${key}" "${auth}" || printf '%s\n' "${key}" >> "${auth}"
+    done < "${KEYS}"
+    chmod 0700 "${ssh_dir}"
+    chmod 0600 "${auth}"
+    chown "${user}:" "${ssh_dir}" "${auth}"
+    echo "[arlowe-userconf] installed ssh key for ${user}"
+fi
+
+# Remove them so the hash does not sit readable on a FAT partition any longer than
 # it must. This mirrors what Raspberry Pi's own userconf does.
-rm -f "${CONF}"
+rm -f "${CONF}" "${KEYS}"
 sync
 echo "[arlowe-userconf] provisioned ${user}; ${CONF} removed"

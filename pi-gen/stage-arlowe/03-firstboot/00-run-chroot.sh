@@ -112,9 +112,11 @@ echo "[03-firstboot] default logins locked; sshd is key-only"
 #
 # A factory image has no login you can use, which is correct -- the device is
 # paired, not logged into. Development still needs a shell: userconf.txt on the
-# FAT boot partition names a user and a crypt hash, and a key in
-# /etc/skel/.ssh/authorized_keys gets that user in over ssh (the drop-in above
-# refuses passwords, so the hash only serves the console and sudo). pi-gen's own
+# FAT boot partition names a user and a crypt hash, and authorized_keys beside it
+# is installed into that user's ~/.ssh (the drop-in above refuses passwords, so
+# the hash only serves the console and sudo). Both are honoured only while the
+# unit is unpaired (no /etc/arlowe/config.yml): the FAT partition is writable by
+# anyone holding the card, so once paired they are deleted unused. pi-gen's own
 # userconfig.service is not enabled here, and enabling it is the wrong fix: with
 # no userconf.txt it runs an interactive wizard on tty1 and masks getty, so a
 # device with no keyboard attached waits at a prompt forever. This unit is a

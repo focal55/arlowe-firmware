@@ -7,7 +7,7 @@
 # but flashing can be done from the dev's Mac with the .img downloaded from CI.
 #
 # Usage:
-#   scripts/flash-sd.sh <image.img> <device> [--yes]
+#   scripts/flash-sd.sh <image.img> <device> [--yes] [--dev-access <user> <pubkey-file>]
 #
 # Examples (Linux):
 #   scripts/flash-sd.sh build/arlowe.img /dev/sdb
@@ -15,6 +15,7 @@
 #
 # Examples (macOS):
 #   scripts/flash-sd.sh build/arlowe.img /dev/disk4 --yes
+#   scripts/flash-sd.sh build/arlowe.img /dev/disk4 --dev-access <user> ~/.ssh/<key>.pub
 #
 # Safety:
 #   - Refuses to write to the system disk (boot device).
@@ -23,33 +24,55 @@
 #   - Uses bmaptool if available (fast sparse write), falls back to dd.
 #   - Reads the card back against the image before reporting success
 #     (scripts/lib/verify-flash.py); a mismatch fails the script.
+#   - With --dev-access, stages a login and SSH key on the boot partition after the
+#     read-back passes; the device accepts them only until it is paired.
 #   - Prints flash time on completion.
 set -euo pipefail
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") <image.img> <device> [--yes]
+Usage: $(basename "$0") <image.img> <device> [--yes] [--dev-access <user> <pubkey-file>]
 
 Arguments:
   image.img   Path to the .img file to write
   device      Target block device (e.g. /dev/sdb, /dev/mmcblk0, /dev/disk4)
   --yes       Skip the confirmation prompt
+  --dev-access <user> <pubkey-file>
+              After flashing, stage a login for <user> and the SSH public key on the
+              boot partition. The password hash comes from FLASH_DEV_PASSWORD_HASH
+              or is prompted for. The device honours it only while unpaired.
 
 Environment:
   FLASH_BS    Block size passed to dd (default: 4M). Ignored when bmaptool is used.
+  FLASH_DEV_PASSWORD_HASH
+              Crypt hash for --dev-access (openssl passwd -6). Prompted if unset.
 EOF
 }
 
 die() { printf 'flash-sd: %s\n' "$*" >&2; exit 1; }
 
+# shellcheck source=scripts/lib/stage-dev-access.sh
+source "$(dirname "$0")/lib/stage-dev-access.sh"
+
 IMG=""
 DEV=""
 YES=false
+DEV_USER=""
+DEV_PUBKEY=""
 FLASH_BS="${FLASH_BS:-4M}"
 
-for arg in "$@"; do
+while [[ $# -gt 0 ]]; do
+    arg="$1"
+    shift
     case "${arg}" in
         --yes) YES=true ;;
+        --dev-access)
+            [[ $# -ge 2 ]] || die "--dev-access needs <user> <pubkey-file>"
+            DEV_USER="$1"
+            DEV_PUBKEY="$2"
+            shift 2
+            validate_dev_pubkey "${DEV_PUBKEY}" || die "--dev-access: invalid pubkey ${DEV_PUBKEY}"
+            ;;
         --help|-h) usage; exit 0 ;;
         -*)  die "unknown flag: ${arg}" ;;
         *)
@@ -217,6 +240,40 @@ sync
 printf '\nReading the card back against the image...\n'
 if ! sudo python3 "$(dirname "$0")/lib/verify-flash.py" "${IMG}" "${VERIFY_DEV}" ${VERIFY_ARGS[@]+"${VERIFY_ARGS[@]}"}; then
     die "the card does not match the image. Do not boot it. A reader that drops or misplaces writes causes this; reflash through a different reader."
+fi
+
+# ---------------------------------------------------------------------------
+# Optional: stage dev access on the boot partition (the first partition)
+# ---------------------------------------------------------------------------
+if [[ -n "${DEV_USER}" ]]; then
+    dev_hash="${FLASH_DEV_PASSWORD_HASH:-}"
+    if [[ -z "${dev_hash}" ]]; then
+        dev_hash="$(openssl passwd -6)"
+    fi
+    stage_dir="$(mktemp -d)"
+    mnt_dir="$(mktemp -d)"
+    trap 'rm -rf "${stage_dir}"; rmdir "${mnt_dir}" 2>/dev/null || true' EXIT
+    stage_dev_access "${stage_dir}" "${DEV_USER}" "${dev_hash}" "${DEV_PUBKEY}" \
+        || die "could not stage dev access"
+
+    printf '\nStaging dev access for %s on the boot partition...\n' "${DEV_USER}"
+    if [[ "${OS}" == "Darwin" ]]; then
+        # The mount is root-owned, so the copy needs sudo; hence staged in a temp dir.
+        sudo diskutil mount -mountPoint "${mnt_dir}" "${DEV}s1" >/dev/null
+        sudo cp "${stage_dir}/userconf.txt" "${stage_dir}/authorized_keys" "${mnt_dir}/"
+        sync
+        sudo diskutil unmount "${DEV}s1" >/dev/null
+    else
+        case "${DEV}" in
+            *mmcblk*|*nvme*) boot_part="${DEV}p1" ;;
+            *) boot_part="${DEV}1" ;;
+        esac
+        sudo mount "${boot_part}" "${mnt_dir}"
+        sudo cp "${stage_dir}/userconf.txt" "${stage_dir}/authorized_keys" "${mnt_dir}/"
+        sync
+        sudo umount "${mnt_dir}"
+    fi
+    printf 'Dev access staged: userconf.txt and authorized_keys.\n'
 fi
 
 FLASH_END="$(date +%s)"

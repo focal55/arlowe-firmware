@@ -456,19 +456,17 @@ scripts/flash-sd.sh build/arlowe.img /dev/sdX --yes
 usable login by design (accounts locked, sshd key-only), so a card booted
 without one is unreachable: no SSH and no console login. The only recovery is
 pulling power and moving the card again.
-On the build host, with the card still at `/dev/sdX`:
+Flash with the login staged in the same step:
 
 ```bash
-sudo mount /dev/sdX1 /mnt
-printf '%s:%s\n' <user> "$(openssl passwd -6)" | sudo tee /mnt/userconf.txt >/dev/null
-sudo umount /mnt
+scripts/flash-sd.sh build/arlowe.img /dev/sdX --dev-access <user> ~/.ssh/<key>.pub
 ```
 
-`arlowe-userconf.service` creates the user from it on first boot and deletes the
-file. sshd refuses passwords, so over ssh the login is reached by key: with the
-card still in the reader, add your public key to the slot-A rootfs at
-`/etc/skel/.ssh/authorized_keys` (mode 600, dir 700) so the new user's home is
-seeded with it. The userconf password serves the console and `sudo` only.
+`arlowe-userconf.service` creates the user from `userconf.txt` on first boot,
+installs `authorized_keys` into its `~/.ssh`, and deletes both files. sshd refuses
+passwords, so over ssh the login is reached by key. The userconf password serves
+the console and `sudo` only. Both files are honoured only while the unit is
+unpaired.
 
 ## Step 4 — boot factory-fresh
 
