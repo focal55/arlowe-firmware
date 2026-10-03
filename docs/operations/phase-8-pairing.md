@@ -19,10 +19,11 @@ documentation addresses: the dev machine is `192.0.2.10`, the unit is `192.0.2.2
 - **The image ships no usable login.** Every account is locked, root included, and the sshd
   drop-in `00-arlowe-key-only.conf` sets `PasswordAuthentication no`. SSH accepts keys only.
   Never try `ssh` with a password; it is refused by design.
-- **Dev access** is two pieces, both staged before first boot (section 4):
-  `/boot/firmware/userconf.txt` (`<user>:<crypt hash>`) creates the account and sets the
-  console and `sudo` password; a public key in the slot-A rootfs at
-  `/etc/skel/.ssh/authorized_keys` is copied into the new home and is the only way in over SSH.
+- **Dev access** is two files on the FAT boot partition, staged by `scripts/flash-sd.sh
+  --dev-access` (section 4): `userconf.txt` (`<user>:<crypt hash>`) creates the account and
+  sets the console and `sudo` password; `authorized_keys` is installed into the new home and is
+  the only way in over SSH. Both are honoured only while the unit is unpaired, and are deleted
+  on first boot either way. A paired unit ignores them.
 - `ssh.service` is enabled in the image (`ENABLE_SSH=1`), so no FAT `ssh` file is needed. It is
   harmless if present.
 - Bench kit: the unit with the Whisplay attached, an ethernet cable to the dev LAN for the SSH
@@ -43,21 +44,10 @@ have cost builds before:
 - Never pipe a password into `sudo -S` inside a pipeline that ends in `tee`: the password lands
   in the file. Run `sudo -v` first, or wrap the whole job in one `sudo bash -c '...'`.
 
-**Stage the SSH key into the image**, on the build host, before the image leaves it. The Mac
-cannot write ext4, so this is the one step that must happen on the image:
-
-```bash
-LOOP=$(sudo losetup -Pf --show build/arlowe.img)
-sudo mount "${LOOP}p2" /mnt                      # slot A
-sudo install -d -m 0700 /mnt/etc/skel/.ssh
-sudo install -m 0600 ~/.ssh/<key>.pub /mnt/etc/skel/.ssh/authorized_keys
-sudo umount /mnt && sudo losetup -d "$LOOP"
-bmaptool create -o build/arlowe.img.bmap build/arlowe.img
-```
-
-The rw mount rewrites the ext4 superblock, so the `.bmap` from the build no longer matches and
-`bmaptool copy` would abort mid-flash. Regenerating it, as above, is mandatory. Any other
-inspection of the image mounts read-only (`mount -o ro`).
+The SSH key no longer goes into the image: `scripts/flash-sd.sh --dev-access` stages it on the
+card's boot partition (section 4). Mount the image read-only (`mount -o ro`) for any inspection:
+a rw mount rewrites the ext4 superblock, so the build's `.bmap` no longer matches and
+`bmaptool copy` aborts mid-flash.
 
 ### Phase 8 build evidence (08-27a)
 
@@ -134,18 +124,21 @@ Flash through the Mac's built-in SD slot. **Never use the USB SD reader**: it la
 
 ```bash
 diskutil list                                        # find the card: /dev/diskN
-scripts/flash-sd.sh build/arlowe.img /dev/diskN      # confirms, writes, reads the card back
+scripts/flash-sd.sh build/arlowe.img /dev/diskN --dev-access <user> ~/.ssh/<key>.pub
 ```
+
+The script confirms, writes, reads the card back, then (after the read-back passes) prompts for
+the account password (or takes a crypt hash from `FLASH_DEV_PASSWORD_HASH`) and stages
+`userconf.txt` and `authorized_keys` on the FAT partition.
 
 Accept the card only if the script ends with `Flashed and verified` after its
 `[flash-verify] ... blocks ... read back` line. A read-back mismatch means do not boot it.
 
-With the card still in the slot, mount the FAT partition (typed EFI, so it does not
-auto-mount) and stage the files:
+With the card still in the slot, mount the FAT partition again (typed EFI, so it does not
+auto-mount) and stage the broker file:
 
 ```bash
 mkdir -p /tmp/arlowe-boot && sudo diskutil mount -mountPoint /tmp/arlowe-boot /dev/diskNs1
-printf '%s:%s\n' <user> "$(openssl passwd -6)" | sudo tee /tmp/arlowe-boot/userconf.txt >/dev/null
 python3 -c 'import json,sys; print(json.dumps({"url": sys.argv[1], "ca_bundle_pem": open(sys.argv[2]).read()}))' \
   https://192.0.2.10:8443 build/broker/tls/ca.pem > /tmp/arlowe-broker.json
 sudo cp /tmp/arlowe-broker.json /tmp/arlowe-boot/arlowe-broker.json
