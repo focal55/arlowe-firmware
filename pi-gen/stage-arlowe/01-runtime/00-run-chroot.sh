@@ -48,6 +48,11 @@
 #   - Clean in-chroot nondeterminism for reproducible builds.
 set -euo pipefail
 
+# pi-gen feeds this script to bash on stdin, so a child that reads stdin eats
+# the rest of the script and bash exits 0 silently. bash parses the whole group
+# before running it; </dev/null then keeps children off the script text.
+{
+
 # Staged by host-side 00-run.sh. NOT under /tmp — pi-gen tmpfs-mounts the
 # chroot /tmp, which would mask the staged tree.
 REPO_ROOT="/root/arlowe-build/repo"
@@ -430,3 +435,5 @@ rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
 rm -rf /root/arlowe-build
 
 echo "[00-run-chroot] provisioning complete"
+
+} </dev/null
