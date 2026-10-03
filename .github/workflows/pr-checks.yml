@@ -128,6 +128,8 @@ jobs:
             scripts/pki/*.sh \
             "${STAGE_SCRIPTS[@]}" \
             tests/phase-*/*.sh \
+            tests/security/test-arlowe-userconf.sh \
+            tests/flash/test-stage-dev-access.sh \
             units/install-units.sh \
             runtime/cli/ab \
             runtime/recovery/*.sh
