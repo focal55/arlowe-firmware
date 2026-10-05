@@ -70,6 +70,11 @@ SystemCallFilter=~@privileged @resources
 # policy; seccomp then kills the process with SIGSYS before it reaches main.
 # Re-admit only mbind rather than dropping the whole @resources deny.
 SystemCallFilter=mbind
+# GLib 2.74 calls sched_setattr(2) when it creates a thread, to copy the
+# scheduling attributes, and the ~@resources deny removes it; seccomp then kills
+# nmcli with SIGSYS. Re-admit only this call: RestrictRealtime=yes and the
+# absence of CAP_SYS_NICE still prevent any priority raise.
+SystemCallFilter=sched_setattr
 # AF_UNIX for systemctl, nmcli and timedatectl over D-Bus; AF_INET/AF_INET6 for
 # the portal and the certificate request.
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
