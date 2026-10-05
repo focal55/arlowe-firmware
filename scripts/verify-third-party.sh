@@ -9,7 +9,7 @@ set -euo pipefail
 #   1. axcl_host_aarch64_V3.10.2.deb SHA-256 matches third_party/axcl/manifest.yml
 #   2. third_party/ax-llm submodule is initialized at the pinned commit
 #   3. Model artifacts (Qwen LLM, Whisper STT, Piper TTS) in third_party/models/manifest.yml
-#   4. WhisPlay driver source (WhisPlay.py + LICENSE) is locatable
+#   4. WhisPlay driver (WhisPlay.py + LICENSE) matches the sha256 pinned in PROVENANCE.md
 #   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
 #   6. WM8960 audio HAT redistribution rights (non-blocking warning)
 #   7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
@@ -53,7 +53,7 @@ Checks:
   1. axcl_host_aarch64_V3.10.2.deb SHA-256 matches third_party/axcl/manifest.yml
   2. third_party/ax-llm submodule is initialized and at the pinned commit
   3. Model artifacts (Qwen LLM, Whisper STT, Piper TTS) per third_party/models/manifest.yml
-  4. WhisPlay driver source (WhisPlay.py + LICENSE) is locatable
+  4. WhisPlay driver (WhisPlay.py + LICENSE) matches the sha256 pinned in PROVENANCE.md
   5. Node.js tarball SHA-256 matches third_party/node/manifest.yml (ADR-0008)
   6. WM8960 audio HAT redistribution rights (non-blocking warning)
   7. Pinned kernel debs SHA-256 match third_party/kernel/manifest.yml (ADR-0009)
@@ -96,10 +96,8 @@ The install_to subpath is derived by stripping the image-side prefix
 This ensures the gate locates artifacts at the same relative path the
 runtime units read — no separate "search name" that can drift from install_to.
 
-WhisPlay driver search order:
-  - \$ARLOWE_WHISPLAY_SRC/WhisPlay.py
-  - third_party/whisplay-driver/WhisPlay.py
-  - /var/cache/arlowe-build/whisplay-driver/WhisPlay.py
+WhisPlay driver (check 4): committed at third_party/whisplay-driver/ and verified
+against the sha256 values in its PROVENANCE.md (ADR-0014). No other location is read.
 
 Pi archive debs (check 8): search order and ARLOWE_PI_ARCHIVE_FETCH=1 are in
 third_party/pi-archive/INSTALL.md. Once every deb verifies, the path of each is
@@ -123,7 +121,54 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   exit 0
 fi
 
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# Check 4: the committed driver files against the hashes recorded in PROVENANCE.md.
+verify_whisplay() {
+  local dir="${REPO_ROOT}/third_party/whisplay-driver"
+  local prov="${dir}/PROVENANCE.md"
+  local f label expected actual
+  for f in WhisPlay.py LICENSE; do
+    label="WhisPlay ${f}"
+    expected=""
+    if [[ -f "${prov}" ]]; then
+      expected="$(sed -n "s/^sha256 ${f}: \([0-9a-f]\{64\}\)\$/\1/p" "${prov}" | head -n1)"
+    fi
+    if [[ -z "${expected}" ]]; then
+      printf "${RED}[FAIL]${NC} %-50s no 'sha256 ${f}: <64 hex>' line in ${prov}\n" "${label}"
+      all_ok=false
+    elif [[ ! -f "${dir}/${f}" ]]; then
+      printf "${RED}[FAIL]${NC} %-50s not found at ${dir}/${f}\n" "${label}"
+      echo >&2 "  The file is committed to the repo; see third_party/whisplay-driver/INSTALL.md."
+      all_ok=false
+    else
+      actual="$(sha256_of "${dir}/${f}")"
+      if [[ "${actual}" == "${expected}" ]]; then
+        printf "${GREEN}[OK]${NC}   %-50s sha256 matches PROVENANCE.md\n" "${label}"
+      else
+        printf "${RED}[FAIL]${NC} %-50s sha256 mismatch\n" "${label}"
+        echo >&2 "  Expected: ${expected}"
+        echo >&2 "  Actual:   ${actual}"
+        all_ok=false
+      fi
+    fi
+  done
+}
+
 all_ok=true
+
+# Test seam: run check 4 alone, before any manifest is read.
+if [[ "${ARLOWE_VERIFY_ONLY:-}" == "4" ]]; then
+  verify_whisplay
+  [[ "${all_ok}" == "true" ]]
+  exit $?
+fi
 
 # ---------------------------------------------------------------------------
 # Read expected SHA-256 from manifest.yml
@@ -265,46 +310,7 @@ fi
 # ---------------------------------------------------------------------------
 # Check 4: WhisPlay driver source
 # ---------------------------------------------------------------------------
-whisplay_dir=""
-
-if [[ -n "${ARLOWE_WHISPLAY_SRC:-}" ]]; then
-  if [[ -f "${ARLOWE_WHISPLAY_SRC}/WhisPlay.py" ]]; then
-    whisplay_dir="${ARLOWE_WHISPLAY_SRC}"
-  fi
-fi
-
-if [[ -z "${whisplay_dir}" ]]; then
-  if [[ -f "${REPO_ROOT}/third_party/whisplay-driver/WhisPlay.py" ]]; then
-    whisplay_dir="${REPO_ROOT}/third_party/whisplay-driver"
-  fi
-fi
-
-if [[ -z "${whisplay_dir}" ]]; then
-  if [[ -f "/var/cache/arlowe-build/whisplay-driver/WhisPlay.py" ]]; then
-    whisplay_dir="/var/cache/arlowe-build/whisplay-driver"
-  fi
-fi
-
-if [[ -z "${whisplay_dir}" ]]; then
-  printf "${RED}[FAIL]${NC} WhisPlay.py  not found\n"
-  echo >&2 "  Set ARLOWE_WHISPLAY_SRC=/path/to/whisplay-driver or place at:"
-  echo >&2 "    third_party/whisplay-driver/WhisPlay.py"
-  echo >&2 "    /var/cache/arlowe-build/whisplay-driver/WhisPlay.py"
-  echo >&2 "  See third_party/whisplay-driver/INSTALL.md for sourcing instructions."
-  all_ok=false
-else
-  printf "${GREEN}[OK]${NC}   %-50s present (Apache 2.0)\n" "WhisPlay.py"
-
-  # LICENSE must also be present for attribution compliance
-  if [[ ! -f "${whisplay_dir}/LICENSE" ]]; then
-    printf "${RED}[FAIL]${NC} WhisPlay LICENSE  not found at ${whisplay_dir}/LICENSE\n"
-    echo >&2 "  Copy the Apache 2.0 LICENSE from the PiSugar/Whisplay repo alongside WhisPlay.py."
-    echo >&2 "  See third_party/whisplay-driver/INSTALL.md"
-    all_ok=false
-  else
-    printf "${GREEN}[OK]${NC}   %-50s present\n" "WhisPlay LICENSE"
-  fi
-fi
+verify_whisplay
 
 # ---------------------------------------------------------------------------
 # Check 5: Node.js tarball SHA-256 (ADR-0008)
