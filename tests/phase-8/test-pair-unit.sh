@@ -18,6 +18,12 @@ values() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tr ' ' '\n' | sed '/^$/d' | sor
 lines() { grep "^$2=" "$1" 2>/dev/null; }
 in_values() { values "$1" "$2" | grep -qxF -- "$3"; }
 same_lines() { [[ -f "$1" && -f "$2" ]] && [[ "$(lines "$1" "$3")" == "$(lines "$2" "$3")" ]]; }
+# same_lines_plus <pair> <face> <key> <extra-line>: pair's key lines are the face's plus exactly one <extra-line>
+same_lines_plus() {
+    [[ -f "$1" && -f "$2" ]] || return 1
+    [[ "$(grep -cxF -- "$4" "$1")" == 1 ]] || return 1
+    [[ "$(lines "$1" "$3" | grep -vxF -- "$4")" == "$(lines "$2" "$3")" ]]
+}
 exact_values() { local f=$1 k=$2; shift 2; [[ "$(values "$f" "$k")" == "$(printf '%s\n' "$@" | sort)" ]]; }
 
 check "gated on an absent config.yml" has "$PAIR" "ConditionPathExists=!/etc/arlowe/config.yml"
@@ -37,7 +43,10 @@ check "PYTHONPATH covers runtime and runtime/lib" \
 check "sets no global CA override" lacks "$PAIR" "^[^#]*(REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|SSL_CERT_FILE)"
 check "DeviceAllow= identical to the face" same_lines "$PAIR" "$FACE" DeviceAllow
 check "Whisplay groups" has "$PAIR" "SupplementaryGroups=gpio spi video"
-check "SystemCallFilter= identical to the face" same_lines "$PAIR" "$FACE" SystemCallFilter
+# Pair runs nmcli, and GLib calls sched_setattr on thread creation, which ~@resources
+# removes (#281). The face does not run nmcli, so it must not get it.
+check "SystemCallFilter= is the face's plus exactly sched_setattr" \
+    same_lines_plus "$PAIR" "$FACE" SystemCallFilter "SystemCallFilter=sched_setattr"
 check "re-admits mbind" has "$PAIR" "SystemCallFilter=mbind"
 check "writes only the paths pairing writes" exact_values "$PAIR" ReadWritePaths \
     /etc/arlowe /var/lib/arlowe/identity /var/lib/arlowe/dashboard
