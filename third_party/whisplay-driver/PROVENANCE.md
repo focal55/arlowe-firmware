@@ -5,6 +5,32 @@ Research reference: `.planning/phases/01-runtime-extraction/01-RESEARCH.md` §R3
 
 ---
 
+## Pinned upstream (authoritative)
+
+`WhisPlay.py` and `LICENSE` are committed in this directory, byte-identical to upstream,
+and verified by `scripts/verify-third-party.sh` (check 4) against the values below. The
+rationale, license analysis, update procedure and audit checklist are in
+[ADR-0014](../../docs/architecture/0014-vendor-whisplay-driver.md).
+
+Upstream: https://github.com/PiSugar/Whisplay (`Driver/WhisPlay.py`, and `LICENSE` at the repo root)
+
+The values on the three lines below are machine-read (check 4 and
+`tests/phase-8/test-whisplay-vendored.sh`); keep each alone on its line.
+
+upstream-commit: bde2b831633de28981129a46826f0357aaec695b
+sha256 WhisPlay.py: c7a3a04415847fb569d6ef9ac1bdd98349dab93e0e5ec9e567cb125180865169
+sha256 LICENSE: c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
+
+The vendored `WhisPlay.py` is upstream at that commit, unmodified. It is the same file that
+ran on the project's hardware from Phase 6 through 2026-09-30, which previously lived outside
+the repo. Upstream has since removed `Driver/WhisPlay.py` and moved to a gpiod-based driver;
+the pin deliberately stays on the last `RPi.GPIO`-era file (see ADR-0014).
+
+The sections below are the original Phase 1 investigation notes and are historical where they
+conflict with this section.
+
+---
+
 ## Source
 
 **Vendor:** PiSugar (https://pisugar.com)
@@ -66,14 +92,7 @@ Rationale:
 - Vendoring removes the runtime dependency on `git clone` or a network fetch at boot.
 - The WM8960 audio HAT component is **not** vendored here — it is installed by `install_wm8960_drive.sh` as a system-level kernel module operation, which belongs in the image build (Phase 6), not in this Python package.
 
-Action to complete vendoring:
-1. Copy `WhisPlay.py` from the PiSugar/Whisplay repo into `third_party/whisplay-driver/WhisPlay.py`.
-2. Add `third_party/whisplay-driver/LICENSE` (copy of the Apache 2.0 text from the upstream repo).
-3. Add `third_party/whisplay-driver/README.md` with attribution per Apache 2.0 section 4(a).
-4. Pin the upstream commit SHA used (check `git -C ~/Library/Whisplay rev-parse HEAD` on arlowe-1).
-5. Update `runtime/face/face.py` default `ARLOWE_WHISPLAY_DRIVER_PATH` to point at this vendored location.
-
-This plan step is tracked as a follow-on task; the vendored `WhisPlay.py` file itself is not committed in this PR to keep the diff reviewable. The runtime path is env-overridable (`ARLOWE_WHISPLAY_DRIVER_PATH`) and defaults to `/opt/arlowe/third_party/whisplay-driver`.
+Vendoring is complete: see the pinned values above and ADR-0014.
 
 ---
 
@@ -91,7 +110,7 @@ The vendoring decision affects Phase 6 (image build): a clean Pi image will not 
 
 ## Action items
 
-1. Complete vendoring: copy `WhisPlay.py` + `LICENSE` + attribution `README.md` into `third_party/whisplay-driver/` (Phase 6 prerequisite, not Phase 1 blocker).
+1. Done: `WhisPlay.py` and `LICENSE` are vendored and hash-pinned (ADR-0014).
 2. Confirm Waveshare WM8960 HAT driver redistribution rights before including `WM8960-Audio-HAT.zip` in the image build. Waveshare's standard policy is permissive, but check the specific bundle's terms.
 3. Add `ARLOWE_WHISPLAY_DRIVER_PATH` to the dev environment documentation so contributors know to set it on non-image environments.
 4. The audio HAT install (`install_wm8960_drive.sh`) should be added to the Phase 6 image build script (`image/scripts/install-audio-hat.sh`), not run manually.

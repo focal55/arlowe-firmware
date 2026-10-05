@@ -312,11 +312,19 @@ WHISPLAY_DST=/opt/arlowe/third_party/whisplay-driver
 
 install -d -o root -g arlowe -m 0755 "${WHISPLAY_DST}"
 
-for f in WhisPlay.py LICENSE README.md PROVENANCE.md; do
+# The driver and its Apache-2.0 LICENSE are committed and hash-pinned (ADR-0014);
+# an image without either is not shippable, so their absence fails the build.
+for f in WhisPlay.py LICENSE; do
+    if [[ ! -f "${WHISPLAY_SRC}/${f}" ]]; then
+        echo "[00-run-chroot] ERROR: ${WHISPLAY_SRC}/${f} not found" >&2
+        exit 1
+    fi
+    install -o root -g arlowe -m 0644 "${WHISPLAY_SRC}/${f}" "${WHISPLAY_DST}/${f}"
+done
+
+for f in README.md PROVENANCE.md; do
     if [[ -f "${WHISPLAY_SRC}/${f}" ]]; then
         install -o root -g arlowe -m 0644 "${WHISPLAY_SRC}/${f}" "${WHISPLAY_DST}/${f}"
-    else
-        echo "[00-run-chroot] WARNING: ${WHISPLAY_SRC}/${f} not found — skipping" >&2
     fi
 done
 
