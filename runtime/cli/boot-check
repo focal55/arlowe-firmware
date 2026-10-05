@@ -84,6 +84,45 @@ check_port() {
 # health view, mirroring the audio-selfcheck.json precedent from Phase 5.
 ARLOWE_IDENTITY_OWNER="${ARLOWE_IDENTITY_OWNER:-arlowe:arlowe}"
 
+# The two arrays and identity_is_public_trust_store mirror
+# scripts/lib/identity-store-check.sh, the authority; scripts/lib/ is a
+# build-host library and is not installed on device. The parity test
+# tests/phase-8/test-boot-check-identity.sh enforces that they agree.
+IDENTITY_MATERIAL_GLOBS=(
+  '*.key'
+  '*.pem'
+  '*.crt'
+  '*.csr'
+  '*.p12'
+  '*.pfx'
+  'device-entropy'
+  'device-id'
+  'identity.json'
+)
+
+_IDENTITY_TRUST_STORE_PATHS=(
+  '*/site-packages/pip/_vendor/certifi/cacert.pem'
+  '*/site-packages/certifi/cacert.pem'
+  '*/share/ca-certificates/*'
+  '*/ssl/certs/*'
+)
+
+# A public trust anchor (pip's vendored CA bundle) is not identity material: a
+# PRIVATE KEY block always is; a certificate-only file is exempt only on a
+# vendored trust-store path.
+identity_is_public_trust_store() {
+    local f="$1" pat
+    if grep -qE 'BEGIN ([A-Z ]+ )?PRIVATE KEY' "$f" 2>/dev/null; then
+        return 1
+    fi
+    grep -q 'BEGIN CERTIFICATE' "$f" 2>/dev/null || return 1
+    for pat in "${_IDENTITY_TRUST_STORE_PATHS[@]}"; do
+        # shellcheck disable=SC2053  # pattern match is intended, not string equality
+        [[ "$f" == $pat ]] && return 0
+    done
+    return 1
+}
+
 id_mode()  { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
 id_owner() { stat -c '%U:%G' "$1" 2>/dev/null || stat -f '%Su:%Sg' "$1" 2>/dev/null; }
 
@@ -137,13 +176,21 @@ check_identity() {
         fi
     done
 
-    # Predicate list mirrors IDENTITY_MATERIAL_GLOBS in
-    # scripts/lib/identity-store-check.sh, which is the authority the two must
-    # agree on; scripts/lib/ is a build-host library, not installed on device.
-    hits=$(find "${ARLOWE_ROOT}/opt/arlowe" \( -type f -o -type l \) \
-        \( -name '*.key' -o -name '*.pem' -o -name '*.crt' -o -name '*.csr' \
-           -o -name '*.p12' -o -name '*.pfx' -o -name 'device-entropy' \
-           -o -name 'device-id' -o -name 'identity.json' \) -print 2>/dev/null)
+    local globs=() glob
+    for glob in "${IDENTITY_MATERIAL_GLOBS[@]}"; do
+        [ ${#globs[@]} -gt 0 ] && globs+=( -o )
+        globs+=( -name "$glob" )
+    done
+    hits=""
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        if [ -f "$path" ] && [ ! -L "$path" ] && identity_is_public_trust_store "$path"; then
+            continue
+        fi
+        hits+="$path"$'\n'
+    done < <(find "${ARLOWE_ROOT}/opt/arlowe" \( -type f -o -type l \) \
+        \( "${globs[@]}" \) -print 2>/dev/null)
+    hits="${hits%$'\n'}"
     if [ -n "$hits" ]; then
         opt_clean=false
         echo "FAIL Identity material under /opt/arlowe:"
