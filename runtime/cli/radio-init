@@ -5,9 +5,9 @@ The factory image ships the radio off: raspberrypi-sys-mods sets
 `rfkill default_state=0` and pi-gen writes WirelessEnabled=false when
 WPA_COUNTRY is unset. Pairing cannot raise its AP until this has run.
 
-Steps, in order, each fatal: soft-unblock every wlan rfkill entry, set the
-regulatory domain, enable NetworkManager's Wi-Fi, load the setup-AP forward
-drop (ADR-0011), then wait for wlan0 to leave `unavailable`.
+Steps, in order, each fatal: soft-unblock every wlan rfkill entry, enable
+NetworkManager's Wi-Fi, set the regulatory domain (through 00), load the
+setup-AP forward drop (ADR-0011), then wait for wlan0 to leave `unavailable`.
 
 ARLOWE_ROOT prefixes /sys and /etc so the tests can run against a fixture tree.
 """
@@ -82,10 +82,15 @@ def wait_for_wlan0() -> None:
 
 def main() -> None:
     unblock_wlan()
-    run("regulatory domain", ["iw", "reg", "set", COUNTRY])
-    log(f"regulatory domain set to {COUNTRY}")
     run("NetworkManager radio", ["nmcli", "radio", "wifi", "on"])
     log("NetworkManager Wi-Fi enabled")
+    # On Pi 5 brcmfmac a country set before Wi-Fi is up never reaches the
+    # firmware, so the AP beacons invisibly. Re-setting the same country is a
+    # cfg80211 no-op, hence 00 first. `iw reg get` cannot confirm it: the phy
+    # reports country 99 either way.
+    run("regulatory domain reset", ["iw", "reg", "set", "00"])
+    run("regulatory domain", ["iw", "reg", "set", COUNTRY])
+    log(f"regulatory domain set to {COUNTRY}")
     run("setup-AP firewall", ["nft", "-f", str(RULESET)])
     log(f"loaded {RULESET}")
     wait_for_wlan0()
