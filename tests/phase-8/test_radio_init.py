@@ -15,6 +15,10 @@ echo "$(basename "$0") $*" >> "{log}"
 if [ "$(basename "$0")" = nmcli ] && [ "$1" = -t ]; then
     echo "wlan0:${{SHIM_WLAN0_STATE:-disconnected}}"
 fi
+if [ "$(basename "$0")" = iw ] && [ "$*" = "reg set ${{SHIM_IW_FAIL_COUNTRY:-none}}" ]; then
+    echo "iw: simulated failure" >&2
+    exit 1
+fi
 if [ "$(basename "$0")" = nft ]; then
     exit "${{SHIM_NFT_RC:-0}}"
 fi
@@ -109,3 +113,63 @@ def test_no_wlan_radio_fails(env):
     assert r.returncode == 1
     assert "no wlan rfkill" in r.stderr
     assert log.read_text() == ""
+
+
+def _calls(log):
+    return log.read_text().splitlines()
+
+
+def test_regdomain_runs_after_wifi_is_enabled(env):
+    root, log, e = env
+    _rfkill(root, "rfkill0", "wlan")
+    assert run(e).returncode == 0
+    calls = _calls(log)
+    enable = calls.index("nmcli radio wifi on")
+    reg = [i for i, c in enumerate(calls) if c.startswith("iw reg set ")]
+    assert reg, calls
+    assert min(reg) > enable, calls
+
+
+def test_regdomain_forces_a_change_through_world_first(env):
+    root, log, e = env
+    _rfkill(root, "rfkill0", "wlan")
+    assert run(e, ARLOWE_WIFI_COUNTRY="GB").returncode == 0
+    reg = [c for c in _calls(log) if c.startswith("iw reg set ")]
+    assert reg == ["iw reg set 00", "iw reg set GB"]
+    calls = _calls(log)
+    assert calls.index("iw reg set GB") == calls.index("iw reg set 00") + 1
+
+
+def test_world_regdomain_failure_is_fatal(env):
+    root, log, e = env
+    _rfkill(root, "rfkill0", "wlan")
+    r = run(e, SHIM_IW_FAIL_COUNTRY="00")
+    assert r.returncode == 1
+    assert "regulatory domain" in r.stderr
+    calls = _calls(log)
+    assert "iw reg set US" not in calls
+    assert not any(c.startswith("nft ") for c in calls)
+    assert not any(c.startswith("nmcli -t") for c in calls)
+
+
+def test_country_regdomain_failure_is_fatal(env):
+    root, log, e = env
+    _rfkill(root, "rfkill0", "wlan")
+    r = run(e, SHIM_IW_FAIL_COUNTRY="US")
+    assert r.returncode == 1
+    assert "regulatory domain" in r.stderr
+    calls = _calls(log)
+    assert not any(c.startswith("nft ") for c in calls)
+    assert not any(c.startswith("nmcli -t") for c in calls)
+
+
+def test_rfkill_unblock_precedes_wifi_enable(env):
+    root, log, e = env
+    soft = _rfkill(root, "rfkill0", "wlan")
+    snapshot = log.parent / "soft-at-enable"
+    nmcli = Path(e["PATH"].split(":")[0]) / "nmcli"
+    nmcli.write_text(SHIM.format(log=log).replace(
+        "exit 0\n",
+        f'[ "$*" = "radio wifi on" ] && cat "{soft}" > "{snapshot}"\nexit 0\n'))
+    assert run(e).returncode == 0
+    assert snapshot.read_text().strip() == "0"
