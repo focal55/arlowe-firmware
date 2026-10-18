@@ -82,6 +82,18 @@ def _split_terse(line):
     return fields
 
 
+AP_CHANNELS = (1, 6, 11)
+
+
+def pick_ap_channel(rows):
+    # A channel-6 AP was unjoinable by a phone where 6 was busy, while channel 1
+    # joined with identical security (2026-10-18), so the channel follows the scan.
+    def score(channel):
+        on = [r["signal"] for r in rows if r["chan"] == channel]
+        return (len(on), sum(on))
+    return min(AP_CHANNELS, key=score)
+
+
 class NetMan:
     def __init__(self, runner=_default_runner, nmcli="nmcli"):
         self._runner = runner
@@ -105,21 +117,22 @@ class NetMan:
 
     def scan(self):
         """Scan once, before the AP is up: brcmfmac cannot rescan in AP mode."""
-        out = self._run("scan", ["-t", "-f", "SSID,SIGNAL,SECURITY", "device",
+        out = self._run("scan", ["-t", "-f", "SSID,SIGNAL,SECURITY,CHAN", "device",
                                  "wifi", "list", "--rescan", "yes"])
         best = {}
         for line in out.splitlines():
             fields = _split_terse(line)
-            if len(fields) != 3 or not fields[0]:
+            if len(fields) != 4 or not fields[0]:
                 continue
-            ssid, signal, security = fields
+            ssid, signal, security, chan = fields
             row = {"ssid": ssid, "signal": int(signal or 0),
-                   "secure": security.strip() not in ("", "--")}
+                   "secure": security.strip() not in ("", "--"),
+                   "chan": int(chan or 0)}
             if ssid not in best or row["signal"] > best[ssid]["signal"]:
                 best[ssid] = row
         return sorted(best.values(), key=lambda r: (-r["signal"], r["ssid"]))
 
-    def ap_up(self, ssid, psk):
+    def ap_up(self, ssid, psk, channel):
         """Raise the in-memory WPA2 setup AP; the PSK goes to nmcli on stdin."""
         self._ap_uuid = str(uuid.uuid4())
         self._run("ap add", [
@@ -127,7 +140,7 @@ class NetMan:
             "con-name", AP_CON_NAME, "connection.uuid", self._ap_uuid,
             "autoconnect", "no", "ssid", ssid,
             "802-11-wireless.mode", "ap", "802-11-wireless.band", "bg",
-            "802-11-wireless.channel", "6",
+            "802-11-wireless.channel", str(channel),
             "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.proto", "rsn",
             "wifi-sec.pairwise", "ccmp", "wifi-sec.group", "ccmp",
             "ipv4.method", "shared", "ipv4.addresses", "10.42.0.1/24",
