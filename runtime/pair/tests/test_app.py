@@ -77,7 +77,7 @@ def h(tmp_path, monkeypatch):
     ns.profiles = lambda: json.loads(state.read_text())["profiles"]
     ns.seed = lambda profiles: state.write_text(json.dumps({"profiles": profiles}))
     monkeypatch.setenv("FAKE_NMCLI_SCENARIO", json.dumps(
-        {"scan": [{"ssid": "Home", "signal": 70, "security": "WPA2"}], "ip4": "192.168.1.23/24"}))
+        {"scan": [{"ssid": "Home", "signal": 70, "security": "WPA2", "chan": 6}], "ip4": "192.168.1.23/24"}))
 
     def broker():
         ns.broker_calls += 1
@@ -148,7 +148,7 @@ def test_start_raises_the_ap_then_binds_the_portal_and_shows_the_qr(h):
     assert up[-2:] == ["passwd-file", "/dev/stdin"] and up[:3] == ["connection", "up", "uuid"]
     assert ssid == "Arlowe-Setup-ab12" and len(psk) == 12
     assert not any(psk in arg for a in argvs for arg in a)
-    assert h.app.state["networks"] == [{"ssid": "Home", "signal": 70, "secure": True}]
+    assert h.app.state["networks"] == [{"ssid": "Home", "signal": 70, "secure": True, "chan": 6}]
     assert h.app.state["ap_ssid"] == ssid and h.app.state["status"] == "waiting"
     ((addr, calls_before),) = h.portal_calls
     assert addr == ("127.0.0.1", 0) and calls_before == 5
@@ -244,3 +244,50 @@ def test_stop_releases_the_board_and_drops_the_ap(h):
     assert h.order == ["close"] and h.rc == [0]
     assert h.argvs()[-2][:2] == ["connection", "down"]
     assert [s[0] for s in h.display.shown] == ["waiting"]
+
+
+def scenario(h, monkeypatch, scan):
+    monkeypatch.setenv("FAKE_NMCLI_SCENARIO", json.dumps({"scan": scan, "ip4": "192.168.1.23/24"}))
+
+
+def ap_channel(h):
+    add = next(a for a in h.argvs() if a[:2] == ["connection", "add"])
+    return add[add.index("802-11-wireless.channel") + 1]
+
+
+def test_app_passes_the_scan_derived_channel_to_ap_up(h, monkeypatch):
+    scenario(h, monkeypatch, [
+        {"ssid": "A", "signal": 80, "security": "WPA2", "chan": 1},
+        {"ssid": "B", "signal": 70, "security": "WPA2", "chan": 1},
+        {"ssid": "C", "signal": 60, "security": "WPA2", "chan": 6},
+    ])
+    h.start()
+    waiting(h)
+    assert ap_channel(h) == "11"
+    assert h.app.session.channel == 11
+
+
+def test_app_avoids_the_busy_channel_6(h, monkeypatch):
+    scenario(h, monkeypatch, [
+        {"ssid": s, "signal": g, "security": "WPA2", "chan": c}
+        for s, g, c in (("A", 92, 1), ("B", 67, 6), ("C", 70, 6), ("D", 72, 6),
+                        ("E", 77, 6), ("F", 94, 11), ("G", 95, 11))
+    ])
+    h.start()
+    waiting(h)
+    assert ap_channel(h) == "1"
+
+
+def test_app_falls_back_to_channel_1_when_the_scan_is_empty(h, monkeypatch):
+    scenario(h, monkeypatch, [])
+    h.start()
+    waiting(h)
+    assert ap_channel(h) == "1"
+
+
+def test_app_falls_back_to_channel_1_when_the_scan_fails(h, monkeypatch):
+    scenario(h, monkeypatch, "fail")
+    h.start()
+    waiting(h)
+    assert ap_channel(h) == "1"
+    assert h.app.session.channel == 1

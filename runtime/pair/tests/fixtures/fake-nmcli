@@ -3,7 +3,9 @@
 
 Environment:
   FAKE_NMCLI_SCENARIO  JSON object, inline or a path to a file. Keys:
-                         scan   [{"ssid", "signal", "security"}] for `device wifi list`
+                         scan   [{"ssid", "signal", "security", "chan"}] for `device wifi list`;
+                                chan defaults to 1; "fail" makes the scan exit 1.
+                                Columns printed follow the -f list, as nmcli's do.
                          ap_up  "ok" (default) or "fail"
                          ip4    `-g IP4.ADDRESS device show` output, e.g. "10.0.0.5/24"
                          join   {"correct_psk": S} fails `up` of a non-AP profile
@@ -95,6 +97,10 @@ def main(argv):
     state = load(state_path, {"profiles": []})
     profiles = state["profiles"]
 
+    fields = ["SSID", "SIGNAL", "SECURITY"]
+    if "-f" in argv:
+        fields = argv[argv.index("-f") + 1].split(",")
+
     while argv and argv[0].startswith("-") and argv[0] not in ("-t", "-f"):
         argv = argv[2:] if argv[0] in ("--wait", "-g") else argv[1:]
     if argv[:1] == ["-t"]:
@@ -111,9 +117,12 @@ def main(argv):
     if argv == ["radio", "wifi", "on"]:
         return
     if argv[:3] == ["device", "wifi", "list"]:
+        if scenario.get("scan") == "fail":
+            fail(1, "scan failed.")
         for row in scenario.get("scan", []):
-            esc = [str(row[k]).replace("\\", "\\\\").replace(":", "\\:")
-                   for k in ("ssid", "signal", "security")]
+            row = {"chan": 1, **row}
+            esc = [str(row[k.lower()]).replace("\\", "\\\\").replace(":", "\\:")
+                   for k in fields]
             print(":".join(esc))
         return
     if argv[:2] == ["device", "show"]:

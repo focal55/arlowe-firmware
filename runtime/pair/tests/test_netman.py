@@ -58,26 +58,27 @@ def test_radio_on(nm, fake):
 
 def test_scan(nm, fake):
     fake.scenario(scan=[
-        {"ssid": "Home", "signal": 40, "security": "WPA2"},
-        {"ssid": "", "signal": 90, "security": "WPA2"},
-        {"ssid": "Cafe", "signal": 70, "security": ""},
-        {"ssid": "Home", "signal": 65, "security": "WPA2"},
+        {"ssid": "Home", "signal": 40, "security": "WPA2", "chan": 1},
+        {"ssid": "", "signal": 90, "security": "WPA2", "chan": 1},
+        {"ssid": "Cafe", "signal": 70, "security": "", "chan": 11},
+        {"ssid": "Home", "signal": 65, "security": "WPA2", "chan": 6},
     ])
     assert nm.scan() == [
-        {"ssid": "Cafe", "signal": 70, "secure": False},
-        {"ssid": "Home", "signal": 65, "secure": True},
+        {"ssid": "Cafe", "signal": 70, "secure": False, "chan": 11},
+        {"ssid": "Home", "signal": 65, "secure": True, "chan": 6},
     ]
-    assert fake.argvs()[0] == ["-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi",
+    assert fake.argvs()[0] == ["-t", "-f", "SSID,SIGNAL,SECURITY,CHAN", "device", "wifi",
                                    "list", "--rescan", "yes"]
 
 
 def test_scan_escaped_colon(nm, fake):
-    fake.scenario(scan=[{"ssid": "My:Net\\2", "signal": 50, "security": "WPA1 WPA2"}])
-    assert nm.scan() == [{"ssid": "My:Net\\2", "signal": 50, "secure": True}]
+    fake.scenario(scan=[{"ssid": "My:Net\\2", "signal": 50, "security": "WPA1 WPA2",
+                         "chan": 36}])
+    assert nm.scan() == [{"ssid": "My:Net\\2", "signal": 50, "secure": True, "chan": 36}]
 
 
 def test_ap_up_and_down(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     add, up = fake.argvs()
     assert add[:2] == ["connection", "add"]
     for pair in (["ssid", "Arlowe-Setup-ab12"], ["802-11-wireless.mode", "ap"],
@@ -90,7 +91,7 @@ def test_ap_up_and_down(nm, fake):
     assert [a[:2] for a in fake.argvs()[2:4]] == [["connection", "down"],
                                                   ["connection", "delete"]]
     assert fake.profiles() == []
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     nm.delete_profile(fake.profiles()[0]["uuid"])
     nm.ap_down()
 
@@ -98,12 +99,12 @@ def test_ap_up_and_down(nm, fake):
 def test_ap_up_failure_raises_and_cleans_up(nm, fake):
     fake.scenario(ap_up="fail")
     with pytest.raises(netman.NetManError):
-        nm.ap_up("Arlowe-Setup-ab12", PSK)
+        nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     assert fake.profiles() == []
 
 
 def test_ap_profile_not_saved(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     add = fake.argvs()[0]
     assert add[2:4] == ["save", "no"]
     assert fake.profiles()[0]["save"] == "no"
@@ -117,7 +118,7 @@ def test_no_secret_in_argv(fake):
         return netman._default_runner(argv, input=input)
 
     nm = NetMan(runner=runner, nmcli=str(FAKE))
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     (ap,) = fake.profiles()
     assert ap["name"] == "arlowe-setup" and ap["secret_supplied"] is True
     assert seen == [None, b"802-11-wireless-security.psk:" + PSK.encode() + b"\n"]
@@ -127,7 +128,7 @@ def test_no_secret_in_argv(fake):
 
 
 def test_ap_addressed_by_uuid(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     nm.ap_down()
     add, up, down, delete = fake.argvs()
     u = add[add.index("connection.uuid") + 1]
@@ -138,7 +139,7 @@ def test_ap_addressed_by_uuid(nm, fake):
 
 
 def test_wifi_profiles_and_delete(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     (u,) = nm.wifi_profiles()
     assert fake.argvs()[-1] == ["-t", "-f", "UUID,TYPE", "connection", "show"]
     nm.delete_profile(u)
@@ -159,7 +160,7 @@ def test_no_shell(fake, monkeypatch):
     nm = NetMan(nmcli=str(FAKE))
     nm.radio_on()
     nm.scan()
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     nm.wifi_profiles()
     nm.ap_down()
     assert len(calls) == 7
@@ -170,10 +171,51 @@ def test_no_shell(fake, monkeypatch):
 
 def test_secrets_not_logged(nm, fake, caplog):
     caplog.set_level(logging.DEBUG)
-    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     nm.ap_down()
     fake.scenario(ap_up="fail")
     with pytest.raises(netman.NetManError) as exc:
-        nm.ap_up("Arlowe-Setup-ab12", PSK)
+        nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
     assert caplog.records
     assert PSK not in caplog.text and PSK not in str(exc.value)
+
+
+def test_scan_rows_feed_the_picker(nm, fake):
+    fake.scenario(scan=[
+        {"ssid": "A", "signal": 90, "security": "WPA2", "chan": 1},
+        {"ssid": "B", "signal": 60, "security": "WPA2", "chan": 6},
+        {"ssid": "C", "signal": 55, "security": "WPA2", "chan": 6},
+    ])
+    assert netman.pick_ap_channel(nm.scan()) == 11
+
+
+def test_scan_chan_is_an_int(nm, fake):
+    fake.scenario(scan=[{"ssid": "A", "signal": 90, "security": "WPA2", "chan": 11}])
+    (row,) = nm.scan()
+    assert row["chan"] == 11 and type(row["chan"]) is int
+
+
+def test_scan_requests_the_chan_field(nm, fake):
+    fake.scenario(scan=[])
+    nm.scan()
+    argv = fake.argvs()[0]
+    assert argv[argv.index("-f") + 1].split(",") == ["SSID", "SIGNAL", "SECURITY", "CHAN"]
+
+
+@pytest.mark.parametrize("channel", [1, 6, 11])
+def test_ap_up_uses_the_given_channel(nm, fake, channel):
+    nm.ap_up("Arlowe-Setup-ab12", PSK, channel)
+    add = fake.argvs()[0]
+    i = add.index("802-11-wireless.channel")
+    assert add[i + 1] == str(channel)
+    assert add.count("802-11-wireless.channel") == 1
+
+
+def test_ap_up_has_no_constant_channel_6(nm, fake):
+    nm.ap_up("Arlowe-Setup-ab12", PSK, 11)
+    assert "6" not in fake.argvs()[0]
+
+
+def test_ap_up_requires_a_channel(nm):
+    with pytest.raises(TypeError):
+        nm.ap_up("Arlowe-Setup-ab12", PSK)
