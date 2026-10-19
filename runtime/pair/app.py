@@ -106,7 +106,9 @@ class PairApp:
             self.net.radio_on()
             try:
                 self.state["networks"] = self.net.scan()
-                channel = pick_ap_channel(self.state["networks"])
+                # Occupancy must count every BSSID: the deduplicated list hid
+                # dual-band and hidden networks on ch6, so the picker chose it.
+                channel = pick_ap_channel(self.net.scan_rows())
             except NetManError as exc:
                 log.error("scan failed; the owner can type the network: %s", exc)
                 channel = pick_ap_channel([])
