@@ -291,3 +291,65 @@ def test_app_falls_back_to_channel_1_when_the_scan_fails(h, monkeypatch):
     waiting(h)
     assert ap_channel(h) == "1"
     assert h.app.session.channel == 1
+
+
+# Issue 305 contract: the setup AP channel is picked from every row of the one
+# pre-AP scan (each BSSID, empty-SSID rows included), not from the deduplicated
+# list the portal shows. NetMan.scan() still returns the deduplicated list for
+# state["networks"]; NetMan.scan_rows() exposes the raw rows of that same scan
+# (test_netman.py); pick_ap_channel is unchanged; nmcli scans once per session.
+def row(ssid, signal, chan):
+    return {"ssid": ssid, "signal": signal, "security": "WPA2", "chan": chan}
+
+
+# 2026-10-19 site: ch1 (65, 97), ch6 (64, 69, 80), ch11 (70, 95, 97). net-a and
+# net-b are strongest on 5 GHz, so SSID dedupe drops their 2.4 GHz rows, and the
+# hidden network on ch6 has an empty SSID.
+SITE = [
+    row("net-a", 65, 1), row("net-c", 97, 1),
+    row("", 64, 6), row("net-b", 69, 6), row("net-b", 80, 6),
+    row("net-d", 70, 11), row("net-e", 95, 11), row("net-f", 97, 11),
+    row("net-a", 97, 157), row("net-b", 97, 153),
+]
+
+
+def scans(h):
+    return [a for a in h.argvs() if "device" in a and "wifi" in a and "list" in a]
+
+
+def test_site_scan_with_dual_band_and_hidden_rows_picks_channel_1(h, monkeypatch):
+    scenario(h, monkeypatch, SITE)
+    h.start()
+    waiting(h)
+    assert ap_channel(h) == "1"
+    assert h.app.session.channel == 1
+
+
+def test_hidden_rows_count_toward_channel_occupancy(h, monkeypatch):
+    # Only the empty-SSID row makes channel 6 (2 rows) busier than channel 1 (1 row).
+    scenario(h, monkeypatch, [row("net-a", 50, 1), row("net-b", 10, 6), row("", 10, 6),
+                              row("net-c", 60, 11), row("net-d", 60, 11)])
+    h.start()
+    waiting(h)
+    assert ap_channel(h) == "1"
+
+
+def test_portal_network_list_stays_deduped_without_hidden_networks(h, monkeypatch):
+    scenario(h, monkeypatch, SITE)
+    h.start()
+    waiting(h)
+    assert h.app.state["networks"] == [
+        {"ssid": "net-a", "signal": 97, "secure": True, "chan": 157},
+        {"ssid": "net-b", "signal": 97, "secure": True, "chan": 153},
+        {"ssid": "net-c", "signal": 97, "secure": True, "chan": 1},
+        {"ssid": "net-f", "signal": 97, "secure": True, "chan": 11},
+        {"ssid": "net-e", "signal": 95, "secure": True, "chan": 11},
+        {"ssid": "net-d", "signal": 70, "secure": True, "chan": 11},
+    ]
+
+
+def test_the_session_scans_once(h, monkeypatch):
+    scenario(h, monkeypatch, SITE)
+    h.start()
+    waiting(h)
+    assert len(scans(h)) == 1

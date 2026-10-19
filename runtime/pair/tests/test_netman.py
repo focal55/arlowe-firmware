@@ -219,3 +219,56 @@ def test_ap_up_has_no_constant_channel_6(nm, fake):
 def test_ap_up_requires_a_channel(nm):
     with pytest.raises(TypeError):
         nm.ap_up("Arlowe-Setup-ab12", PSK)
+
+
+# Issue 305 contract: NetMan.scan() keeps returning the deduplicated portal list.
+# NetMan.scan_rows() returns every row the most recent scan() parsed (each BSSID,
+# empty SSIDs included, no dedupe) as {"ssid", "signal", "secure", "chan"}, in
+# nmcli's output order, from that same single nmcli call. It is [] before any
+# scan and again if the latest scan() failed. It never runs nmcli itself.
+SITE = [
+    {"ssid": "net-a", "signal": 65, "security": "WPA2", "chan": 1},
+    {"ssid": "", "signal": 64, "security": "WPA2", "chan": 6},
+    {"ssid": "net-a", "signal": 97, "security": "WPA2", "chan": 157},
+    {"ssid": "net-b", "signal": 80, "security": "", "chan": 6},
+]
+
+
+def test_scan_rows_keeps_every_bssid_and_empty_ssids(nm, fake):
+    fake.scenario(scan=SITE)
+    nm.scan()
+    assert nm.scan_rows() == [
+        {"ssid": "net-a", "signal": 65, "secure": True, "chan": 1},
+        {"ssid": "", "signal": 64, "secure": True, "chan": 6},
+        {"ssid": "net-a", "signal": 97, "secure": True, "chan": 157},
+        {"ssid": "net-b", "signal": 80, "secure": False, "chan": 6},
+    ]
+
+
+def test_scan_rows_come_from_the_one_scan_call(nm, fake):
+    fake.scenario(scan=SITE)
+    nm.scan()
+    nm.scan_rows()
+    assert len(fake.argvs()) == 1
+
+
+def test_scan_still_dedupes_and_drops_empty_ssids(nm, fake):
+    fake.scenario(scan=SITE)
+    assert nm.scan() == [
+        {"ssid": "net-a", "signal": 97, "secure": True, "chan": 157},
+        {"ssid": "net-b", "signal": 80, "secure": False, "chan": 6},
+    ]
+
+
+def test_scan_rows_is_empty_before_any_scan(nm, fake):
+    assert nm.scan_rows() == []
+    assert fake.argvs() == []
+
+
+def test_scan_rows_is_empty_after_a_failed_scan(nm, fake):
+    fake.scenario(scan=SITE)
+    nm.scan()
+    fake.scenario(scan="fail")
+    with pytest.raises(netman.NetManError):
+        nm.scan()
+    assert nm.scan_rows() == []
