@@ -31,6 +31,8 @@ def fake(tmp_path, monkeypatch):
             monkeypatch.setenv("FAKE_NMCLI_SCENARIO", json.dumps(kw))
 
         def argvs(self):
+            if not log.exists():
+                return []
             return [json.loads(line) for line in log.read_text().splitlines()]
 
         def profiles(self):
