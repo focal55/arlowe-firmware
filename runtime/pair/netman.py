@@ -100,6 +100,7 @@ class NetMan:
         self._nmcli = nmcli
         self._ap_uuid = None
         self._join_uuids = {}
+        self._scan_rows = []
 
     def _run(self, action, args, input=None, ok=(0,)):
         res = self._runner([self._nmcli, *args], input=input)
@@ -117,20 +118,30 @@ class NetMan:
 
     def scan(self):
         """Scan once, before the AP is up: brcmfmac cannot rescan in AP mode."""
+        self._scan_rows = []
         out = self._run("scan", ["-t", "-f", "SSID,SIGNAL,SECURITY,CHAN", "device",
                                  "wifi", "list", "--rescan", "yes"])
-        best = {}
+        rows = []
         for line in out.splitlines():
             fields = _split_terse(line)
-            if len(fields) != 4 or not fields[0]:
+            if len(fields) != 4:
                 continue
             ssid, signal, security, chan = fields
-            row = {"ssid": ssid, "signal": int(signal or 0),
-                   "secure": security.strip() not in ("", "--"),
-                   "chan": int(chan or 0)}
+            rows.append({"ssid": ssid, "signal": int(signal or 0),
+                         "secure": security.strip() not in ("", "--"),
+                         "chan": int(chan or 0)})
+        self._scan_rows = rows
+        best = {}
+        for row in rows:
+            ssid = row["ssid"]
+            if not ssid:
+                continue
             if ssid not in best or row["signal"] > best[ssid]["signal"]:
                 best[ssid] = row
         return sorted(best.values(), key=lambda r: (-r["signal"], r["ssid"]))
+
+    def scan_rows(self):
+        return list(self._scan_rows)
 
     def ap_up(self, ssid, psk, channel):
         """Raise the in-memory WPA2 setup AP; the PSK goes to nmcli on stdin."""
