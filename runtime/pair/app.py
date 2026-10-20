@@ -13,7 +13,7 @@ import types
 from pair.display import Screen
 from pair.errors import ErrorKind
 from pair.flow import State
-from pair.netman import NetManError, pick_ap_channel, session_credentials
+from pair.netman import NetManError, session_credentials
 
 log = logging.getLogger("arlowe.pair.app")
 
@@ -106,14 +106,9 @@ class PairApp:
             self.net.radio_on()
             try:
                 self.state["networks"] = self.net.scan()
-                # Occupancy must count every BSSID: the deduplicated list hid
-                # dual-band and hidden networks on ch6, so the picker chose it.
-                channel = pick_ap_channel(self.net.scan_rows())
             except NetManError as exc:
                 log.error("scan failed; the owner can type the network: %s", exc)
-                channel = pick_ap_channel([])
-            self.session.channel = channel
-            self.net.ap_up(ssid, psk, channel)
+            self.net.ap_up(ssid, psk)
         except NetManError as exc:
             log.error("setup network did not come up: %s", exc)
             self.display.show("idle")
