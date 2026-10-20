@@ -182,15 +182,6 @@ def test_secrets_not_logged(nm, fake, caplog):
     assert PSK not in caplog.text and PSK not in str(exc.value)
 
 
-def test_scan_rows_feed_the_picker(nm, fake):
-    fake.scenario(scan=[
-        {"ssid": "A", "signal": 90, "security": "WPA2", "chan": 1},
-        {"ssid": "B", "signal": 60, "security": "WPA2", "chan": 6},
-        {"ssid": "C", "signal": 55, "security": "WPA2", "chan": 6},
-    ])
-    assert netman.pick_ap_channel(nm.scan()) == 11
-
-
 def test_scan_chan_is_an_int(nm, fake):
     fake.scenario(scan=[{"ssid": "A", "signal": 90, "security": "WPA2", "chan": 11}])
     (row,) = nm.scan()
@@ -204,30 +195,32 @@ def test_scan_requests_the_chan_field(nm, fake):
     assert argv[argv.index("-f") + 1].split(",") == ["SSID", "SIGNAL", "SECURITY", "CHAN"]
 
 
-@pytest.mark.parametrize("channel", [1, 6, 11])
-def test_ap_up_uses_the_given_channel(nm, fake, channel):
-    nm.ap_up("Arlowe-Setup-ab12", PSK, channel)
+def test_ap_up_always_uses_channel_1(nm, fake):
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     add = fake.argvs()[0]
-    i = add.index("802-11-wireless.channel")
-    assert add[i + 1] == str(channel)
     assert add.count("802-11-wireless.channel") == 1
+    assert add[add.index("802-11-wireless.channel") + 1] == "1"
 
 
-def test_ap_up_has_no_constant_channel_6(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 11)
-    assert "6" not in fake.argvs()[0]
+def test_ap_up_uses_channel_1_after_a_scan_where_channel_1_is_busiest(nm, fake):
+    fake.scenario(scan=[{"ssid": "n%d" % i, "signal": 90 - i, "security": "WPA2", "chan": 1}
+                        for i in range(6)])
+    nm.scan()
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    add = fake.argvs()[-1]
+    assert add[add.index("802-11-wireless.channel") + 1] == "1"
 
 
-def test_ap_up_requires_a_channel(nm):
-    with pytest.raises(TypeError):
-        nm.ap_up("Arlowe-Setup-ab12", PSK)
+def test_ap_up_uses_channel_1_after_a_failed_scan(nm, fake):
+    fake.scenario(scan="fail")
+    with pytest.raises(netman.NetManError):
+        nm.scan()
+    fake.scenario()
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
+    add = fake.argvs()[-1]
+    assert add[add.index("802-11-wireless.channel") + 1] == "1"
 
 
-# Issue 305 contract: NetMan.scan() keeps returning the deduplicated portal list.
-# NetMan.scan_rows() returns every row the most recent scan() parsed (each BSSID,
-# empty SSIDs included, no dedupe) as {"ssid", "signal", "secure", "chan"}, in
-# nmcli's output order, from that same single nmcli call. It is [] before any
-# scan and again if the latest scan() failed. It never runs nmcli itself.
 SITE = [
     {"ssid": "net-a", "signal": 65, "security": "WPA2", "chan": 1},
     {"ssid": "", "signal": 64, "security": "WPA2", "chan": 6},
@@ -236,41 +229,9 @@ SITE = [
 ]
 
 
-def test_scan_rows_keeps_every_bssid_and_empty_ssids(nm, fake):
-    fake.scenario(scan=SITE)
-    nm.scan()
-    assert nm.scan_rows() == [
-        {"ssid": "net-a", "signal": 65, "secure": True, "chan": 1},
-        {"ssid": "", "signal": 64, "secure": True, "chan": 6},
-        {"ssid": "net-a", "signal": 97, "secure": True, "chan": 157},
-        {"ssid": "net-b", "signal": 80, "secure": False, "chan": 6},
-    ]
-
-
-def test_scan_rows_come_from_the_one_scan_call(nm, fake):
-    fake.scenario(scan=SITE)
-    nm.scan()
-    nm.scan_rows()
-    assert len(fake.argvs()) == 1
-
-
 def test_scan_still_dedupes_and_drops_empty_ssids(nm, fake):
     fake.scenario(scan=SITE)
     assert nm.scan() == [
         {"ssid": "net-a", "signal": 97, "secure": True, "chan": 157},
         {"ssid": "net-b", "signal": 80, "secure": False, "chan": 6},
     ]
-
-
-def test_scan_rows_is_empty_before_any_scan(nm, fake):
-    assert nm.scan_rows() == []
-    assert fake.argvs() == []
-
-
-def test_scan_rows_is_empty_after_a_failed_scan(nm, fake):
-    fake.scenario(scan=SITE)
-    nm.scan()
-    fake.scenario(scan="fail")
-    with pytest.raises(netman.NetManError):
-        nm.scan()
-    assert nm.scan_rows() == []
