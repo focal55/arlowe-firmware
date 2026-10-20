@@ -18,7 +18,7 @@ from pair.errors import ErrorKind, JoinError
 from pair.flow import PairingFlow, State, classify_identity_failure
 from pair.netman import NetManError
 
-SESSION = types.SimpleNamespace(ssid="Arlowe-Setup-ab12", psk="SESSIONPSK23", channel=11)
+SESSION = types.SimpleNamespace(ssid="Arlowe-Setup-ab12", psk="SESSIONPSK23")
 FORM = {"ssid": "Home", "psk": "home-wifi-pw", "display_name": "Kitchen",
         "password": "dash-pass-99", "claim_code": "ABCDE-FGHJK-MNPQR-STVWX"}
 SECRETS = [FORM["psk"], FORM["password"], FORM["claim_code"], SESSION.psk]
@@ -30,8 +30,8 @@ class FakeNet:
         self.calls, self.join_error, self.profiles, self.gate = [], join_error, [], None
         self.joining = threading.Event()
 
-    def ap_up(self, ssid, psk, *channel):
-        self.calls.append(("ap_up", ssid, psk, *channel))
+    def ap_up(self, ssid, psk):
+        self.calls.append(("ap_up", ssid, psk))
         self.profiles.append("ap")
 
     def ap_down(self):
@@ -97,8 +97,6 @@ def assert_recovered(h, kind):
     f = h.flow
     assert f.state is State.ERROR and f.status()["error_kind"] == kind.value
     assert h.net.calls[-1][:3] == ("ap_up", SESSION.ssid, SESSION.psk)
-    # The channel is fixed: recovery passes 1 or nothing, never a per-session value.
-    assert h.net.calls[-1][3:] in ((), (1,))
     assert h.net.wifi_profiles() == ["ap"]
     assert h.shown[-1] == kind
     assert h.paired == []

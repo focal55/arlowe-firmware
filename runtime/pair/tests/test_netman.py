@@ -80,7 +80,7 @@ def test_scan_escaped_colon(nm, fake):
 
 
 def test_ap_up_and_down(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     add, up = fake.argvs()
     assert add[:2] == ["connection", "add"]
     for pair in (["ssid", "Arlowe-Setup-ab12"], ["802-11-wireless.mode", "ap"],
@@ -93,7 +93,7 @@ def test_ap_up_and_down(nm, fake):
     assert [a[:2] for a in fake.argvs()[2:4]] == [["connection", "down"],
                                                   ["connection", "delete"]]
     assert fake.profiles() == []
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     nm.delete_profile(fake.profiles()[0]["uuid"])
     nm.ap_down()
 
@@ -101,12 +101,12 @@ def test_ap_up_and_down(nm, fake):
 def test_ap_up_failure_raises_and_cleans_up(nm, fake):
     fake.scenario(ap_up="fail")
     with pytest.raises(netman.NetManError):
-        nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+        nm.ap_up("Arlowe-Setup-ab12", PSK)
     assert fake.profiles() == []
 
 
 def test_ap_profile_not_saved(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     add = fake.argvs()[0]
     assert add[2:4] == ["save", "no"]
     assert fake.profiles()[0]["save"] == "no"
@@ -120,7 +120,7 @@ def test_no_secret_in_argv(fake):
         return netman._default_runner(argv, input=input)
 
     nm = NetMan(runner=runner, nmcli=str(FAKE))
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     (ap,) = fake.profiles()
     assert ap["name"] == "arlowe-setup" and ap["secret_supplied"] is True
     assert seen == [None, b"802-11-wireless-security.psk:" + PSK.encode() + b"\n"]
@@ -130,7 +130,7 @@ def test_no_secret_in_argv(fake):
 
 
 def test_ap_addressed_by_uuid(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     nm.ap_down()
     add, up, down, delete = fake.argvs()
     u = add[add.index("connection.uuid") + 1]
@@ -141,7 +141,7 @@ def test_ap_addressed_by_uuid(nm, fake):
 
 
 def test_wifi_profiles_and_delete(nm, fake):
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     (u,) = nm.wifi_profiles()
     assert fake.argvs()[-1] == ["-t", "-f", "UUID,TYPE", "connection", "show"]
     nm.delete_profile(u)
@@ -162,7 +162,7 @@ def test_no_shell(fake, monkeypatch):
     nm = NetMan(nmcli=str(FAKE))
     nm.radio_on()
     nm.scan()
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     nm.wifi_profiles()
     nm.ap_down()
     assert len(calls) == 7
@@ -173,11 +173,11 @@ def test_no_shell(fake, monkeypatch):
 
 def test_secrets_not_logged(nm, fake, caplog):
     caplog.set_level(logging.DEBUG)
-    nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+    nm.ap_up("Arlowe-Setup-ab12", PSK)
     nm.ap_down()
     fake.scenario(ap_up="fail")
     with pytest.raises(netman.NetManError) as exc:
-        nm.ap_up("Arlowe-Setup-ab12", PSK, 1)
+        nm.ap_up("Arlowe-Setup-ab12", PSK)
     assert caplog.records
     assert PSK not in caplog.text and PSK not in str(exc.value)
 
