@@ -246,64 +246,37 @@ def test_stop_releases_the_board_and_drops_the_ap(h):
     assert [s[0] for s in h.display.shown] == ["waiting"]
 
 
-def scenario(h, monkeypatch, scan):
-    monkeypatch.setenv("FAKE_NMCLI_SCENARIO", json.dumps({"scan": scan, "ip4": "192.168.1.23/24"}))
+def scenario(h, monkeypatch, scan, **extra):
+    monkeypatch.setenv("FAKE_NMCLI_SCENARIO",
+                       json.dumps({"scan": scan, "ip4": "192.168.1.23/24", **extra}))
 
 
-def ap_channel(h):
-    add = next(a for a in h.argvs() if a[:2] == ["connection", "add"])
-    return add[add.index("802-11-wireless.channel") + 1]
-
-
-def test_app_passes_the_scan_derived_channel_to_ap_up(h, monkeypatch):
-    scenario(h, monkeypatch, [
-        {"ssid": "A", "signal": 80, "security": "WPA2", "chan": 1},
-        {"ssid": "B", "signal": 70, "security": "WPA2", "chan": 1},
-        {"ssid": "C", "signal": 60, "security": "WPA2", "chan": 6},
-    ])
-    h.start()
-    waiting(h)
-    assert ap_channel(h) == "11"
-    assert h.app.session.channel == 11
-
-
-def test_app_avoids_the_busy_channel_6(h, monkeypatch):
-    scenario(h, monkeypatch, [
-        {"ssid": s, "signal": g, "security": "WPA2", "chan": c}
-        for s, g, c in (("A", 92, 1), ("B", 67, 6), ("C", 70, 6), ("D", 72, 6),
-                        ("E", 77, 6), ("F", 94, 11), ("G", 95, 11))
-    ])
-    h.start()
-    waiting(h)
-    assert ap_channel(h) == "1"
-
-
-def test_app_falls_back_to_channel_1_when_the_scan_is_empty(h, monkeypatch):
-    scenario(h, monkeypatch, [])
-    h.start()
-    waiting(h)
-    assert ap_channel(h) == "1"
-
-
-def test_app_falls_back_to_channel_1_when_the_scan_fails(h, monkeypatch):
-    scenario(h, monkeypatch, "fail")
-    h.start()
-    waiting(h)
-    assert ap_channel(h) == "1"
-    assert h.app.session.channel == 1
-
-
-# Issue 305 contract: the setup AP channel is picked from every row of the one
-# pre-AP scan (each BSSID, empty-SSID rows included), not from the deduplicated
-# list the portal shows. NetMan.scan() still returns the deduplicated list for
-# state["networks"]; NetMan.scan_rows() exposes the raw rows of that same scan
-# (test_netman.py); pick_ap_channel is unchanged; nmcli scans once per session.
 def row(ssid, signal, chan):
     return {"ssid": ssid, "signal": signal, "security": "WPA2", "chan": chan}
 
 
-# 2026-10-19 site: ch1 (65, 97), ch6 (64, 69, 80), ch11 (70, 95, 97). net-a and
-# net-b are strongest on 5 GHz, so SSID dedupe drops their 2.4 GHz rows, and the
+def ap_adds(h):
+    return [a for a in h.argvs()
+            if a[:2] == ["connection", "add"] and "802-11-wireless.mode" in a]
+
+
+def channel_args(add):
+    return [add[i + 1] for i, a in enumerate(add) if a == "802-11-wireless.channel"]
+
+
+def assert_every_ap_on_channel_1(h, at_least=1):
+    adds = ap_adds(h)
+    assert len(adds) >= at_least
+    for add in adds:
+        assert channel_args(add) == ["1"]
+
+
+# Issue 309: the setup AP is always on channel 1, whatever the scan shows. A
+# phone joined on channel 1 and on no other channel on this hardware.
+BUSY_CHANNEL_1 = [row("A", 90, 1), row("B", 80, 1), row("C", 70, 1), row("D", 60, 1),
+                  row("E", 30, 6), row("F", 20, 11)]
+
+# 2026-10-19 site: dual-band net-a and net-b dedupe to their 5 GHz rows, and the
 # hidden network on ch6 has an empty SSID.
 SITE = [
     row("net-a", 65, 1), row("net-c", 97, 1),
@@ -317,21 +290,39 @@ def scans(h):
     return [a for a in h.argvs() if "device" in a and "wifi" in a and "list" in a]
 
 
-def test_site_scan_with_dual_band_and_hidden_rows_picks_channel_1(h, monkeypatch):
-    scenario(h, monkeypatch, SITE)
+@pytest.mark.parametrize("name,rows", [
+    ("channel 1 busiest", BUSY_CHANNEL_1),
+    ("channel 1 and 6 busy, 11 quiet", [row("A", 80, 1), row("B", 70, 1), row("C", 60, 6),
+                                        row("D", 50, 6), row("E", 10, 11)]),
+    ("channel 1 and 11 busy, 6 quiet", [row("A", 80, 1), row("B", 70, 1), row("C", 60, 11),
+                                        row("D", 50, 11), row("E", 10, 6)]),
+    ("site scan", SITE),
+    ("empty scan", []),
+])
+def test_ap_comes_up_on_channel_1(h, monkeypatch, name, rows):
+    scenario(h, monkeypatch, rows)
     h.start()
     waiting(h)
-    assert ap_channel(h) == "1"
-    assert h.app.session.channel == 1
+    assert_every_ap_on_channel_1(h)
 
 
-def test_hidden_rows_count_toward_channel_occupancy(h, monkeypatch):
-    # Only the empty-SSID row makes channel 6 (2 rows) busier than channel 1 (1 row).
-    scenario(h, monkeypatch, [row("net-a", 50, 1), row("net-b", 10, 6), row("", 10, 6),
-                              row("net-c", 60, 11), row("net-d", 60, 11)])
+def test_ap_comes_up_on_channel_1_when_the_scan_fails(h, monkeypatch):
+    scenario(h, monkeypatch, "fail")
     h.start()
     waiting(h)
-    assert ap_channel(h) == "1"
+    assert_every_ap_on_channel_1(h)
+
+
+def test_ap_is_recovered_on_channel_1_after_a_failed_join(h, monkeypatch):
+    scenario(h, monkeypatch, BUSY_CHANNEL_1)
+    h.start()
+    waiting(h)
+    scenario(h, monkeypatch, BUSY_CHANNEL_1,
+             join={"exit": 4, "stderr": "Error: Connection activation failed: (7) "
+                                        "Secrets were required, but not provided."})
+    h.on_submit(dict(FORM))
+    wait_for(lambda: len(ap_adds(h)) >= 2)
+    assert_every_ap_on_channel_1(h, at_least=2)
 
 
 def test_portal_network_list_stays_deduped_without_hidden_networks(h, monkeypatch):

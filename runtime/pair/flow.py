@@ -223,8 +223,7 @@ class PairingFlow:
         except NetManError as exc:
             log.error("deleting saved profiles failed: %s", exc)
         try:
-            self._net.ap_up(self._session.ssid, self._session.psk,
-                             self._session.channel)
+            self._net.ap_up(self._session.ssid, self._session.psk)
         except NetManError as exc:
             log.error("restoring the setup AP failed: %s", exc)
         self._set_error(kind)
