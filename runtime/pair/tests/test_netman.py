@@ -195,9 +195,13 @@ def test_scan_requests_the_chan_field(nm, fake):
     assert argv[argv.index("-f") + 1].split(",") == ["SSID", "SIGNAL", "SECURITY", "CHAN"]
 
 
+def ap_add(fake):
+    return [a for a in fake.argvs() if a[:2] == ["connection", "add"]][-1]
+
+
 def test_ap_up_always_uses_channel_1(nm, fake):
     nm.ap_up("Arlowe-Setup-ab12", PSK)
-    add = fake.argvs()[0]
+    add = ap_add(fake)
     assert add.count("802-11-wireless.channel") == 1
     assert add[add.index("802-11-wireless.channel") + 1] == "1"
 
@@ -207,7 +211,7 @@ def test_ap_up_uses_channel_1_after_a_scan_where_channel_1_is_busiest(nm, fake):
                         for i in range(6)])
     nm.scan()
     nm.ap_up("Arlowe-Setup-ab12", PSK)
-    add = fake.argvs()[-1]
+    add = ap_add(fake)
     assert add[add.index("802-11-wireless.channel") + 1] == "1"
 
 
@@ -217,7 +221,7 @@ def test_ap_up_uses_channel_1_after_a_failed_scan(nm, fake):
         nm.scan()
     fake.scenario()
     nm.ap_up("Arlowe-Setup-ab12", PSK)
-    add = fake.argvs()[-1]
+    add = ap_add(fake)
     assert add[add.index("802-11-wireless.channel") + 1] == "1"
 
 
